@@ -26,10 +26,9 @@ namespace AstroPM.NINA.Plugin.Services
             };
             _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("AstroPM-NINA/1.0");
             _httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-            _httpClient.DefaultRequestHeaders.Add("X-ASG-License", "ASG-2026-SYNC-a1b2c3d4");
         }
 
-        private const string ApiUrl = "https://asgastronomy.com/api/project_sync.php";
+        private const string ApiUrl = "https://astro-pm.com/api/project_sync.php";
 
         /// <summary>
         /// List all targets matching the sync token, optionally filtered by status.
