@@ -1,0 +1,37 @@
+# Build output
+bin/
+obj/
+*.user
+*.suo
+
+# Visual Studio
+.vs/
+*.vscode/
+
+# Claude Code local config (contains internal notes, deploy paths, etc.)
+.claude/
+
+# NuGet
+*.nupkg
+.nuget/
+packages/
+
+# Local secrets / credentials — NEVER commit
+nuget.config
+*.pfx
+*.snk
+appsettings.Local.json
+
+# Plugin debug scratch files
+plugin_init.txt
+reapply_debug.txt
+visual_tree_dump.txt
+*_debug.txt
+
+# Release packaging
+release/
+*.zip
+
+# OS
+Thumbs.db
+.DS_Store

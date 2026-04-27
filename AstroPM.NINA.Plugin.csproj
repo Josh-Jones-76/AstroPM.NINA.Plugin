@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>AstroPM.NINA.Plugin</AssemblyName>
+    <RootNamespace>AstroPM.NINA.Plugin</RootNamespace>
+    <Version>1.0.0.1</Version>
+    <Authors>Astro PM</Authors>
+    <Description>Astro PM Plugin for N.I.N.A. — Syncs imaging targets from Astro PM to NINA's Framing Assistant.</Description>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Platforms>x64</Platforms>
+    <Nullable>disable</Nullable>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <ProduceReferenceAssembly>True</ProduceReferenceAssembly>
+    <Copyright>Copyright © Astro PM 2026</Copyright>
+    <RepositoryUrl>https://github.com/Josh-Jones-76/AstroPM.NINA.Plugin</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <!-- Debug: drop directly into the local NINA plugins folder for fast iteration -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <OutputPath>$(LOCALAPPDATA)\NINA\Plugins\3.0.0\AstroPM.NINA.Plugin\</OutputPath>
+  </PropertyGroup>
+
+  <!-- Release: clean output for packaging -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <OutputPath>bin\Release\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NINA.Plugin" Version="3.0.0.9001">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ComponentModel.Composition" Version="8.0.0">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\AstroPM-Logo-Icon-500x500.png" />
+    <Resource Include="Assets\AstroPM-Logo-horizontal-400x176.png" />
+    <Resource Include="Assets\AstroPM SkyView.png" />
+    <Resource Include="Assets\AstroPM Sampling.png" />
+    <Resource Include="Assets\AstroPM ImageAnalysis.png" />
+    <Resource Include="Assets\AstroPM Projects.png" />
+    <Resource Include="Assets\AstroPM  Collimation.png" />
+    <Resource Include="Assets\AstroPM Tilt.png" />
+    <Resource Include="Assets\AstroPM Reflections.png" />
+    <Resource Include="Assets\AstroPM SubInspector.png" />
+  </ItemGroup>
+
+</Project>

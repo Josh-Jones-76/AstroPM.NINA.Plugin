@@ -1,0 +1,578 @@
+<UserControl x:Class="AstroPM.NINA.Plugin.Views.AstroPMOptionsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             Background="{DynamicResource BackgroundBrush}"
+             Foreground="{DynamicResource PrimaryBrush}">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <Style x:Key="SyncBtn" TargetType="Button" BasedOn="{StaticResource StandardButton}">
+            <Setter Property="MinWidth" Value="180" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="2">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Margin="24,10" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SyncBtnSmall" TargetType="Button" BasedOn="{StaticResource StandardButton}">
+            <Setter Property="MinWidth" Value="70" />
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="2">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Margin="12,6" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16">
+
+            <!-- ════════════════════════════════════════════════ -->
+            <!--  About Astro PM (Tabbed)                        -->
+            <!-- ════════════════════════════════════════════════ -->
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="4" Padding="0" Margin="0,0,0,12">
+                <StackPanel>
+                    <!-- Header with logo -->
+                    <StackPanel Orientation="Horizontal" Margin="16,14,16,0">
+                        <Image Source="/AstroPM.NINA.Plugin;component/Assets/AstroPM-Logo-Icon-500x500.png"
+                               Width="36" Height="36" Margin="0,0,10,0"
+                               VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="HighQuality" />
+                        <TextBlock Text="Astro PM" FontSize="20" FontWeight="Bold"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource PrimaryBrush}" />
+                    </StackPanel>
+
+                    <TabControl Margin="8,10,8,8"
+                                Background="Transparent"
+                                BorderThickness="0">
+
+                        <!-- ── Introduction Tab ── -->
+                        <TabItem Header="Introduction">
+                            <Border Background="{DynamicResource BackgroundBrush}"
+                                    CornerRadius="0,0,3,3" Padding="16,14">
+                                <StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="0,0,0,10"
+                                               Text="Astro PM is a project management tool for astrophotography. Plan your imaging sessions by building projects with target coordinates, equipment profiles, mosaic layouts, and exposure plans — all in one place." />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Text="The Astro PM plugin for N.I.N.A. bridges the gap between planning and capture. Push your Astro PM projects to the cloud, then pull them directly into NINA's Framing Assistant — complete with RA/Dec, rotation, sensor configuration, and mosaic panel layouts. No manual data entry, no copy-paste errors. Your targets arrive in NINA exactly as you planned them." />
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+
+                        <!-- ── Projects Tab ── -->
+                        <TabItem Header="Projects">
+                            <Border Background="{DynamicResource BackgroundBrush}"
+                                    CornerRadius="0,0,3,3" Padding="16,14">
+                                <StackPanel>
+                                    <TextBlock Text="AstroPM Projects" FontSize="15" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,8" />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="0,0,0,6"
+                                               Text="Build complete imaging projects — single-panel or multi-panel mosaics — with all the details planned before your session begins. Astro PM calculates optimal imaging nights based on weather conditions, moon phase, and target availability so you can make the most of every clear sky." />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="0,0,0,6"
+                                               Text="Create detailed exposure plans for each project and inspect every captured frame using the built-in SubInspector tool. Review subs individually, flag keepers, and track your progress toward completion — all from within Astro PM." />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="0,0,0,12"
+                                               FontWeight="SemiBold"
+                                               Text="Sync imagery from remote observatory locations directly to your local hard disk for inspection and processing — no manual file transfers, no USB drives, no waiting. Your subs arrive automatically, ready to review." />
+                                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                            CornerRadius="4" Margin="0,0,0,6" HorizontalAlignment="Left">
+                                        <Image Source="/AstroPM.NINA.Plugin;component/Assets/AstroPM Projects.png"
+                                               MaxHeight="360" Stretch="Uniform"
+                                               RenderOptions.BitmapScalingMode="HighQuality" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+
+                        <!-- ── SkyView Tab ── -->
+                        <TabItem Header="SkyView">
+                            <Border Background="{DynamicResource BackgroundBrush}"
+                                    CornerRadius="0,0,3,3" Padding="16,14">
+                                <StackPanel>
+                                    <TextBlock Text="SkyView" FontSize="15" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,8" />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="0,0,0,12"
+                                               Text="SkyView gives you a real-time, interactive view of the night sky from any of your observatory locations. Select your equipment profile and custom horizon to see exactly what's visible tonight. Plan your imaging projects around target altitude, transit times, and seasonal availability — so you spend less time guessing and more time capturing." />
+                                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                            CornerRadius="4" Margin="0,0,0,6" HorizontalAlignment="Left">
+                                        <Image Source="/AstroPM.NINA.Plugin;component/Assets/AstroPM SkyView.png"
+                                               MaxHeight="360" Stretch="Uniform"
+                                               RenderOptions.BitmapScalingMode="HighQuality" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+
+                        <!-- ── Image Analysis Tab ── -->
+                        <TabItem Header="Image Analysis">
+                            <Border Background="{DynamicResource BackgroundBrush}"
+                                    CornerRadius="0,0,3,3" Padding="16,14">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="500">
+                                    <StackPanel>
+                                        <TextBlock Text="Image Analysis" FontSize="15" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,8" />
+                                        <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="0,0,0,14"
+                                                   Text="Extensive image analysis including 3D PSF modeling, eccentricity mapping, collimation assessment, vignetting detection, tilt analysis, and more. Model your point spread function and review scope performance over time — including first-of-its-kind 3D PSF tracking that lets you visualize optical quality across your entire sensor." />
+
+                                        <!-- 3D PSF / Eccentricity -->
+                                        <TextBlock Text="3D PSF &amp; Eccentricity" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4" />
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                                   Margin="0,0,0,8"
+                                                   Text="Visualize star shapes across your entire sensor with interactive 3D PSF modeling. Track eccentricity patterns to identify optical issues before they ruin a session." />
+                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                CornerRadius="4" Margin="0,0,0,16" HorizontalAlignment="Left">
+                                            <Image Source="/AstroPM.NINA.Plugin;component/Assets/AstroPM ImageAnalysis.png"
+                                                   MaxHeight="320" Stretch="Uniform"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Border>
+
+                                        <!-- Collimation -->
+                                        <TextBlock Text="Collimation" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4" />
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                                   Margin="0,0,0,8"
+                                                   Text="Assess your optical alignment with detailed collimation maps. Quickly identify if your optics need adjustment by reviewing star elongation direction and magnitude across the field." />
+                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                CornerRadius="4" Margin="0,0,0,16" HorizontalAlignment="Left">
+                                            <Image Source="/AstroPM.NINA.Plugin;component/Assets/AstroPM  Collimation.png"
+                                                   MaxHeight="320" Stretch="Uniform"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Border>
+
+                                        <!-- Tilt -->
+                                        <TextBlock Text="Tilt Analysis" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4" />
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                                   Margin="0,0,0,8"
+                                                   Text="Detect sensor or optical tilt by analyzing focus variation across the frame. Pinpoint which corner is out of plane and by how much — essential for dialing in flatteners and reducers." />
+                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                CornerRadius="4" Margin="0,0,0,16" HorizontalAlignment="Left">
+                                            <Image Source="/AstroPM.NINA.Plugin;component/Assets/AstroPM Tilt.png"
+                                                   MaxHeight="320" Stretch="Uniform"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Border>
+
+                                        <!-- Dust & Reflections -->
+                                        <TextBlock Text="Dust &amp; Reflections" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4" />
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                                   Margin="0,0,0,8"
+                                                   Text="Detect dust motes and internal reflections that degrade your flat calibration. Map their location and intensity across the sensor so you know exactly when it's time to clean your optics or adjust your imaging train." />
+                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                CornerRadius="4" Margin="0,0,0,6" HorizontalAlignment="Left">
+                                            <Image Source="/AstroPM.NINA.Plugin;component/Assets/AstroPM Reflections.png"
+                                                   MaxHeight="320" Stretch="Uniform"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Border>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </TabItem>
+
+                        <!-- ── Equipment Tab ── -->
+                        <!-- ── SubInspector Tab ── -->
+                        <TabItem Header="SubInspector">
+                            <Border Background="{DynamicResource BackgroundBrush}"
+                                    CornerRadius="0,0,3,3" Padding="16,14">
+                                <StackPanel>
+                                    <TextBlock Text="SubInspector" FontSize="15" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,8" />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="0,0,0,6"
+                                               Text="Analyze every aspect of your captured subs in one place. Load an entire folder and instantly scan through your images in a grid view, or blink frames using the built-in player to spot tracking errors, clouds, and other artifacts at a glance." />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="0,0,0,12"
+                                               Text="Sort your subs by FWHM, HFR, star count, eccentricity, and more — then reject bad frames to a separate folder with a single click. No more manually sifting through hundreds of files. SubInspector gives you the confidence that only your best data makes it into the final stack." />
+                                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                            CornerRadius="4" Margin="0,0,0,6" HorizontalAlignment="Left">
+                                        <Image Source="/AstroPM.NINA.Plugin;component/Assets/AstroPM SubInspector.png"
+                                               MaxHeight="360" Stretch="Uniform"
+                                               RenderOptions.BitmapScalingMode="HighQuality" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+
+                        <!-- ── Equipment Tab ── -->
+                        <TabItem Header="Equipment">
+                            <Border Background="{DynamicResource BackgroundBrush}"
+                                    CornerRadius="0,0,3,3" Padding="16,14">
+                                <StackPanel>
+                                    <TextBlock Text="Equipment Profiles" FontSize="15" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,8" />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="0,0,0,12"
+                                               Text="Build detailed equipment profiles for every telescope and camera in your arsenal. Astro PM provides extensive analysis tools including sampling resolution calculators, exposure calculators, focal length calculators, and more — giving you the data you need to optimize your setup before you ever step outside." />
+                                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                            CornerRadius="4" Margin="0,0,0,6" HorizontalAlignment="Left">
+                                        <Image Source="/AstroPM.NINA.Plugin;component/Assets/AstroPM Sampling.png"
+                                               MaxHeight="360" Stretch="Uniform"
+                                               RenderOptions.BitmapScalingMode="HighQuality" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+
+                    </TabControl>
+
+                    <!-- Where to get AstroPM -->
+                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+                            Margin="12,0,12,10" Padding="0,10,0,0">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <TextBlock Text="Visit" FontSize="12"
+                                       Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                       VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <Button Content="www.astro-pm.com" Cursor="Hand"
+                                    FontSize="12" MinHeight="34"
+                                    Click="OpenAstroPMWebsite">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource StandardButton}">
+                                        <Setter Property="Foreground" Value="#60A5FA" />
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                            CornerRadius="2">
+                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                          Margin="16,8" />
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <TextBlock Text="to learn more and get started with Astro PM" FontSize="12"
+                                       Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                       VerticalAlignment="Center" Margin="6,0,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- ════════════════════════════════════════════════ -->
+            <!--  Connection                                     -->
+            <!-- ════════════════════════════════════════════════ -->
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Connection" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"
+                               Foreground="{DynamicResource PrimaryBrush}" />
+                    <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7" Margin="0,0,0,4"
+                               Text="To connect this plugin to your Astro PM account, you'll need a sync token. Here's how to get one:" />
+                    <StackPanel Margin="12,0,0,4">
+                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7">
+                            <Run Text="1. Download the Astro PM desktop app from " /><Hyperlink NavigateUri="https://www.astro-pm.com" RequestNavigate="Hyperlink_RequestNavigate" Foreground="#60A5FA">www.astro-pm.com</Hyperlink>
+                        </TextBlock>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                   Text="2. Create an account and set up your equipment profiles and observatory locations" />
+                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                   Text="3. Build your imaging projects with targets, mosaic layouts, and exposure plans" />
+                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                   Text="4. Go to Settings > NINA Sync to generate your sync token" />
+                    </StackPanel>
+                    <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7" Margin="0,0,0,6"
+                               Text="Paste your token below and click Save &amp; Connect. Your projects will sync automatically to this plugin." />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="Don't have Astro PM yet?" FontSize="11"
+                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                   VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <Button Content="Get it at www.astro-pm.com" Cursor="Hand"
+                                FontSize="11" MinHeight="34"
+                                Click="OpenAstroPMWebsite">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource StandardButton}">
+                                    <Setter Property="Foreground" Value="#60A5FA" />
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                                        CornerRadius="2">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                      Margin="16,8" />
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Token Input -->
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="0.5*" />
+                            <ColumnDefinition Width="0.5*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Sync Token" FontSize="13"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource PrimaryBrush}" />
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding SyncToken, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 Background="{DynamicResource BackgroundBrush}"
+                                 Foreground="{DynamicResource PrimaryBrush}"
+                                 BorderBrush="{DynamicResource BorderBrush}"
+                                 Padding="8,6" FontSize="13" FontFamily="Consolas" />
+                    </Grid>
+
+                    <!-- Buttons + Status -->
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="Save &amp; Connect" Style="{StaticResource SyncBtn}"
+                                Command="{Binding SaveAndConnectCommand}" />
+                        <Button Content="Refresh" Style="{StaticResource SyncBtn}"
+                                Command="{Binding RefreshCommand}" />
+
+                        <!-- Status indicator -->
+                        <Ellipse Width="10" Height="10" Margin="4,0,6,0" VerticalAlignment="Center">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="{DynamicResource SecondaryBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                            <Setter Property="Fill" Value="#22C55E" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+
+                        <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
+                                   FontSize="11" Foreground="{Binding StatusColor}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ════════════════════════════════════════════════ -->
+            <!--  Targets List                                   -->
+            <!-- ════════════════════════════════════════════════ -->
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center">
+                        <TextBlock Text="Synced Targets" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryBrush}" />
+                        <TextBlock Text="{Binding Targets.Count, StringFormat=' ({0})'}"
+                                   FontSize="14" Foreground="{DynamicResource PrimaryBrush}"
+                                   VerticalAlignment="Center" Opacity="0.5" />
+                    </StackPanel>
+
+                    <!-- Filter Bar -->
+                    <Grid Margin="0,0,0,8">
+                        <WrapPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                <TextBlock Text="Status" FontSize="11" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
+                                <ComboBox Width="130" FontSize="11"
+                                          ItemsSource="{Binding AvailableStatuses}"
+                                          SelectedItem="{Binding StatusFilter, Mode=TwoWay}"
+                                          IsEditable="False" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                <TextBlock Text="Location" FontSize="11" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
+                                <ComboBox Width="210" FontSize="11"
+                                          ItemsSource="{Binding AvailableLocations}"
+                                          SelectedItem="{Binding LocationFilter, Mode=TwoWay}"
+                                          IsEditable="False" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                <TextBlock Text="Scope" FontSize="11" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
+                                <ComboBox Width="160" FontSize="11"
+                                          ItemsSource="{Binding AvailableTelescopes}"
+                                          SelectedItem="{Binding TelescopeFilter, Mode=TwoWay}"
+                                          IsEditable="False" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                                <TextBlock Text="Camera" FontSize="11" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
+                                <ComboBox Width="160" FontSize="11"
+                                          ItemsSource="{Binding AvailableCameras}"
+                                          SelectedItem="{Binding CameraFilter, Mode=TwoWay}"
+                                          IsEditable="False" />
+                            </StackPanel>
+                            <Button Content="Clear" Style="{StaticResource SyncBtnSmall}"
+                                    Command="{Binding ClearFiltersCommand}" Margin="0,0,6,4" />
+                        </WrapPanel>
+                        <Button Content="Refresh" Style="{StaticResource SyncBtnSmall}"
+                                Command="{Binding RefreshCommand}"
+                                HorizontalAlignment="Right" VerticalAlignment="Top" />
+                    </Grid>
+
+                    <DataGrid ItemsSource="{Binding Targets}"
+                              SelectedItem="{Binding SelectedTarget, Mode=TwoWay}"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="True"
+                              SelectionMode="Single"
+                              HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal"
+                              BorderThickness="1"
+                              BorderBrush="{DynamicResource BorderBrush}"
+                              Background="{DynamicResource BackgroundBrush}"
+                              Foreground="{DynamicResource PrimaryBrush}"
+                              RowBackground="{DynamicResource BackgroundBrush}"
+                              AlternatingRowBackground="{DynamicResource SecondaryBackgroundBrush}"
+                              CanUserReorderColumns="False"
+                              CanUserResizeRows="False"
+                              MinHeight="120"
+                              MaxHeight="400"
+                              FontSize="12">
+
+                        <DataGrid.ColumnHeaderStyle>
+                            <Style TargetType="DataGridColumnHeader">
+                                <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+                                <Setter Property="Padding" Value="8,6" />
+                                <Setter Property="FontSize" Value="11" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                                <Setter Property="BorderThickness" Value="0,0,1,1" />
+                            </Style>
+                        </DataGrid.ColumnHeaderStyle>
+
+                        <DataGrid.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="Padding" Value="8,5" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="DataGridCell">
+                                            <Border Padding="{TemplateBinding Padding}"
+                                                    Background="{TemplateBinding Background}">
+                                                <ContentPresenter VerticalAlignment="Center" />
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}" />
+                                        <Setter Property="Foreground" Value="{DynamicResource ButtonForegroundBrush}" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.CellStyle>
+
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Target" Binding="{Binding TargetName}" Width="2*" />
+                            <DataGridTextColumn Header="RA" Binding="{Binding RaDisplay}" Width="1.2*" />
+                            <DataGridTextColumn Header="Dec" Binding="{Binding DecDisplay}" Width="1.2*" />
+                            <DataGridTextColumn Header="Rot" Binding="{Binding RotationDeg, StringFormat={}{0:F1}}" Width="0.6*" />
+                            <DataGridTextColumn Header="Panels" Binding="{Binding PanelGridDisplay}" Width="0.6*" />
+                            <DataGridTextColumn Header="FL (mm)" Binding="{Binding TelescopeFocalLengthMm, StringFormat={}{0:F0}}" Width="0.7*" />
+                            <DataGridTextColumn Header="Px W" Binding="{Binding CameraPixelWidth}" Width="0.5*" />
+                            <DataGridTextColumn Header="Px H" Binding="{Binding CameraPixelHeight}" Width="0.5*" />
+                            <DataGridTextColumn Header="Px Size" Binding="{Binding CameraPixelSizeUm, StringFormat={}{0:F2}}" Width="0.6*" />
+                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="0.7*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- Load to Framing -->
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Button Grid.Column="0" Content="Load to Framing Assistant"
+                                Style="{StaticResource SyncBtn}"
+                                Command="{Binding LoadToFramingCommand}" />
+
+                        <TextBlock Grid.Column="1" Text="{Binding LoadResultMessage}"
+                                   VerticalAlignment="Center" FontSize="11"
+                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                   TextWrapping="Wrap" />
+                    </Grid>
+
+                    <!-- Selected Target Details -->
+                    <Border Background="{DynamicResource BackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                            CornerRadius="3" Padding="10,8" Margin="0,8,0,0"
+                            Visibility="{Binding SelectedTarget, Converter={StaticResource BoolToVis}}">
+                        <StackPanel>
+                            <WrapPanel>
+                                <TextBlock Text="RA:" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,4,2" />
+                                <TextBlock Text="{Binding SelectedTarget.RaDisplay}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,14,2" />
+                                <TextBlock Text="Dec:" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,4,2" />
+                                <TextBlock Text="{Binding SelectedTarget.DecDisplay}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,14,2" />
+                                <TextBlock Text="Rot:" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,4,2" />
+                                <TextBlock Text="{Binding SelectedTarget.RotationDeg, StringFormat={}{0:F1}}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,14,2" />
+                                <TextBlock Text="FL:" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,4,2" />
+                                <TextBlock Text="{Binding SelectedTarget.TelescopeFocalLengthMm, StringFormat={}{0:F0} mm}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,14,2" />
+                                <TextBlock Text="Sensor:" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,4,2" />
+                                <TextBlock Text="{Binding SelectedTarget.SensorDisplay}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,14,2" />
+                                <TextBlock Text="Px Size:" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,4,2" />
+                                <TextBlock Text="{Binding SelectedTarget.CameraPixelSizeUm, StringFormat={}{0:F2} \u00B5m}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,2" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
