@@ -5,7 +5,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>AstroPM.NINA.Plugin</AssemblyName>
     <RootNamespace>AstroPM.NINA.Plugin</RootNamespace>
-    <Version>1.0.0.2</Version>
+    <Version>1.0.0.4</Version>
     <Authors>Astro PM</Authors>
     <Description>Astro PM Plugin for N.I.N.A. — Syncs imaging targets from Astro PM to NINA's Framing Assistant.</Description>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>

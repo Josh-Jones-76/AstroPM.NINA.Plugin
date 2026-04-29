@@ -284,30 +284,10 @@ namespace AstroPM.NINA.Plugin
                 }
                 catch { }
 
-                // RA
-                double totalRaH = target.RaHours;
-                int raH = (int)totalRaH;
-                double raRemain = (totalRaH - raH) * 60.0;
-                int raM = (int)raRemain;
-                double raS = (raRemain - raM) * 60.0;
-
-                vmType.GetProperty("RAHours")?.SetValue(framingVM, raH);
-                vmType.GetProperty("RAMinutes")?.SetValue(framingVM, raM);
-                vmType.GetProperty("RASeconds")?.SetValue(framingVM, raS);
-
-                // Dec
-                double totalDec = target.DecDegrees;
-                bool negative = totalDec < 0;
-                totalDec = Math.Abs(totalDec);
-                int decD = (int)totalDec;
-                double decRemain = (totalDec - decD) * 60.0;
-                int decM = (int)decRemain;
-                double decS = (decRemain - decM) * 60.0;
-
-                vmType.GetProperty("NegativeDec")?.SetValue(framingVM, negative);
-                vmType.GetProperty("DecDegrees")?.SetValue(framingVM, decD);
-                vmType.GetProperty("DecMinutes")?.SetValue(framingVM, decM);
-                vmType.GetProperty("DecSeconds")?.SetValue(framingVM, decS);
+                // RA/Dec — bypass NINA's H/M/S component setters (they cross-reference
+                // live Coordinates values, so leftover fractions from a prior target
+                // pollute the math). Replace DSO.Coordinates with a fresh instance.
+                SetCoordinatesDirect(framingVM, target.RaHours, target.DecDegrees);
 
                 // Camera
                 if (target.CameraPixelWidth.HasValue)
@@ -502,6 +482,57 @@ namespace AstroPM.NINA.Plugin
                 parent = VisualTreeHelper.GetParent(parent) as FrameworkElement;
             }
             return null;
+        }
+
+        // Replaces DSO.Coordinates on the FramingAssistantVM with a freshly constructed
+        // NINA Coordinates(raHours, decDegrees, Epoch.J2000, RAType.Hours), then invokes
+        // the private RaiseCoordinatesChanged() so the VM fires PropertyChanged for all
+        // H/M/S component getters. Avoids the cross-reference pollution in NINA's
+        // DecDegrees/DecMinutes/DecSeconds setters.
+        internal static bool SetCoordinatesDirect(object framingVM, double raHours, double decDegrees)
+        {
+            if (framingVM == null) return false;
+            try
+            {
+                var vmType = framingVM.GetType();
+                var dso = vmType.GetProperty("DSO")?.GetValue(framingVM);
+                if (dso == null) return false;
+
+                var coordsProp = dso.GetType().GetProperty("Coordinates");
+                var currentCoords = coordsProp?.GetValue(dso);
+                if (currentCoords == null) return false;
+
+                var coordsType = currentCoords.GetType();
+                var coordsAssembly = coordsType.Assembly;
+
+                Type epochType = null, raTypeType = null;
+                foreach (var t in coordsAssembly.GetTypes())
+                {
+                    if (!t.IsEnum) continue;
+                    if (epochType == null && t.Name == "Epoch") epochType = t;
+                    else if (raTypeType == null && t.Name == "RAType") raTypeType = t;
+                    if (epochType != null && raTypeType != null) break;
+                }
+                if (epochType == null || raTypeType == null) return false;
+
+                var j2000 = Enum.Parse(epochType, "J2000");
+                var hoursRA = Enum.Parse(raTypeType, "Hours");
+
+                var ctor = coordsType.GetConstructor(new[] { typeof(double), typeof(double), epochType, raTypeType });
+                if (ctor == null) return false;
+
+                var newCoords = ctor.Invoke(new[] { raHours, decDegrees, j2000, hoursRA });
+                coordsProp.SetValue(dso, newCoords);
+
+                var raise = vmType.GetMethod("RaiseCoordinatesChanged",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Public);
+                raise?.Invoke(framingVM, null);
+
+                return true;
+            }
+            catch { return false; }
         }
 
         private object FindFramingAssistantVM()

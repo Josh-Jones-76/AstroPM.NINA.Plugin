@@ -434,30 +434,10 @@ namespace AstroPM.NINA.Plugin.ViewModels
             }
             catch { }
 
-            // RA: split decimal hours into Int32 hours, Int32 minutes, Double seconds
-            double totalRaH = target.RaHours;
-            int raH = (int)totalRaH;
-            double raRemain = (totalRaH - raH) * 60.0;
-            int raM = (int)raRemain;
-            double raS = (raRemain - raM) * 60.0;
-
-            vmType.GetProperty("RAHours")?.SetValue(framingVM, raH);
-            vmType.GetProperty("RAMinutes")?.SetValue(framingVM, raM);
-            vmType.GetProperty("RASeconds")?.SetValue(framingVM, raS);
-
-            // Dec: split decimal degrees into Int32 degrees, Int32 minutes, Double seconds
-            double totalDec = target.DecDegrees;
-            bool negative = totalDec < 0;
-            totalDec = Math.Abs(totalDec);
-            int decD = (int)totalDec;
-            double decRemain = (totalDec - decD) * 60.0;
-            int decM = (int)decRemain;
-            double decS = (decRemain - decM) * 60.0;
-
-            vmType.GetProperty("NegativeDec")?.SetValue(framingVM, negative);
-            vmType.GetProperty("DecDegrees")?.SetValue(framingVM, decD);
-            vmType.GetProperty("DecMinutes")?.SetValue(framingVM, decM);
-            vmType.GetProperty("DecSeconds")?.SetValue(framingVM, decS);
+            // RA/Dec — bypass NINA's H/M/S component setters (they cross-reference
+            // live Coordinates values, so leftover fractions from a prior target
+            // pollute the math). Replace DSO.Coordinates with a fresh instance.
+            FramingInjector.SetCoordinatesDirect(framingVM, target.RaHours, target.DecDegrees);
 
             // Camera parameters
             if (target.CameraPixelWidth.HasValue)

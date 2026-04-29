@@ -15,16 +15,20 @@ namespace AstroPM.NINA.Plugin.Services
 
         static AstroPMApiService()
         {
+            // No cookies (the API doesn't use them) — keeps the handler minimal.
             var handler = new HttpClientHandler
             {
-                UseCookies = true,
-                CookieContainer = new System.Net.CookieContainer()
+                UseCookies = false
             };
             _httpClient = new HttpClient(handler)
             {
                 Timeout = TimeSpan.FromSeconds(30)
             };
-            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("AstroPM-NINA/1.0");
+            // Use a conventional User-Agent format (with URL) so server logs and
+            // WAFs can identify legitimate traffic. Short non-descriptive UAs
+            // sometimes trip generic ModSecurity rules on shared hosting.
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "AstroPM.NINA.Plugin/1.0.0.4 (+https://github.com/Josh-Jones-76/AstroPM.NINA.Plugin)");
             _httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         }
 
@@ -108,6 +112,21 @@ namespace AstroPM.NINA.Plugin.Services
             }
             catch (HttpRequestException ex)
             {
+                // "Actively refused" / connection-refused errors are almost always
+                // local: antivirus, Windows Firewall, or a corporate proxy blocking
+                // NINA.exe. Surface actionable guidance so the user has somewhere to start.
+                var msg = ex.Message ?? string.Empty;
+                if (msg.IndexOf("actively refused", StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.IndexOf("connection refused", StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.IndexOf("unreachable", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return (false,
+                        "Could not reach astro-pm.com. This is usually caused by antivirus, " +
+                        "Windows Firewall, or a corporate network blocking NINA.exe. " +
+                        "Try whitelisting NINA.exe in your security software, or run NINA as administrator. " +
+                        $"(Underlying error: {ex.Message})",
+                        0);
+                }
                 return (false, $"Connection failed: {ex.Message}", 0);
             }
             catch (Exception ex)
