@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24">
+  <rect width="24" height="24" fill="#2d2d2d"/>
+  <!-- Graph axes -->
+  <path d="M3,3 L3,21 L21,21" fill="none" stroke="white" stroke-width="0.7"/>
+  <!-- Y-axis tick marks -->
+  <path d="M2.2,6 L3.8,6 M2.2,10 L3.8,10 M2.2,14 L3.8,14 M2.2,18 L3.8,18" fill="none" stroke="white" stroke-width="0.5"/>
+  <!-- X-axis tick marks -->
+  <path d="M6,20.2 L6,21.8 M10,20.2 L10,21.8 M14,20.2 L14,21.8 M18,20.2 L18,21.8" fill="none" stroke="white" stroke-width="0.5"/>
+  <!-- Target 1 - rises early, peaks high mid-chart, sets late -->
+  <path d="M4,19 C5,16 7,7 10,5 C13,7 16,16 19,20" fill="none" stroke="white" stroke-width="0.7"/>
+  <!-- Target 2 - rises mid, peaks late, still up at end -->
+  <path d="M8,20 C10,17 13,11 16,8 C18,6 19,5 20,6" fill="none" stroke="white" stroke-width="0.7"/>
+  <!-- Target 3 - already up, descending all night -->
+  <path d="M4,7 C6,8 8,11 11,15 C14,18 17,19 20,20" fill="none" stroke="white" stroke-width="0.7"/>
+</svg>

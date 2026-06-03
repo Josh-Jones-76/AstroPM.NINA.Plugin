@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24">
+  <rect width="24" height="24" fill="#2d2d2d"/>
+  <!-- Compass star + APM (current) -->
+  <path d="M12,0 L13.5,8 L22,10 L13.5,12 L12,20 L10.5,12 L2,10 L10.5,8 Z" fill="white"/>
+  <path d="M2,24 L4.5,18 L7,24 M3.2,22 L5.8,22" fill="none" stroke="white" stroke-width="0.8"/>
+  <path d="M9,24 L9,18 L12.5,18 L12.5,20.5 L9,20.5" fill="none" stroke="white" stroke-width="0.8"/>
+  <path d="M15,24 L15,18 L17.5,21 L20,18 L20,24" fill="none" stroke="white" stroke-width="0.8"/>
+</svg>

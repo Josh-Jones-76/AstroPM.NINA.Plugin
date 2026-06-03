@@ -22,18 +22,15 @@ Pull a target from your Astro PM project list and the plugin loads it into the F
 Open N.I.N.A. → Plugins tab → search for "Astro PM" → Install.
 
 ### Manual install
-1. Download the latest release ZIP from the [Releases page](https://github.com/Josh-Jones-76/AstroPM.NINA.Plugin/releases).
-2. Extract `AstroPM.NINA.Plugin.dll` to:
-   ```
-   %LOCALAPPDATA%\NINA\Plugins\3.0.0\AstroPM.NINA.Plugin\
-   ```
+1. Build the plugin (see **Building from source** below).
+2. Copy `AstroPM.NINA.Plugin.dll` from `bin\Release\` to your NINA plugins folder.
 3. Restart N.I.N.A.
 
 ## Configuration
 
 Open N.I.N.A. → Options → Plugins → Astro PM and enter your Astro PM credentials.
 
-Settings persist at `%LOCALAPPDATA%\NINA\Plugins\AstroPM.NINA.Plugin\settings.json` (outside the version folder, so updates don't wipe them).
+Settings persist in a `settings.json` file managed by the plugin (outside the version folder, so updates don't wipe them).
 
 ## Building from source
 
@@ -46,7 +43,7 @@ Stop-Process -Name 'NINA' -Force -ErrorAction SilentlyContinue
 dotnet build -c Release
 ```
 
-Release output lands in `bin/Release/`. Debug builds drop straight into your local NINA plugins folder for fast iteration.
+Both Debug and Release output stay inside the project folder (`bin\Debug\` and `bin\Release\`).
 
 ## License
 

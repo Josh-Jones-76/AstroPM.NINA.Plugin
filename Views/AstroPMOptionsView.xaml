@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:views="clr-namespace:AstroPM.NINA.Plugin.Views"
              mc:Ignorable="d"
              Background="{DynamicResource BackgroundBrush}"
              Foreground="{DynamicResource PrimaryBrush}">
@@ -86,8 +87,181 @@
                                                Text="Astro PM is a project management tool for astrophotography. Plan your imaging sessions by building projects with target coordinates, equipment profiles, mosaic layouts, and exposure plans — all in one place." />
                                     <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
                                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
-                                               Text="The Astro PM plugin for N.I.N.A. bridges the gap between planning and capture. Push your Astro PM projects to the cloud, then pull them directly into NINA's Framing Assistant — complete with RA/Dec, rotation, sensor configuration, and mosaic panel layouts. No manual data entry, no copy-paste errors. Your targets arrive in NINA exactly as you planned them." />
+                                               Margin="0,0,0,14"
+                                               Text="This plugin connects your Astro PM cloud account to N.I.N.A. with three core capabilities:" />
+
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="12,0,0,8">
+                                        <Run FontWeight="SemiBold" Text="Connect"/><Run Text=" — Link your account by entering your sync token in the Settings tab. Once connected, your cloud-hosted projects and targets are available inside NINA automatically."/>
+                                    </TextBlock>
+
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="12,0,0,8">
+                                        <Run FontWeight="SemiBold" Text="Browse &amp; Frame"/><Run Text=" — Browse your cloud targets and load them directly into NINA's Framing Assistant — complete with RA/Dec, rotation, sensor configuration, and mosaic panel layouts. No manual data entry, no copy-paste errors. Your targets arrive in NINA exactly as you planned them."/>
+                                    </TextBlock>
+
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                               Margin="12,0,0,0">
+                                        <Run FontWeight="SemiBold" Text="Simulate &amp; Automate"/><Run Text=" — Use the built-in Nightly Simulator to generate a fully automated imaging schedule for any night. The simulator considers target altitude, transit times, and your equipment profile to build an optimized sequence — then hands it off to NINA for hands-free capture."/>
+                                    </TextBlock>
                                 </StackPanel>
+                            </Border>
+                        </TabItem>
+
+                        <!-- ── How it Works Tab ── -->
+                        <TabItem Header="How it Works?">
+                            <Border Background="{DynamicResource BackgroundBrush}"
+                                    CornerRadius="0,0,3,3" Padding="16,14">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="500">
+                                    <StackPanel>
+
+                                        <!-- Step 1 -->
+                                        <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="0,0,0,10">
+                                            <Run FontWeight="SemiBold" Text="1. Plan"/><Run Text=" — Create your imaging projects in Astro PM. Define targets, equipment profiles, mosaic layouts, and exposure plans — everything NINA needs to capture your data."/>
+                                        </TextBlock>
+
+                                        <!-- Step 2 -->
+                                        <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="0,0,0,10">
+                                            <Run FontWeight="SemiBold" Text="2. Sync"/><Run Text=" — Your active projects automatically sync to the cloud. Any changes you make in Astro PM are reflected here in NINA the next time you connect — no manual exports or file transfers."/>
+                                        </TextBlock>
+
+                                        <!-- Step 3 -->
+                                        <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="0,0,0,10">
+                                            <Run FontWeight="SemiBold" Text="3. Preview"/><Run Text=" — Simulate your evening's imaging schedule before dark. Run the Simulator here in NINA or in the Astro PM desktop app to see exactly what gets captured, when, and for how long."/>
+                                        </TextBlock>
+
+                                        <!-- Step 4 -->
+                                        <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="20"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="0,0,0,16">
+                                            <Run FontWeight="SemiBold" Text="4. Capture"/><Run Text=" — Start the sequence and let the Astro PM instruction set handle the rest. Targets are imaged in priority order, slewing, focusing, and capturing automatically through the night."/>
+                                        </TextBlock>
+
+                                        <!-- Sequence Modules -->
+                                        <TextBlock Text="Sequence Modules" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4" />
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                                   Margin="0,0,0,8"
+                                                   Text="Astro PM provides a set of drag-and-drop sequence modules that integrate directly into NINA's Advanced Sequencer. Build your nightly sequence visually — or let the Simulator generate one for you." />
+                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                CornerRadius="4" Margin="0,0,0,12" HorizontalAlignment="Left">
+                                            <Image Source="/AstroPM.NINA.Plugin;component/Assets/NINA advanced sequence tools.png"
+                                                   Stretch="None"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Border>
+
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,6">
+                                            <Run FontWeight="SemiBold" Text="Astro PM Daily Loop"/><Run Text=" — Loops day-to-day while your active projects still have remaining exposures. Keeps your observatory running across multiple nights until all projects are complete."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,6">
+                                            <Run FontWeight="SemiBold" Text="Astro PM Instructions"/><Run Text=" — The core engine that drives your entire imaging session. Drop it into your sequence and it handles everything from slew to shutter — see the full breakdown below."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,6">
+                                            <Run FontWeight="SemiBold" Text="Astro PM Nightly Loop"/><Run Text=" — Loops through tonight's schedule while there are still target blocks remaining. Once every block has been captured, the loop exits and NINA moves on to your end-of-night routines."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,16">
+                                            <Run FontWeight="SemiBold" Text="AstroPM Refresh Cloud Targets"/><Run Text=" — Fetches the latest active targets from your Astro PM cloud account and updates the local cache. Run this at the start of each night to pick up any changes you've made during the day."/>
+                                        </TextBlock>
+
+                                        <!-- Instruction Set -->
+                                        <TextBlock Text="The Instruction Set in Action" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4" />
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                                                   Margin="0,0,0,8"
+                                                   Text="Here's the Astro PM instruction set running a live session. It works through your nightly schedule automatically — slewing to each target, plate solving, switching filters, and capturing exposures without intervention." />
+                                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                CornerRadius="4" Margin="0,0,0,14" HorizontalAlignment="Left">
+                                            <Image Source="/AstroPM.NINA.Plugin;component/Assets/NINA instruction set.png"
+                                                   MaxWidth="1085" Stretch="Uniform"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Border>
+
+                                        <!-- What the Instruction Set Handles -->
+                                        <TextBlock Text="What the Instruction Set Handles" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,8" />
+
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Slew"/><Run Text=" — Moves the telescope to each target's coordinates as scheduled."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Center"/><Run Text=" — Plate solves and re-centers to land precisely on target."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Rotate"/><Run Text=" — Moves the rotator to the planned position angle so your framing matches the mosaic layout. Falls back to center-only if no rotator is connected."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Start Guiding"/><Run Text=" — Engages autoguiding before exposures begin to keep stars locked in. Skipped automatically if no guider is connected."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Filter Switching"/><Run Text=" — Changes filters between exposure sets according to your plan — L, R, G, B, Ha, SII, OIII, or any custom filter."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Dithering"/><Run Text=" — Applies dither offsets between exposures to reduce fixed-pattern noise and walking noise in your stacks."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Capture Exposures"/><Run Text=" — Takes each exposure with the correct gain, offset, and binning as defined in your project's exposure plan."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Multi-Panel Mosaics"/><Run Text=" — Automatically slews to each mosaic panel's unique coordinates and rotation, imaging your full mosaic layout in a single session."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Time-Aware Scheduling"/><Run Text=" — Stays synchronized with the simulation plan even after delays from autofocus, safety holds, or meridian flips. If the session falls behind, it catches up by jumping to the correct entry."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="NINA Triggers"/><Run Text=" — Fires NINA's built-in pre- and post-exposure triggers — autofocus after filter change, center after drift, meridian flip, and any other triggers you've configured."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,5">
+                                            <Run FontWeight="SemiBold" Text="Viability Checks"/><Run Text=" — Automatically skips targets that are below minimum altitude or when the sun is too high, so no time is wasted on targets that can't be imaged."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
+                                                   Margin="12,0,0,0">
+                                            <Run FontWeight="SemiBold" Text="Block Skip &amp; Advance"/><Run Text=" — Skip the current target on the fly and move straight to the next block — useful when weather or conditions change mid-session."/>
+                                        </TextBlock>
+
+                                    </StackPanel>
+                                </ScrollViewer>
                             </Border>
                         </TabItem>
 
@@ -405,6 +579,49 @@
             </Border>
 
             <!-- ════════════════════════════════════════════════ -->
+            <!--  Astro PM Settings                              -->
+            <!-- ════════════════════════════════════════════════ -->
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Astro PM Settings" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4" />
+                    <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7" Margin="0,0,0,10"
+                               Text="Select your observatory location, telescope, and camera. These settings are used by the Browse Targets list, the Simulator, and the Sequencer instruction set." />
+                    <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                            <TextBlock Text="Location" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
+                            <ComboBox Width="210" FontSize="11"
+                                      ItemsSource="{Binding AvailableLocations}"
+                                      SelectedItem="{Binding LocationFilter, Mode=TwoWay}"
+                                      IsEditable="False" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                            <TextBlock Text="Telescope" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
+                            <ComboBox Width="180" FontSize="11"
+                                      ItemsSource="{Binding AvailableTelescopes}"
+                                      SelectedItem="{Binding TelescopeFilter, Mode=TwoWay}"
+                                      IsEditable="False" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                            <TextBlock Text="Camera" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
+                            <ComboBox Width="180" FontSize="11"
+                                      ItemsSource="{Binding AvailableCameras}"
+                                      SelectedItem="{Binding CameraFilter, Mode=TwoWay}"
+                                      IsEditable="False" />
+                        </StackPanel>
+                        <Button Content="Clear" Style="{StaticResource SyncBtnSmall}"
+                                Command="{Binding ClearFiltersCommand}" Margin="0,0,6,4" />
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ════════════════════════════════════════════════ -->
             <!--  Targets List                                   -->
             <!-- ════════════════════════════════════════════════ -->
             <Border Background="{DynamicResource SecondaryBackgroundBrush}"
@@ -412,12 +629,16 @@
                     CornerRadius="4" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center">
-                        <TextBlock Text="Synced Targets" FontSize="14" FontWeight="SemiBold"
+                        <TextBlock Text="Browse Cloud Targets" FontSize="14" FontWeight="SemiBold"
                                    Foreground="{DynamicResource PrimaryBrush}" />
                         <TextBlock Text="{Binding Targets.Count, StringFormat=' ({0})'}"
                                    FontSize="14" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Opacity="0.5" />
                     </StackPanel>
+                    <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                               Margin="0,0,0,8"
+                               Text="Manually load any Astro PM target into the NINA framing assistant."/>
 
                     <!-- Filter Bar -->
                     <Grid Margin="0,0,0,8">
@@ -430,32 +651,6 @@
                                           SelectedItem="{Binding StatusFilter, Mode=TwoWay}"
                                           IsEditable="False" />
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                                <TextBlock Text="Location" FontSize="11" VerticalAlignment="Center"
-                                           Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
-                                <ComboBox Width="210" FontSize="11"
-                                          ItemsSource="{Binding AvailableLocations}"
-                                          SelectedItem="{Binding LocationFilter, Mode=TwoWay}"
-                                          IsEditable="False" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                                <TextBlock Text="Scope" FontSize="11" VerticalAlignment="Center"
-                                           Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
-                                <ComboBox Width="160" FontSize="11"
-                                          ItemsSource="{Binding AvailableTelescopes}"
-                                          SelectedItem="{Binding TelescopeFilter, Mode=TwoWay}"
-                                          IsEditable="False" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                                <TextBlock Text="Camera" FontSize="11" VerticalAlignment="Center"
-                                           Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
-                                <ComboBox Width="160" FontSize="11"
-                                          ItemsSource="{Binding AvailableCameras}"
-                                          SelectedItem="{Binding CameraFilter, Mode=TwoWay}"
-                                          IsEditable="False" />
-                            </StackPanel>
-                            <Button Content="Clear" Style="{StaticResource SyncBtnSmall}"
-                                    Command="{Binding ClearFiltersCommand}" Margin="0,0,6,4" />
                         </WrapPanel>
                         <Button Content="Refresh" Style="{StaticResource SyncBtnSmall}"
                                 Command="{Binding RefreshCommand}"
@@ -570,6 +765,31 @@
                             </WrapPanel>
                         </StackPanel>
                     </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- ════════════════════════════════════════════════════ -->
+            <!--  Simulator                                          -->
+            <!-- ════════════════════════════════════════════════════ -->
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="4" Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock FontSize="14" FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4">
+                        <Run Text="Simulator"/>
+                        <Run Text="  "/>
+                        <InlineUIContainer BaselineAlignment="Center">
+                            <Border Background="#0078D4" CornerRadius="8" Padding="8,1,8,2">
+                                <TextBlock Text="BETA" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                            </Border>
+                        </InlineUIContainer>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                               Margin="0,0,0,12"
+                               Text="Automate your night with Astro PM's Simulator. Preview tonight's imaging schedule using your Location, Telescope, and Camera from Astro PM Settings above. Only targets with Active status are included. Change the date and click Simulate to preview any night's plan."/>
+                    <views:SimulatorPanel x:Name="SimulatorPanelControl" />
                 </StackPanel>
             </Border>
 

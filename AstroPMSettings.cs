@@ -14,6 +14,16 @@ namespace AstroPM.NINA.Plugin
         private string _telescopeFilter = string.Empty;
         private string _cameraFilter = string.Empty;
         private bool _autoRefreshOnOpen = true;
+        private string _simStatusFilter = "Active";
+        private string _simLocationFilter = string.Empty;
+        private string _simTelescopeFilter = string.Empty;
+        private bool _ditherEnabled = true;
+        private int _ditherEvery = 3;
+        private bool _filterSwitchEnabled = true;
+        private int _filterSwitchCount = 20;
+        private bool _bonusEnabled = true;
+        private bool _mosaicPanelPreference = true;
+        private string _sortChain = "LowestPeakAltitude,SettingSoonest,MostRemainingWork,Constrained";
 
         public string SyncToken
         {
@@ -49,6 +59,66 @@ namespace AstroPM.NINA.Plugin
         {
             get => _autoRefreshOnOpen;
             set { if (_autoRefreshOnOpen != value) { _autoRefreshOnOpen = value; OnPropertyChanged(); } }
+        }
+
+        public string SimStatusFilter
+        {
+            get => _simStatusFilter;
+            set { if (_simStatusFilter != value) { _simStatusFilter = value; OnPropertyChanged(); } }
+        }
+
+        public string SimLocationFilter
+        {
+            get => _simLocationFilter;
+            set { if (_simLocationFilter != value) { _simLocationFilter = value; OnPropertyChanged(); } }
+        }
+
+        public string SimTelescopeFilter
+        {
+            get => _simTelescopeFilter;
+            set { if (_simTelescopeFilter != value) { _simTelescopeFilter = value; OnPropertyChanged(); } }
+        }
+
+        public bool DitherEnabled
+        {
+            get => _ditherEnabled;
+            set { if (_ditherEnabled != value) { _ditherEnabled = value; OnPropertyChanged(); } }
+        }
+
+        public int DitherEvery
+        {
+            get => _ditherEvery;
+            set { if (_ditherEvery != value) { _ditherEvery = value; OnPropertyChanged(); } }
+        }
+
+        public bool FilterSwitchEnabled
+        {
+            get => _filterSwitchEnabled;
+            set { if (_filterSwitchEnabled != value) { _filterSwitchEnabled = value; OnPropertyChanged(); } }
+        }
+
+        public int FilterSwitchCount
+        {
+            get => _filterSwitchCount;
+            set { if (_filterSwitchCount != value) { _filterSwitchCount = value; OnPropertyChanged(); } }
+        }
+
+        public bool BonusEnabled
+        {
+            get => _bonusEnabled;
+            set { if (_bonusEnabled != value) { _bonusEnabled = value; OnPropertyChanged(); } }
+        }
+
+        public bool MosaicPanelPreference
+        {
+            get => _mosaicPanelPreference;
+            set { if (_mosaicPanelPreference != value) { _mosaicPanelPreference = value; OnPropertyChanged(); } }
+        }
+
+        public string SortChain
+        {
+            get => _sortChain;
+            set { if (_sortChain != value) { _sortChain = value; OnPropertyChanged(); } }
         }
 
         // ── Persistence ──

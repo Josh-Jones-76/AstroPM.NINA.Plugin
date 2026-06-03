@@ -1,0 +1,112 @@
+<ResourceDictionary
+    x:Class="AstroPM.NINA.Plugin.Views.AstroPMLogPanelTemplate"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="clr-namespace:AstroPM.NINA.Plugin.ViewModels">
+
+    <DataTemplate x:Key="AstroPM.NINA.Plugin.ViewModels.AstroPMLogPanelVM_Dockable">
+        <Grid Margin="4">
+            <!-- Log table -->
+            <ListView ItemsSource="{Binding LogEntries}"
+                      SelectedItem="{Binding ActiveLogEntry, Mode=OneWay}"
+                      Background="Transparent" BorderThickness="0"
+                      Foreground="{DynamicResource PrimaryBrush}" FontSize="10" FontFamily="Consolas"
+                      ScrollViewer.CanContentScroll="True"
+                      Loaded="LogList_Loaded">
+                <ListView.Style>
+                    <Style TargetType="ListView">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasLogData}" Value="True">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListView.Style>
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}"/>
+                        <Setter Property="Padding" Value="1,0"/>
+                        <Setter Property="Margin" Value="0"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="MinHeight" Value="18"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListViewItem">
+                                    <Border Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                            Padding="{TemplateBinding Padding}">
+                                        <GridViewRowPresenter Content="{TemplateBinding Content}"
+                                                              Columns="{TemplateBinding GridView.ColumnCollection}"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource ButtonForegroundBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.View>
+                    <GridView>
+                        <GridView.ColumnHeaderContainerStyle>
+                            <Style TargetType="GridViewColumnHeader">
+                                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                                <Setter Property="Padding" Value="2,1"/>
+                                <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="FontSize" Value="10"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="GridViewColumnHeader">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </GridView.ColumnHeaderContainerStyle>
+                        <GridViewColumn Header="Cmd" Width="65" DisplayMemberBinding="{Binding Command}"/>
+                        <GridViewColumn Header="Time" Width="55" DisplayMemberBinding="{Binding Time}"/>
+                        <GridViewColumn Header="Target" Width="210" DisplayMemberBinding="{Binding Target}"/>
+                        <GridViewColumn Header="Panel" Width="45" DisplayMemberBinding="{Binding Panel}"/>
+                        <GridViewColumn Header="#" Width="35" DisplayMemberBinding="{Binding SubNum}"/>
+                        <GridViewColumn Header="Filter" Width="60" DisplayMemberBinding="{Binding Filter}"/>
+                        <GridViewColumn Header="Exp" Width="50" DisplayMemberBinding="{Binding Exposure}"/>
+                        <GridViewColumn Header="Gain" Width="40" DisplayMemberBinding="{Binding Gain}"/>
+                        <GridViewColumn Header="Offset" Width="45" DisplayMemberBinding="{Binding Offset}"/>
+                        <GridViewColumn Header="Bin" Width="35" DisplayMemberBinding="{Binding Bin}"/>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+
+            <!-- Placeholder -->
+            <TextBlock Text="Waiting for schedule..."
+                       FontSize="12" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.4"
+                       HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasLogData}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </Grid>
+    </DataTemplate>
+
+</ResourceDictionary>

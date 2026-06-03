@@ -5,9 +5,9 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>AstroPM.NINA.Plugin</AssemblyName>
     <RootNamespace>AstroPM.NINA.Plugin</RootNamespace>
-    <Version>1.0.0.4</Version>
+    <Version>1.0.1.0</Version>
     <Authors>Astro PM</Authors>
-    <Description>Astro PM Plugin for N.I.N.A. — Syncs imaging targets from Astro PM to NINA's Framing Assistant.</Description>
+    <Description>Astro PM connects your cloud-hosted imaging projects to NINA. Set up your sync token to link your account, browse and load targets directly into the Framing Assistant for manual session planning, or use the built-in Simulator to generate a fully automated nightly schedule.</Description>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <Platforms>x64</Platforms>
     <Nullable>disable</Nullable>
@@ -46,6 +46,30 @@
     </PackageReference>
   </ItemGroup>
 
+  <!-- Direct references to NINA assemblies not included in the NuGet package -->
+  <ItemGroup>
+    <Reference Include="NINA.Equipment">
+      <HintPath>$(ProgramFiles)\N.I.N.A. - Nighttime Imaging 'N' Astronomy\NINA.Equipment.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="NINA.WPF.Base">
+      <HintPath>$(ProgramFiles)\N.I.N.A. - Nighttime Imaging 'N' Astronomy\NINA.WPF.Base.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="NINA.PlateSolving">
+      <HintPath>$(ProgramFiles)\N.I.N.A. - Nighttime Imaging 'N' Astronomy\NINA.PlateSolving.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="NINA.Image">
+      <HintPath>$(ProgramFiles)\N.I.N.A. - Nighttime Imaging 'N' Astronomy\NINA.Image.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="NINA.Sequencer">
+      <HintPath>$(ProgramFiles)\N.I.N.A. - Nighttime Imaging 'N' Astronomy\NINA.Sequencer.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
   <ItemGroup>
     <Resource Include="Assets\AstroPM-Logo-Icon-500x500.png" />
     <Resource Include="Assets\AstroPM-Logo-horizontal-400x176.png" />
@@ -57,6 +81,8 @@
     <Resource Include="Assets\AstroPM Tilt.png" />
     <Resource Include="Assets\AstroPM Reflections.png" />
     <Resource Include="Assets\AstroPM SubInspector.png" />
+    <Resource Include="Assets\NINA advanced sequence tools.png" />
+    <Resource Include="Assets\NINA instruction set.png" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,85 @@
+<ResourceDictionary
+    x:Class="AstroPM.NINA.Plugin.Views.AstroPMImagingPanelTemplate"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="clr-namespace:AstroPM.NINA.Plugin.ViewModels"
+    xmlns:views="clr-namespace:AstroPM.NINA.Plugin.Views">
+
+    <DataTemplate x:Key="AstroPM.NINA.Plugin.ViewModels.AstroPMImagingPanelVM_Dockable">
+        <Grid Margin="4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Status bar -->
+            <Border Grid.Row="0" Background="{DynamicResource SecondaryBackgroundBrush}"
+                    CornerRadius="3" Padding="8,5" Margin="0,0,0,4">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasStatus}" Value="True">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <WrapPanel>
+                    <Border Background="{DynamicResource NotificationWarningBrush}" CornerRadius="2"
+                            Padding="6,2" Margin="0,0,10,2">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Status:" FontSize="10" FontWeight="Normal"
+                                       Foreground="{DynamicResource PrimaryBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,4,0" Opacity="0.7"/>
+                            <TextBlock Text="{Binding StatusCommand}" FontSize="11" FontWeight="Bold"
+                                       Foreground="{DynamicResource PrimaryBrush}"/>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="Target:" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,4,2" Opacity="0.6"/>
+                    <TextBlock Text="{Binding StatusTarget}" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"
+                               Margin="0,0,14,2"/>
+                    <TextBlock Text="Filter:" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,4,2" Opacity="0.6"/>
+                    <TextBlock Text="{Binding StatusFilter}" FontSize="11"
+                               Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"
+                               Margin="0,0,14,2"/>
+                    <TextBlock Text="Exposure:" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,4,2" Opacity="0.6"/>
+                    <TextBlock Text="{Binding StatusExposure}" FontSize="11"
+                               Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"
+                               Margin="0,0,14,2"/>
+                    <TextBlock Text="Camera:" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,4,2" Opacity="0.6"/>
+                    <TextBlock Text="{Binding StatusGainOffset}" FontSize="10"
+                               Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"
+                               Margin="0,0,0,2"/>
+                </WrapPanel>
+            </Border>
+
+            <!-- Nightly chart -->
+            <views:NightlyChartControl x:Name="ImagingChart" Grid.Row="1"
+                                       ScrubberEnabled="False"
+                                       Loaded="Chart_Loaded"/>
+
+            <!-- Placeholder when no data -->
+            <TextBlock Grid.Row="1" Text="Waiting for schedule..."
+                       FontSize="12" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.4"
+                       HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasChartData}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </Grid>
+    </DataTemplate>
+
+</ResourceDictionary>

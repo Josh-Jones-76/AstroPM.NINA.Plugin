@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24">
+  <rect width="24" height="24" fill="#2d2d2d"/>
+  <!-- Compass star top half -->
+  <path d="M12,0 L13.5,8 L22,10 L13.5,12 L12,13 L10.5,12 L2,10 L10.5,8 Z" fill="white"/>
+  <!-- Box bottom half -->
+  <rect x="1" y="15" width="22" height="9" rx="1" fill="none" stroke="white" stroke-width="1"/>
+  <!-- A -->
+  <path d="M3,22.5 L5,16.5 L7,22.5 M3.8,20.5 L6.2,20.5" fill="none" stroke="white" stroke-width="0.9"/>
+  <!-- P -->
+  <path d="M9.5,22.5 L9.5,16.5 L13,16.5 L13,19 L9.5,19" fill="none" stroke="white" stroke-width="0.9"/>
+  <!-- M -->
+  <path d="M15,22.5 L15,16.5 L17.5,19.5 L20,16.5 L20,22.5" fill="none" stroke="white" stroke-width="0.9"/>
+</svg>

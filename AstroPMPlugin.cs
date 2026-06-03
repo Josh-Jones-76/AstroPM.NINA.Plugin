@@ -4,27 +4,28 @@ using System.ComponentModel.Composition;
 using System.Threading.Tasks;
 using NINA.Plugin;
 using NINA.Plugin.Interfaces;
+using NINA.Profile.Interfaces;
 
 [assembly: AssemblyTitle("Astro PM")]
-[assembly: AssemblyDescription("Syncs imaging targets from Astro PM cloud to NINA's Framing Assistant.")]
+[assembly: AssemblyDescription("Astro PM connects your cloud-hosted imaging projects to NINA. Set up your sync token to link your account, browse and load targets directly into the Framing Assistant for manual session planning, or use the built-in Simulator to generate a fully automated nightly schedule.")]
 [assembly: AssemblyCompany("Astro PM")]
 [assembly: AssemblyProduct("AstroPM.NINA.Plugin")]
 [assembly: AssemblyCopyright("Copyright © Astro PM 2026")]
-[assembly: AssemblyVersion("1.0.0.4")]
-[assembly: AssemblyFileVersion("1.0.0.4")]
+[assembly: AssemblyVersion("1.0.1.0")]
+[assembly: AssemblyFileVersion("1.0.1.0")]
 [assembly: System.Runtime.InteropServices.Guid("C8F1A2B3-D4E5-6F78-9A0B-1C2D3E4F5A6B")]
 [assembly: System.Runtime.InteropServices.ComVisible(false)]
 
 [assembly: AssemblyMetadata("Identifier", "C8F1A2B3-D4E5-6F78-9A0B-1C2D3E4F5A6B")]
 [assembly: AssemblyMetadata("Name", "Astro PM")]
 [assembly: AssemblyMetadata("Author", "Astro PM")]
-[assembly: AssemblyMetadata("Description", "Syncs imaging targets from Astro PM cloud to NINA's Framing Assistant.")]
+[assembly: AssemblyMetadata("Description", "Astro PM connects your cloud-hosted imaging projects to NINA. Set up your sync token to link your account, browse and load targets directly into the Framing Assistant for manual session planning, or use the built-in Simulator to generate a fully automated nightly schedule.")]
 [assembly: AssemblyMetadata("License", "MIT")]
 [assembly: AssemblyMetadata("LicenseURL", "https://opensource.org/licenses/MIT")]
 [assembly: AssemblyMetadata("Homepage", "https://astro-pm.com")]
 [assembly: AssemblyMetadata("Repository", "https://github.com/Josh-Jones-76/AstroPM.NINA.Plugin")]
 [assembly: AssemblyMetadata("Tags", "Sync,Targets,Framing,StarLog,Cloud")]
-[assembly: AssemblyMetadata("FeaturedImageURL", "https://asgastronomy.com/downloads/AstroPM-Logo-Icon-500x500.png")]
+[assembly: AssemblyMetadata("FeaturedImageURL", "https://astro-pm.com/downloads/AstroPM-Logo-Icon-500x500.png")]
 [assembly: AssemblyMetadata("MinimumApplicationVersion", "3.0.0.9001")]
 
 namespace AstroPM.NINA.Plugin
@@ -34,8 +35,13 @@ namespace AstroPM.NINA.Plugin
     {
         private FramingInjector _framingInjector;
 
+        public static IProfileService ProfileService { get; private set; }
+
         [ImportingConstructor]
-        public AstroPMPlugin() { }
+        public AstroPMPlugin(IProfileService profileService)
+        {
+            ProfileService = profileService;
+        }
 
         public override Task Initialize()
         {

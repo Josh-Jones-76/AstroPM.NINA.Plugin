@@ -2,10 +2,9 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-namespace AstroPM.NINA.Plugin.Models
-{
-    public class ProjectTarget
-    {
+namespace AstroPM.NINA.Plugin.Models {
+
+    public class ProjectTarget {
         [JsonProperty("id")]
         public int Id { get; set; }
 
@@ -61,7 +60,10 @@ namespace AstroPM.NINA.Plugin.Models
         public string LocationName { get; set; }
 
         [JsonProperty("panels")]
-        public List<object> Panels { get; set; }
+        public List<PanelData> Panels { get; set; } = new List<PanelData>();
+
+        [JsonProperty("constraints")]
+        public ConstraintsData Constraints { get; set; }
 
         [JsonProperty("pushed_at")]
         public string PushedAt { get; set; }
@@ -69,60 +71,145 @@ namespace AstroPM.NINA.Plugin.Models
         [JsonProperty("updated_at")]
         public string UpdatedAt { get; set; }
 
-        /// <summary>
-        /// Display-friendly RA as HH:MM:SS
-        /// </summary>
         [JsonIgnore]
-        public string RaDisplay
-        {
-            get
-            {
-                double totalHours = RaHours;
-                int h = (int)totalHours;
-                double remainder = (totalHours - h) * 60.0;
+        public string RaDisplay {
+            get {
+                int h = (int)RaHours;
+                double remainder = (RaHours - h) * 60.0;
                 int m = (int)remainder;
                 double s = (remainder - m) * 60.0;
                 return $"{h:00}h {m:00}m {s:00.0}s";
             }
         }
 
-        /// <summary>
-        /// Display-friendly Dec as DD:MM:SS
-        /// </summary>
         [JsonIgnore]
-        public string DecDisplay
-        {
-            get
-            {
-                double totalDeg = DecDegrees;
-                string sign = totalDeg >= 0 ? "+" : "-";
-                totalDeg = Math.Abs(totalDeg);
-                int d = (int)totalDeg;
-                double remainder = (totalDeg - d) * 60.0;
+        public string DecDisplay {
+            get {
+                string sign = DecDegrees >= 0 ? "+" : "-";
+                double abs = Math.Abs(DecDegrees);
+                int d = (int)abs;
+                double remainder = (abs - d) * 60.0;
                 int m = (int)remainder;
                 double s = (remainder - m) * 60.0;
                 return $"{sign}{d:00}d {m:00}m {s:00.0}s";
             }
         }
 
-        /// <summary>
-        /// Panel grid display string
-        /// </summary>
         [JsonIgnore]
         public string PanelGridDisplay => $"{PanelRows}x{PanelColumns}";
 
-        /// <summary>
-        /// Sensor resolution display string
-        /// </summary>
         [JsonIgnore]
         public string SensorDisplay =>
             CameraPixelWidth.HasValue && CameraPixelHeight.HasValue
                 ? $"{CameraPixelWidth}x{CameraPixelHeight}"
                 : "";
+
+        public ObservingConstraints ToObservingConstraints() {
+            var c = new ObservingConstraints();
+            if (Constraints == null) return c;
+
+            c.SunAltitudeThreshold = Constraints.TwilightTypeIndex switch {
+                1 => -12.0,
+                2 => -6.0,
+                _ => -18.0,
+            };
+            c.MinTargetAltitude = Constraints.MinTargetAltitude;
+            c.MinTimeOnTargetHrs = Constraints.MinTimeOnTargetHrs;
+            c.MoonAvoidanceEnabled = Constraints.MoonAvoidanceEnabled;
+            c.MinMoonSeparationDeg = Constraints.MoonSeparationDeg;
+            c.MoonAvoidanceWidthDays = Constraints.MoonAvoidanceWidthDays;
+            c.MoonRelaxScale = Constraints.MoonRelaxScale;
+            c.MinMoonAltitude = Constraints.MoonMinAltitude;
+            c.MaxMoonAltitude = Constraints.MoonMaxAltitude;
+            return c;
+        }
     }
 
-    public class ApiListResponse
-    {
+    public class PanelData {
+        [JsonProperty("panel_index")]
+        public int PanelIndex { get; set; }
+
+        [JsonProperty("label")]
+        public string Label { get; set; } = "";
+
+        [JsonProperty("ra_hours")]
+        public double RaHours { get; set; }
+
+        [JsonProperty("dec_degrees")]
+        public double DecDegrees { get; set; }
+
+        [JsonProperty("rotation_deg")]
+        public double RotationDeg { get; set; }
+
+        [JsonProperty("exposure_sets")]
+        public List<ExposureSetData> ExposureSets { get; set; } = new List<ExposureSetData>();
+    }
+
+    public class ExposureSetData {
+        [JsonProperty("filter_name")]
+        public string FilterName { get; set; } = "Unknown";
+
+        [JsonProperty("exposure_length_sec")]
+        public double ExposureLengthSec { get; set; }
+
+        [JsonProperty("planned_count")]
+        public int PlannedCount { get; set; }
+
+        [JsonProperty("acquired_count")]
+        public int AcquiredCount { get; set; }
+
+        [JsonProperty("accepted_count")]
+        public int AcceptedCount { get; set; }
+
+        [JsonProperty("gain")]
+        public int Gain { get; set; }
+
+        [JsonProperty("offset")]
+        public int Offset { get; set; }
+
+        [JsonProperty("binning_x")]
+        public int BinningX { get; set; } = 1;
+
+        [JsonProperty("binning_y")]
+        public int BinningY { get; set; } = 1;
+
+        [JsonProperty("avoid_lunar")]
+        public bool AvoidLunar { get; set; }
+
+        [JsonIgnore]
+        public int Remaining => Math.Max(0, PlannedCount - AcceptedCount);
+    }
+
+    public class ConstraintsData {
+        [JsonProperty("twilight_type_index")]
+        public int TwilightTypeIndex { get; set; }
+
+        [JsonProperty("min_target_altitude")]
+        public double MinTargetAltitude { get; set; } = 30.0;
+
+        [JsonProperty("min_time_on_target_hrs")]
+        public double MinTimeOnTargetHrs { get; set; } = 1.0;
+
+        [JsonProperty("moon_avoidance_enabled")]
+        public bool MoonAvoidanceEnabled { get; set; }
+
+        [JsonProperty("moon_separation_deg")]
+        public double MoonSeparationDeg { get; set; } = 60.0;
+
+        [JsonProperty("moon_avoidance_width_days")]
+        public double MoonAvoidanceWidthDays { get; set; } = 7.0;
+
+        [JsonProperty("moon_relax_scale")]
+        public double MoonRelaxScale { get; set; }
+
+        [JsonProperty("moon_min_altitude")]
+        public double MoonMinAltitude { get; set; } = -15.0;
+
+        [JsonProperty("moon_max_altitude")]
+        public double MoonMaxAltitude { get; set; } = 5.0;
+    }
+
+    public class ApiListResponse {
         [JsonProperty("success")]
         public bool Success { get; set; }
 
