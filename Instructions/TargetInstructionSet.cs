@@ -699,17 +699,59 @@ namespace AstroPM.NINA.Plugin.Instructions {
             global::NINA.Core.Utility.Logger.Info(
                 $"AstroPM | Starting block: {block.TargetName} until {block.UtcEnd:HH:mm} ({actionEntries.Count} scheduled actions)");
 
-            // ── Phase 1: Slew + center + guide (always runs) ──
+            // ── Fire "Before Target" triggers ──
+            var parentForTargetTriggers = Parent as SequenceContainer;
+            if (parentForTargetTriggers != null) {
+                foreach (var trigger in parentForTargetTriggers.GetTriggersSnapshot()) {
+                    if (trigger is AstroPMBeforeTargetTrigger beforeTarget)
+                        await beforeTarget.FireIfNeeded(block, progress, token);
+                }
+            }
+
+            // ── Phase 1: Slew + center + guide (with retry/skip on failure) ──
             if (_blockSummaries != null && _currentBlockIndex < _blockSummaries.Count)
                 _blockSummaries[_currentBlockIndex].Status = "slewing...";
 
             Action<string, TargetBlock> updateSimple = (cmd, b) => UpdateLiveStatus(cmd, b);
 
-            var slewItem = new AstroPMSlewCenterItem(block,
-                _profileService, _telescopeMediator, _imagingMediator, _rotatorMediator,
-                _filterWheelMediator, _guiderMediator, _domeMediator, _domeFollower,
-                _plateSolverFactory, _windowServiceFactory, updateSimple);
-            await slewItem.Execute(progress, token);
+            const int maxSlewRetries = 3;
+            const int slewRetryDelaySec = 30;
+            bool slewSucceeded = false;
+
+            for (int attempt = 1; attempt <= maxSlewRetries; attempt++) {
+                try {
+                    var slewItem = new AstroPMSlewCenterItem(block,
+                        _profileService, _telescopeMediator, _imagingMediator, _rotatorMediator,
+                        _filterWheelMediator, _guiderMediator, _domeMediator, _domeFollower,
+                        _plateSolverFactory, _windowServiceFactory, updateSimple);
+                    await slewItem.Execute(progress, token);
+                    slewSucceeded = true;
+                    break;
+                } catch (OperationCanceledException) {
+                    throw; // User cancelled — don't retry
+                } catch (Exception ex) {
+                    global::NINA.Core.Utility.Logger.Warning(
+                        $"AstroPM | Slew failed for {block.TargetName} (attempt {attempt}/{maxSlewRetries}): {ex.Message}");
+
+                    if (attempt < maxSlewRetries) {
+                        UpdateLiveStatus("Slew Error", block);
+                        progress?.Report(new ApplicationStatus {
+                            Status = $"Astro PM: Slew failed — retrying in {slewRetryDelaySec}s ({attempt}/{maxSlewRetries})..."
+                        });
+                        await Task.Delay(TimeSpan.FromSeconds(slewRetryDelaySec), token);
+                    }
+                }
+            }
+
+            if (!slewSucceeded) {
+                global::NINA.Core.Utility.Logger.Error(
+                    $"AstroPM | Slew failed after {maxSlewRetries} attempts — skipping block: {block.TargetName}");
+                global::NINA.Core.Utility.Notification.Notification.ShowError(
+                    $"AstroPM: Skipping {block.TargetName} — slew failed after {maxSlewRetries} attempts");
+                FinishBlock(block, skipped: true);
+                _currentBlockIndex++;
+                return;
+            }
 
             token.ThrowIfCancellationRequested();
             if (_skipBlock) { FinishBlock(block, skipped: true); return; }
@@ -853,6 +895,20 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 FinishBlock(block, skipped: true);
             } else {
                 FinishBlock(block, skipped: false);
+            }
+
+            // ── Fire "After Target" triggers ──
+            if (parentContainer != null) {
+                foreach (var trigger in parentContainer.GetTriggersSnapshot()) {
+                    if (trigger is AstroPMAfterTargetTrigger afterTarget) {
+                        try {
+                            await afterTarget.Fire(block, progress, token);
+                        } catch (Exception ex) {
+                            global::NINA.Core.Utility.Logger.Warning(
+                                $"AstroPM | After Target trigger error for {block.TargetName}: {ex.Message}");
+                        }
+                    }
+                }
             }
 
             _currentBlockIndex++;

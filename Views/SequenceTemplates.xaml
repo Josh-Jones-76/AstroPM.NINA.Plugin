@@ -399,4 +399,92 @@
         </mini:MiniSequenceItem>
     </DataTemplate>
 
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!--  Before Each Exposure Instructions                          -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <DataTemplate DataType="{x:Type local:AstroPMBeforeExposureTrigger}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <StackPanel Orientation="Vertical" Margin="0,2">
+                    <TextBlock Text="Runs before each AstroPM exposure" FontSize="10" FontStyle="Italic"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
+                    <ContentPresenter Content="{Binding TriggerRunner}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+    <DataTemplate x:Key="AstroPM.NINA.Plugin.Instructions.AstroPMBeforeExposureTrigger_Mini">
+        <mini:MiniSequenceItem>
+            <mini:MiniSequenceItem.SequenceItemContent>
+                <TextBlock Text="Before Each Exposure Instructions" />
+            </mini:MiniSequenceItem.SequenceItemContent>
+        </mini:MiniSequenceItem>
+    </DataTemplate>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!--  After Each Exposure Instructions                           -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <DataTemplate DataType="{x:Type local:AstroPMAfterExposureTrigger}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <StackPanel Orientation="Vertical" Margin="0,2">
+                    <TextBlock Text="Runs after each AstroPM exposure" FontSize="10" FontStyle="Italic"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
+                    <ContentPresenter Content="{Binding TriggerRunner}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+    <DataTemplate x:Key="AstroPM.NINA.Plugin.Instructions.AstroPMAfterExposureTrigger_Mini">
+        <mini:MiniSequenceItem>
+            <mini:MiniSequenceItem.SequenceItemContent>
+                <TextBlock Text="After Each Exposure Instructions" />
+            </mini:MiniSequenceItem.SequenceItemContent>
+        </mini:MiniSequenceItem>
+    </DataTemplate>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!--  Before Target Change Instructions                          -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <DataTemplate DataType="{x:Type local:AstroPMBeforeTargetTrigger}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <StackPanel Orientation="Vertical" Margin="0,2">
+                    <TextBlock Text="Runs before AstroPM slews to each new target" FontSize="10" FontStyle="Italic"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
+                    <ContentPresenter Content="{Binding TriggerRunner}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+    <DataTemplate x:Key="AstroPM.NINA.Plugin.Instructions.AstroPMBeforeTargetTrigger_Mini">
+        <mini:MiniSequenceItem>
+            <mini:MiniSequenceItem.SequenceItemContent>
+                <TextBlock Text="Before Target Change Instructions" />
+            </mini:MiniSequenceItem.SequenceItemContent>
+        </mini:MiniSequenceItem>
+    </DataTemplate>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!--  After Target Change Instructions                           -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <DataTemplate DataType="{x:Type local:AstroPMAfterTargetTrigger}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <StackPanel Orientation="Vertical" Margin="0,2">
+                    <TextBlock Text="Runs after AstroPM finishes each target block" FontSize="10" FontStyle="Italic"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
+                    <ContentPresenter Content="{Binding TriggerRunner}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+    <DataTemplate x:Key="AstroPM.NINA.Plugin.Instructions.AstroPMAfterTargetTrigger_Mini">
+        <mini:MiniSequenceItem>
+            <mini:MiniSequenceItem.SequenceItemContent>
+                <TextBlock Text="After Target Change Instructions" />
+            </mini:MiniSequenceItem.SequenceItemContent>
+        </mini:MiniSequenceItem>
+    </DataTemplate>
+
 </ResourceDictionary>

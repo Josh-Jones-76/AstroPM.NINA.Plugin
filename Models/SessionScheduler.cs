@@ -313,7 +313,8 @@ namespace AstroPM.NINA.Plugin.Models {
 
             var state = new ScheduleSessionState();
             return ScheduleEngine.WalkToLog(matrix, state, tz,
-                ditherEnabled, ditherEvery, filterSwitchEnabled, filterSwitchCount);
+                ditherEnabled, ditherEvery, filterSwitchEnabled, filterSwitchCount,
+                bonusEnabled: bonusEnabled);
         }
 
         public static (ExposureSetData Es, string PanelLabel, int PanelIdx, int EsIdx) PickExposureSet(

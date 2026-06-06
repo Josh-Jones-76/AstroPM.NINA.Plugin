@@ -706,7 +706,8 @@ namespace AstroPM.NINA.Plugin.Models {
             TimeZoneInfo tz,
             bool ditherEnabled, int ditherEvery,
             bool filterSwitchEnabled, int filterSwitchCount,
-            List<SortCriteria> sortChain = null) {
+            List<SortCriteria> sortChain = null,
+            bool bonusEnabled = true) {
 
             var log = new List<SimLogEntry>();
 
@@ -754,6 +755,10 @@ namespace AstroPM.NINA.Plugin.Models {
             string currentPanel = null;
             int subsSinceDither = 0;
             bool emittedDarkStart = false, emittedDarkEnd = false;
+            ExposureSetData lastEs = null;
+            string lastPanelLabel = "";
+            int lastPanelIdx = -1;
+            int lastEsIdx = -1;
 
             int lastAssignedRow = -1;
             DateTime waitStart = DateTime.MinValue;
@@ -857,6 +862,10 @@ namespace AstroPM.NINA.Plugin.Models {
                         prof, targetIdx, currentSlotIdx, matrix.Slots, state,
                         filterSwitchEnabled, filterSwitchCount, allowedPanels);
 
+                    if (pick.Es == null && lastEs != null && bonusEnabled)
+                    {
+                        pick = (lastEs, lastPanelLabel, lastPanelIdx, lastEsIdx);
+                    }
                     if (pick.Es == null) break;
 
                     var es = pick.Es;
@@ -948,6 +957,10 @@ namespace AstroPM.NINA.Plugin.Models {
                     currentUtc = currentUtc.AddSeconds(es.ExposureLengthSec);
                     state.RecordExposure(prof, targetIdx, pick.PanelIdx, pick.EsIdx, es);
                     prof.AllocatedSec = state.AllocatedSec.ContainsKey(prof) ? state.AllocatedSec[prof] : 0;
+                    lastEs = es;
+                    lastPanelLabel = panelLabel;
+                    lastPanelIdx = pick.PanelIdx;
+                    lastEsIdx = pick.EsIdx;
 
                     if (isMultiPanel && !string.IsNullOrEmpty(panelLabel)) {
                         var ptKey = (prof, panelLabel);

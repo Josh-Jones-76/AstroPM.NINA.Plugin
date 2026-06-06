@@ -5,7 +5,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>AstroPM.NINA.Plugin</AssemblyName>
     <RootNamespace>AstroPM.NINA.Plugin</RootNamespace>
-    <Version>1.0.1.0</Version>
+    <Version>1.0.2.0</Version>
     <Authors>Astro PM</Authors>
     <Description>Astro PM connects your cloud-hosted imaging projects to NINA. Set up your sync token to link your account, browse and load targets directly into the Framing Assistant for manual session planning, or use the built-in Simulator to generate a fully automated nightly schedule.</Description>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>

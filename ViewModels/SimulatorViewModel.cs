@@ -23,7 +23,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private List<TargetProfile> _profiles;
         private List<SimLogEntry> _log;
 
-        private DateTime _selectedDate = DateTime.Today;
+        private DateTime _selectedDate = DateTime.Now.Hour < 7 ? DateTime.Today.AddDays(-1) : DateTime.Today;
         private string _selectedLocation;
         private string _selectedTelescope;
         private string _selectedStatus;
@@ -132,7 +132,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             SimulateCommand = new RelayCommand(async _ => await RunSimulationAsync(), _ => !IsSimulating);
             DatePrevCommand = new RelayCommand(async _ => { SelectedDate = SelectedDate.AddDays(-1); await RunSimulationAsync(); }, _ => !IsSimulating);
             DateNextCommand = new RelayCommand(async _ => { SelectedDate = SelectedDate.AddDays(1); await RunSimulationAsync(); }, _ => !IsSimulating);
-            DateTodayCommand = new RelayCommand(async _ => { SelectedDate = DateTime.Today; await RunSimulationAsync(); }, _ => !IsSimulating);
+            DateTodayCommand = new RelayCommand(async _ => { SelectedDate = DateTime.Now.Hour < 7 ? DateTime.Today.AddDays(-1) : DateTime.Today; await RunSimulationAsync(); }, _ => !IsSimulating);
 
             RefreshCacheStatus();
         }
@@ -621,7 +621,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
             var state = new ScheduleSessionState();
             _log = ScheduleEngine.WalkToLog(matrix, state, tz,
-                _ditherEnabled, _ditherEvery, _filterSwitchEnabled, _filterSwitchCount, _sortChain);
+                _ditherEnabled, _ditherEvery, _filterSwitchEnabled, _filterSwitchCount, _sortChain,
+                bonusEnabled: _bonusImagesEnabled);
         }
 
         private List<ProjectTarget> FilterTargets() {

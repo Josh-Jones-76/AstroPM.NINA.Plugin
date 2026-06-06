@@ -403,16 +403,31 @@ namespace AstroPM.NINA.Plugin.Views {
             var bonusSpans = new List<(double X0, double X1)>();
 
             string curFilter = null;
+            string lastKnownFilter = "";
             int segImageCount = 0;
             double segLabelX0 = 0, segLabelX1 = 0;
             var segRects = new List<(double X0, double X1)>();
             double runX0 = 0, runX1 = 0;
             bool inRun = false;
 
+            void FlushRun() {
+                if (inRun) { segRects.Add((runX0, runX1)); segLabelX1 = runX1; }
+                inRun = false;
+            }
+
+            void FlushSegment() {
+                FlushRun();
+                if (curFilter != null && segRects.Count > 0)
+                    segments.Add((curFilter, segImageCount, segLabelX0, segLabelX1,
+                        new List<(double, double)>(segRects)));
+                segRects.Clear();
+                segImageCount = 0;
+            }
+
             for (int ei = 0; ei < _log.Count; ei++) {
                 var entry = _log[ei];
 
-                if (entry.Command == "Image" && entry.UtcTime != default && !string.IsNullOrEmpty(entry.Filter)) {
+                if ((entry.Command == "Image" || entry.Command == "Bonus") && entry.UtcTime != default && !string.IsNullOrEmpty(entry.Filter)) {
                     double expSec = 300;
                     if (!string.IsNullOrEmpty(entry.Exposure) && double.TryParse(entry.Exposure.TrimEnd('s'), out var parsed))
                         expSec = parsed;
@@ -421,8 +436,7 @@ namespace AstroPM.NINA.Plugin.Views {
                     double x1 = (entry.UtcTime.AddSeconds(expSec) - timelineStart).TotalSeconds / timelineSpanSec * barW;
 
                     if (entry.Filter != curFilter) {
-                        FlushFilterSegment(ref curFilter, ref segImageCount, ref segLabelX0, ref segLabelX1,
-                            segRects, segments, ref inRun, ref runX0, ref runX1);
+                        FlushSegment();
                         curFilter = entry.Filter;
                         segLabelX0 = x0;
                     }
@@ -430,44 +444,38 @@ namespace AstroPM.NINA.Plugin.Views {
                     if (!inRun) { runX0 = x0; runX1 = x1; inRun = true; }
                     else { runX1 = x1; }
                     segImageCount++;
-                } else if (entry.Command == "Bonus" && entry.UtcTime != default) {
-                    FlushFilterSegment(ref curFilter, ref segImageCount, ref segLabelX0, ref segLabelX1,
-                        segRects, segments, ref inRun, ref runX0, ref runX1);
-                    double expSec = 300;
-                    if (!string.IsNullOrEmpty(entry.Exposure) && double.TryParse(entry.Exposure.TrimEnd('s'), out var bExp))
-                        expSec = bExp;
-                    double bx0 = (entry.UtcTime - timelineStart).TotalSeconds / timelineSpanSec * barW;
-                    double bx1 = (entry.UtcTime.AddSeconds(expSec) - timelineStart).TotalSeconds / timelineSpanSec * barW;
-                    bonusSpans.Add((bx0, bx1));
+                    lastKnownFilter = entry.Filter;
+                    if (entry.Command == "Bonus") bonusSpans.Add((x0, x1));
                 } else if (entry.Command == "Info" && inRun && entry.UtcTime != default) {
-                    double durSec = 10;
-                    if (ei + 1 < _log.Count)
-                        durSec = Math.Max(1, (_log[ei + 1].UtcTime - entry.UtcTime).TotalSeconds);
-                    runX1 = (entry.UtcTime.AddSeconds(durSec) - timelineStart).TotalSeconds / timelineSpanSec * barW;
+                    double infoX = (entry.UtcTime - timelineStart).TotalSeconds / timelineSpanSec * barW;
+                    if (infoX - runX1 > barW * 10.0 / (timelineSpanSec / 60))
+                        FlushSegment();
                 } else if ((entry.Command == "Dither" || entry.Command == "Filter") && entry.UtcTime != default) {
                     double durSec = 10;
                     if (ei + 1 < _log.Count)
-                        durSec = Math.Max(1, (_log[ei + 1].UtcTime - entry.UtcTime).TotalSeconds);
+                        durSec = Math.Clamp((_log[ei + 1].UtcTime - entry.UtcTime).TotalSeconds, 1, 300);
 
                     double x0 = (entry.UtcTime - timelineStart).TotalSeconds / timelineSpanSec * barW;
                     double x1 = (entry.UtcTime.AddSeconds(durSec) - timelineStart).TotalSeconds / timelineSpanSec * barW;
 
                     if (entry.Command == "Filter" && !string.IsNullOrEmpty(entry.Filter)) {
-                        FlushFilterSegment(ref curFilter, ref segImageCount, ref segLabelX0, ref segLabelX1,
-                            segRects, segments, ref inRun, ref runX0, ref runX1);
+                        FlushSegment();
                         curFilter = entry.Filter;
                         segLabelX0 = x0;
+                        lastKnownFilter = entry.Filter;
                         runX0 = x0; runX1 = x1; inRun = true;
                     } else {
-                        if (!inRun) { runX0 = x0; runX1 = x1; inRun = true; }
-                        else { runX1 = x1; }
+                        string ditherFilter = curFilter ?? lastKnownFilter;
+                        if (!string.IsNullOrEmpty(ditherFilter)) {
+                            if (!inRun) { runX0 = x0; runX1 = x1; inRun = true; }
+                            else { runX1 = x1; }
+                        }
                     }
                 } else {
-                    if (inRun) { segRects.Add((runX0, runX1)); segLabelX1 = runX1; inRun = false; }
+                    FlushRun();
                 }
             }
-            FlushFilterSegment(ref curFilter, ref segImageCount, ref segLabelX0, ref segLabelX1,
-                segRects, segments, ref inRun, ref runX0, ref runX1);
+            FlushSegment();
 
             var labelBrush = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255));
 
@@ -523,19 +531,6 @@ namespace AstroPM.NINA.Plugin.Views {
                     }
                 }
             }
-        }
-
-        private static void FlushFilterSegment(ref string curFilter, ref int segImageCount,
-            ref double segLabelX0, ref double segLabelX1,
-            List<(double X0, double X1)> segRects,
-            List<(string FilterName, int ImageCount, double LabelX0, double LabelX1,
-                List<(double X0, double X1)> Rects)> segments,
-            ref bool inRun, ref double runX0, ref double runX1) {
-            if (inRun) { segRects.Add((runX0, runX1)); segLabelX1 = runX1; inRun = false; }
-            if (curFilter != null && segRects.Count > 0)
-                segments.Add((curFilter, segImageCount, segLabelX0, segLabelX1, new List<(double, double)>(segRects)));
-            segRects.Clear();
-            segImageCount = 0;
         }
 
         private void DrawTargetAltitudeCurves(double w, double h) {
@@ -688,8 +683,8 @@ namespace AstroPM.NINA.Plugin.Views {
                         cur = new TargetGroup { TargetName = entry.Target };
                     }
                 } else if (entry.Command == "Info" && inRun) {
-                    if (ei + 1 < _log.Count && entry.UtcTime != default)
-                        runEnd = entry.UtcTime.AddSeconds(Math.Max(1, (_log[ei + 1].UtcTime - entry.UtcTime).TotalSeconds));
+                    if (entry.UtcTime != default && (entry.UtcTime - runEnd).TotalMinutes > 10)
+                        FlushRun();
                 } else if ((entry.Command == "Image" || entry.Command == "Bonus" || entry.Command == "Dither" || entry.Command == "Filter")
                     && cur != null && entry.Target == cur.TargetName) {
                     double durSec;
@@ -699,7 +694,7 @@ namespace AstroPM.NINA.Plugin.Views {
                     else {
                         durSec = 10;
                         if (ei + 1 < _log.Count)
-                            durSec = Math.Max(1, (_log[ei + 1].UtcTime - entry.UtcTime).TotalSeconds);
+                            durSec = Math.Clamp((_log[ei + 1].UtcTime - entry.UtcTime).TotalSeconds, 1, 300);
                     }
 
                     var entryEnd = entry.UtcTime.AddSeconds(durSec);
