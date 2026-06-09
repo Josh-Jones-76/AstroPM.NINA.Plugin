@@ -11,6 +11,7 @@ using NINA.Equipment.Model;
 using NINA.Image.Interfaces;
 using NINA.PlateSolving.Interfaces;
 using NINA.Profile.Interfaces;
+using Newtonsoft.Json;
 using NINA.Sequencer.Interfaces;
 using NINA.Sequencer.SequenceItem;
 using NINA.Sequencer.SequenceItem.Platesolving;
@@ -30,7 +31,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
     /// </summary>
 
     // ── Placeholder to prevent NINA from skipping an empty container ──
-    internal class AstroPMPlaceholderItem : SequenceItem {
+    [JsonObject(MemberSerialization.OptIn)]
+    public class AstroPMPlaceholderItem : SequenceItem {
         public override Task Execute(IProgress<ApplicationStatus> progress, CancellationToken token) {
             return Task.CompletedTask;
         }

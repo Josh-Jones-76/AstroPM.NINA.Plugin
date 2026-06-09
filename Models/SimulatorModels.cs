@@ -37,6 +37,7 @@ namespace AstroPM.NINA.Plugin.Models {
         public SolidColorBrush ChipColor { get; set; }
         public double ProgressPercent { get; set; }
         public bool IsLunarAvoid { get; set; }
+        public ExposureSetData SourceExposureSet { get; set; }
     }
 
     public class ConstraintCheckModel {

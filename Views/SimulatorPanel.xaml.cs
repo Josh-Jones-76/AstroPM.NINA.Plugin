@@ -121,9 +121,9 @@ namespace AstroPM.NINA.Plugin.Views {
             if (_vm?.Log == null || _vm.Log.Count == 0) return;
 
             var sb = new StringBuilder();
-            sb.AppendLine("Command\tTime\tTarget\tPanel\tSub\tFilter\tExp\tGain\tOffset\tBin\tRot\tRA\tDEC\tSort1\tSort2\tSort3\tSort4\tAlt\tMoonSep\tMoonOK\tAvoidSep\tDark\tLA\tLASafe");
+            sb.AppendLine("Command\tTime\tTarget\tPanel\tSub\tFilter\tExp\tGain\tOffset\tBin\tRot\tRA\tDEC\tSort1\tSort2\tSort3\tSort4\tAlt\tMoonSep\tMoonOK\tAvoidSep\tDark\tLA\tLASafe\tFilter Profile\tAccepted Profiles");
             foreach (var entry in _vm.Log) {
-                sb.AppendLine($"{entry.Command}\t{entry.Time}\t{entry.Target}\t{entry.Panel}\t{entry.SubNum}\t{entry.Filter}\t{entry.Exposure}\t{entry.Gain}\t{entry.Offset}\t{entry.Bin}\t{entry.Rotation}\t{entry.RA}\t{entry.DEC}\t{entry.Sort1}\t{entry.Sort2}\t{entry.Sort3}\t{entry.Sort4}\t{entry.Altitude}\t{entry.MoonSep}\t{entry.MoonSafe}\t{entry.MoonAvoidSep}\t{entry.DarkSafe}\t{entry.LaEnabled}\t{entry.LaSafe}");
+                sb.AppendLine($"{entry.Command}\t{entry.Time}\t{entry.Target}\t{entry.Panel}\t{entry.SubNum}\t{entry.Filter}\t{entry.Exposure}\t{entry.Gain}\t{entry.Offset}\t{entry.Bin}\t{entry.Rotation}\t{entry.RA}\t{entry.DEC}\t{entry.Sort1}\t{entry.Sort2}\t{entry.Sort3}\t{entry.Sort4}\t{entry.Altitude}\t{entry.MoonSep}\t{entry.MoonSafe}\t{entry.MoonAvoidSep}\t{entry.DarkSafe}\t{entry.LaEnabled}\t{entry.LaSafe}\t{entry.FilterProfile}\t{entry.AcceptedProfiles}");
             }
             try { Clipboard.SetText(sb.ToString()); } catch { }
         }

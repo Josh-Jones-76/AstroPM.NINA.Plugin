@@ -750,7 +750,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
                         double pct = es.PlannedCount > 0 ? (double)es.AcceptedCount / es.PlannedCount * 100 : 0;
                         string detail = $"{remaining}/{es.PlannedCount} remaining × {es.ExposureLengthSec:F0}s";
-                        if (es.AvoidLunar) detail += " [LA]";
+                        if (es.HasMoonAvoidance) detail += " [LA]";
 
                         var chipColor = FilterColorMap.TryGetValue(es.FilterName, out var fc)
                             ? new SolidColorBrush(fc)
@@ -763,7 +763,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                             StatusColor = PassBrush,
                             ChipColor = chipColor,
                             ProgressPercent = pct,
-                            IsLunarAvoid = es.AvoidLunar,
+                            IsLunarAvoid = es.HasMoonAvoidance,
+                            SourceExposureSet = es,
                         });
                     }
 
@@ -832,7 +833,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 DetailColor = DimBrush,
             });
 
-            bool hasLunar = prof.Target.Panels.SelectMany(p => p.ExposureSets).Any(es => es.AvoidLunar && es.Remaining > 0);
+            bool hasLunar = prof.Target.Panels.SelectMany(p => p.ExposureSets).Any(es => es.HasMoonAvoidance && es.Remaining > 0);
             bool moonPass;
             string moonDetail;
             if (!hasLunar) {
@@ -896,15 +897,22 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 var prof = _profiles[pIdx];
 
                 var updatedFilters = new List<List<FilterPillModel>>();
+                double moonSepDeg = slotIdx < prof.MoonSepPerSlot.Length ? prof.MoonSepPerSlot[slotIdx] : 0;
                 foreach (var group in card.PanelFilterGroups) {
-                    updatedFilters.Add(group.Select(pill => new FilterPillModel {
-                        FilterLabel = pill.FilterLabel,
-                        ExposureDetail = pill.ExposureDetail,
-                        ChipColor = pill.ChipColor,
-                        ProgressPercent = pill.ProgressPercent,
-                        IsLunarAvoid = pill.IsLunarAvoid,
-                        StatusIcon = pill.IsLunarAvoid ? (moonDown ? "✓" : "✗") : "✓",
-                        StatusColor = pill.IsLunarAvoid && !moonDown ? FailBrush : PassBrush,
+                    updatedFilters.Add(group.Select(pill => {
+                        bool esMoonSafe = pill.SourceExposureSet != null
+                            ? SessionScheduler.IsExposureSetMoonSafe(pill.SourceExposureSet, slot, moonSepDeg, prof.Constraints)
+                            : !pill.IsLunarAvoid || moonDown;
+                        return new FilterPillModel {
+                            FilterLabel = pill.FilterLabel,
+                            ExposureDetail = pill.ExposureDetail,
+                            ChipColor = pill.ChipColor,
+                            ProgressPercent = pill.ProgressPercent,
+                            IsLunarAvoid = pill.IsLunarAvoid,
+                            SourceExposureSet = pill.SourceExposureSet,
+                            StatusIcon = esMoonSafe ? "✓" : "✗",
+                            StatusColor = esMoonSafe ? PassBrush : FailBrush,
+                        };
                     }).ToList());
                 }
 
@@ -964,7 +972,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 DetailColor = DimBrush,
             });
 
-            bool hasLunar = prof.Target.Panels.SelectMany(p => p.ExposureSets).Any(es => es.AvoidLunar && es.Remaining > 0);
+            bool hasLunar = prof.Target.Panels.SelectMany(p => p.ExposureSets).Any(es => es.HasMoonAvoidance && es.Remaining > 0);
             bool moonDown = slot.MoonAltDeg <= 0;
             bool moonPass;
             string moonDetail;

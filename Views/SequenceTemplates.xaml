@@ -5,7 +5,9 @@
     xmlns:local="clr-namespace:AstroPM.NINA.Plugin.Instructions"
     xmlns:views="clr-namespace:AstroPM.NINA.Plugin.Views"
     xmlns:nina="clr-namespace:NINA.View.Sequencer;assembly=NINA.Sequencer"
-    xmlns:mini="clr-namespace:NINA.View.Sequencer.MiniSequencer;assembly=NINA.Sequencer">
+    xmlns:mini="clr-namespace:NINA.View.Sequencer.MiniSequencer;assembly=NINA.Sequencer"
+    xmlns:behaviors="clr-namespace:NINA.Sequencer.Behaviors;assembly=NINA.Sequencer"
+    xmlns:i="http://schemas.microsoft.com/xaml/behaviors">
 
     <DataTemplate DataType="{x:Type local:TargetInstructionSet}">
         <nina:SequenceBlockView>
@@ -316,6 +318,8 @@
                                 <GridViewColumn Header="Gain" Width="40" DisplayMemberBinding="{Binding Gain}"/>
                                 <GridViewColumn Header="Offset" Width="45" DisplayMemberBinding="{Binding Offset}"/>
                                 <GridViewColumn Header="Bin" Width="35" DisplayMemberBinding="{Binding Bin}"/>
+                                <GridViewColumn Header="Filter Profile" Width="95" DisplayMemberBinding="{Binding FilterProfile}"/>
+                                <GridViewColumn Header="Accepted Profiles" Width="175" DisplayMemberBinding="{Binding AcceptedProfiles}"/>
                             </GridView>
                         </ListView.View>
                         </ListView>
@@ -408,7 +412,18 @@
                 <StackPanel Orientation="Vertical" Margin="0,2">
                     <TextBlock Text="Runs before each AstroPM exposure" FontSize="10" FontStyle="Italic"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
-                    <ContentPresenter Content="{Binding TriggerRunner}" Margin="0,2,0,0"/>
+                    <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding TriggerRunner}">
+                            <ItemsControl MinHeight="35" ItemsSource="{Binding Items}" />
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontStyle="Italic"
+                                       Opacity="0.4" Text="Drag instructions here..."
+                                       Visibility="{Binding Items.Count, Converter={StaticResource InverseZeroToVisibilityConverter}}" />
+                            <i:Interaction.Behaviors>
+                                <behaviors:DragOverBehavior DragAboveSize="0" DragBelowSize="0" />
+                                <behaviors:DropIntoBehavior AllowedDragDropTypesString="NINA.Sequencer.Container.ISequenceContainer;NINA.Sequencer.SequenceItem.ISequenceItem;NINA.Sequencer.TemplatedSequenceContainer" OnDropCommand="DropIntoCommand" />
+                            </i:Interaction.Behaviors>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </nina:SequenceBlockView.SequenceItemContent>
         </nina:SequenceBlockView>
@@ -430,7 +445,18 @@
                 <StackPanel Orientation="Vertical" Margin="0,2">
                     <TextBlock Text="Runs after each AstroPM exposure" FontSize="10" FontStyle="Italic"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
-                    <ContentPresenter Content="{Binding TriggerRunner}" Margin="0,2,0,0"/>
+                    <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding TriggerRunner}">
+                            <ItemsControl MinHeight="35" ItemsSource="{Binding Items}" />
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontStyle="Italic"
+                                       Opacity="0.4" Text="Drag instructions here..."
+                                       Visibility="{Binding Items.Count, Converter={StaticResource InverseZeroToVisibilityConverter}}" />
+                            <i:Interaction.Behaviors>
+                                <behaviors:DragOverBehavior DragAboveSize="0" DragBelowSize="0" />
+                                <behaviors:DropIntoBehavior AllowedDragDropTypesString="NINA.Sequencer.Container.ISequenceContainer;NINA.Sequencer.SequenceItem.ISequenceItem;NINA.Sequencer.TemplatedSequenceContainer" OnDropCommand="DropIntoCommand" />
+                            </i:Interaction.Behaviors>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </nina:SequenceBlockView.SequenceItemContent>
         </nina:SequenceBlockView>
@@ -452,7 +478,18 @@
                 <StackPanel Orientation="Vertical" Margin="0,2">
                     <TextBlock Text="Runs before AstroPM slews to each new target" FontSize="10" FontStyle="Italic"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
-                    <ContentPresenter Content="{Binding TriggerRunner}" Margin="0,2,0,0"/>
+                    <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding TriggerRunner}">
+                            <ItemsControl MinHeight="35" ItemsSource="{Binding Items}" />
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontStyle="Italic"
+                                       Opacity="0.4" Text="Drag instructions here..."
+                                       Visibility="{Binding Items.Count, Converter={StaticResource InverseZeroToVisibilityConverter}}" />
+                            <i:Interaction.Behaviors>
+                                <behaviors:DragOverBehavior DragAboveSize="0" DragBelowSize="0" />
+                                <behaviors:DropIntoBehavior AllowedDragDropTypesString="NINA.Sequencer.Container.ISequenceContainer;NINA.Sequencer.SequenceItem.ISequenceItem;NINA.Sequencer.TemplatedSequenceContainer" OnDropCommand="DropIntoCommand" />
+                            </i:Interaction.Behaviors>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </nina:SequenceBlockView.SequenceItemContent>
         </nina:SequenceBlockView>
@@ -474,7 +511,18 @@
                 <StackPanel Orientation="Vertical" Margin="0,2">
                     <TextBlock Text="Runs after AstroPM finishes each target block" FontSize="10" FontStyle="Italic"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
-                    <ContentPresenter Content="{Binding TriggerRunner}" Margin="0,2,0,0"/>
+                    <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding TriggerRunner}">
+                            <ItemsControl MinHeight="35" ItemsSource="{Binding Items}" />
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontStyle="Italic"
+                                       Opacity="0.4" Text="Drag instructions here..."
+                                       Visibility="{Binding Items.Count, Converter={StaticResource InverseZeroToVisibilityConverter}}" />
+                            <i:Interaction.Behaviors>
+                                <behaviors:DragOverBehavior DragAboveSize="0" DragBelowSize="0" />
+                                <behaviors:DropIntoBehavior AllowedDragDropTypesString="NINA.Sequencer.Container.ISequenceContainer;NINA.Sequencer.SequenceItem.ISequenceItem;NINA.Sequencer.TemplatedSequenceContainer" OnDropCommand="DropIntoCommand" />
+                            </i:Interaction.Behaviors>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </nina:SequenceBlockView.SequenceItemContent>
         </nina:SequenceBlockView>

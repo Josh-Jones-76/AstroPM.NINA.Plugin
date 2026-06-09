@@ -913,17 +913,38 @@ namespace AstroPM.NINA.Plugin.Models {
                         ? prof.AltitudePerSlot[currentSlotIdx] : 0;
                     double moonSep = currentSlotIdx >= 0 && currentSlotIdx < prof.MoonSepPerSlot.Length
                         ? prof.MoonSepPerSlot[currentSlotIdx] : 0;
-                    bool isMoonSafe = currentSlotIdx >= 0 && currentSlotIdx < matrix.Slots.Count
-                        && matrix.MoonSafe[rowIdx][currentSlotIdx];
+                    double esMoonSep = currentSlotIdx >= 0 && currentSlotIdx < prof.MoonSepPerSlot.Length
+                        ? prof.MoonSepPerSlot[currentSlotIdx] : 0;
+                    var esSlot = currentSlotIdx >= 0 && currentSlotIdx < matrix.Slots.Count
+                        ? matrix.Slots[currentSlotIdx] : null;
+                    bool isMoonSafe = esSlot != null
+                        && SessionScheduler.IsExposureSetMoonSafe(es, esSlot, esMoonSep, prof.Constraints);
                     bool isDarkSafe = currentSlotIdx >= 0 && currentSlotIdx < matrix.Slots.Count
                         && matrix.Slots[currentSlotIdx].SunAltDeg < prof.Constraints.SunAltitudeThreshold;
                     double reqSep = 0;
-                    if (currentSlotIdx >= 0 && currentSlotIdx < matrix.Slots.Count) {
-                        var slot = matrix.Slots[currentSlotIdx];
-                        reqSep = AstroCalculator.RequiredMoonSeparation(slot.UtcStart, slot.MoonAltDeg, prof.Constraints);
+                    if (esSlot != null) {
+                        ObservingConstraints reqC = es.MoonAvoidanceProfile != null
+                            ? new ObservingConstraints {
+                                MoonAvoidanceEnabled = true,
+                                MinMoonSeparationDeg = es.MoonAvoidanceProfile.MoonSeparationDeg,
+                                MoonAvoidanceWidthDays = es.MoonAvoidanceProfile.MoonAvoidanceWidthDays,
+                                MoonRelaxScale = es.MoonAvoidanceProfile.MoonRelaxScale,
+                                MinMoonAltitude = es.MoonAvoidanceProfile.MoonMinAltitude,
+                                MaxMoonAltitude = es.MoonAvoidanceProfile.MoonMaxAltitude,
+                                MaxMoonIlluminationPct = es.MoonAvoidanceProfile.MaxMoonIlluminationPct,
+                            }
+                            : prof.Constraints;
+                        reqSep = AstroCalculator.RequiredMoonSeparation(esSlot.UtcStart, esSlot.MoonAltDeg, reqC);
                     }
-                    bool isLaFilter = es.AvoidLunar;
+                    bool isLaFilter = es.HasMoonAvoidance;
                     bool isLaSafe = !isLaFilter || isMoonSafe;
+
+                    string filterProfile = "";
+                    string acceptedProfiles = "";
+                    if (esSlot != null) {
+                        filterProfile = SessionScheduler.GetFilterProfileName(es);
+                        acceptedProfiles = SessionScheduler.GetAcceptedProfiles(es, esSlot, esMoonSep);
+                    }
 
                     log.Add(new SimLogEntry {
                         Command = command,
@@ -950,6 +971,8 @@ namespace AstroPM.NINA.Plugin.Models {
                         DarkSafe = isDarkSafe ? "Yes" : "No",
                         LaEnabled = isLaFilter ? "Yes" : "—",
                         LaSafe = isLaFilter ? (isLaSafe ? "Yes" : "No") : "—",
+                        FilterProfile = filterProfile,
+                        AcceptedProfiles = acceptedProfiles,
                         SlotIndex = currentSlotIdx,
                         UtcTime = currentUtc,
                     });
@@ -1064,14 +1087,20 @@ namespace AstroPM.NINA.Plugin.Models {
                 bool isMoonSafe = matrix.MoonSafe[matchRow.RowIndex][entry.SlotIndex];
                 if (isMoonSafe) continue;
 
-                bool isLa = matchRow.Profile.Target.Panels.SelectMany(p => p.ExposureSets)
-                    .Any(es => es.AvoidLunar && es.FilterName == entry.Filter);
-                if (isLa)
-                    warnings.Add(new ScheduleWarning {
-                        Severity = "error",
-                        Message = $"LA-UNSAFE: {entry.Target} using LA filter {entry.Filter} at {entry.Time} (moon up, not safe)",
-                        UtcTime = entry.UtcTime,
-                    });
+                var laEs = matchRow.Profile.Target.Panels.SelectMany(p => p.ExposureSets)
+                    .FirstOrDefault(es => es.HasMoonAvoidance && es.FilterName == entry.Filter);
+                if (laEs != null) {
+                    double valMoonSep = entry.SlotIndex < matchRow.Profile.MoonSepPerSlot.Length
+                        ? matchRow.Profile.MoonSepPerSlot[entry.SlotIndex] : 0;
+                    var valSlot = matrix.Slots[entry.SlotIndex];
+                    bool esSafe = SessionScheduler.IsExposureSetMoonSafe(laEs, valSlot, valMoonSep, matchRow.Profile.Constraints);
+                    if (!esSafe)
+                        warnings.Add(new ScheduleWarning {
+                            Severity = "error",
+                            Message = $"LA-UNSAFE: {entry.Target} using LA filter {entry.Filter} at {entry.Time} (moon up, not safe)",
+                            UtcTime = entry.UtcTime,
+                        });
+                }
             }
 
             var targetSubs = log.Where(e => e.Command == "Image" || e.Command == "Bonus")

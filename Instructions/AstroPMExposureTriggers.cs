@@ -23,8 +23,21 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public AstroPMBeforeExposureTrigger() {
         }
 
-        private AstroPMBeforeExposureTrigger(AstroPMBeforeExposureTrigger cloneMe) : base(cloneMe) {
+        private AstroPMBeforeExposureTrigger(AstroPMBeforeExposureTrigger cloneMe) : this() {
             CopyMetaData(cloneMe);
+            TriggerRunner = (SequentialContainer)cloneMe.TriggerRunner.Clone();
+            TriggerRunner.AttachNewParent(Parent);
+        }
+
+        public override void AfterParentChanged() {
+            base.AfterParentChanged();
+            foreach (ISequenceItem item in TriggerRunner.Items) {
+                if (item.Parent == null) item.AttachNewParent(TriggerRunner);
+            }
+            TriggerRunner.AttachNewParent(Parent);
+            foreach (ISequenceItem item in TriggerRunner.Items) {
+                item.AfterParentChanged();
+            }
         }
 
         public override bool ShouldTrigger(ISequenceItem previousItem, ISequenceItem nextItem) {
@@ -38,10 +51,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public override async Task Execute(ISequenceContainer context, IProgress<ApplicationStatus> progress, CancellationToken token) {
             Logger.Info("AstroPM | Before Exposure trigger firing");
             TriggerRunner.AttachNewParent(context);
-            foreach (var item in TriggerRunner.GetItemsSnapshot()) {
-                token.ThrowIfCancellationRequested();
-                await item.Run(progress, token);
-            }
+            await TriggerRunner.Run(progress, token);
         }
 
         public override object Clone() => new AstroPMBeforeExposureTrigger(this);
@@ -60,8 +70,21 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public AstroPMAfterExposureTrigger() {
         }
 
-        private AstroPMAfterExposureTrigger(AstroPMAfterExposureTrigger cloneMe) : base(cloneMe) {
+        private AstroPMAfterExposureTrigger(AstroPMAfterExposureTrigger cloneMe) : this() {
             CopyMetaData(cloneMe);
+            TriggerRunner = (SequentialContainer)cloneMe.TriggerRunner.Clone();
+            TriggerRunner.AttachNewParent(Parent);
+        }
+
+        public override void AfterParentChanged() {
+            base.AfterParentChanged();
+            foreach (ISequenceItem item in TriggerRunner.Items) {
+                if (item.Parent == null) item.AttachNewParent(TriggerRunner);
+            }
+            TriggerRunner.AttachNewParent(Parent);
+            foreach (ISequenceItem item in TriggerRunner.Items) {
+                item.AfterParentChanged();
+            }
         }
 
         public override bool ShouldTrigger(ISequenceItem previousItem, ISequenceItem nextItem) {
@@ -75,10 +98,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public override async Task Execute(ISequenceContainer context, IProgress<ApplicationStatus> progress, CancellationToken token) {
             Logger.Info("AstroPM | After Exposure trigger firing");
             TriggerRunner.AttachNewParent(context);
-            foreach (var item in TriggerRunner.GetItemsSnapshot()) {
-                token.ThrowIfCancellationRequested();
-                await item.Run(progress, token);
-            }
+            await TriggerRunner.Run(progress, token);
         }
 
         public override object Clone() => new AstroPMAfterExposureTrigger(this);
@@ -99,8 +119,21 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public AstroPMBeforeTargetTrigger() {
         }
 
-        private AstroPMBeforeTargetTrigger(AstroPMBeforeTargetTrigger cloneMe) : base(cloneMe) {
+        private AstroPMBeforeTargetTrigger(AstroPMBeforeTargetTrigger cloneMe) : this() {
             CopyMetaData(cloneMe);
+            TriggerRunner = (SequentialContainer)cloneMe.TriggerRunner.Clone();
+            TriggerRunner.AttachNewParent(Parent);
+        }
+
+        public override void AfterParentChanged() {
+            base.AfterParentChanged();
+            foreach (ISequenceItem item in TriggerRunner.Items) {
+                if (item.Parent == null) item.AttachNewParent(TriggerRunner);
+            }
+            TriggerRunner.AttachNewParent(Parent);
+            foreach (ISequenceItem item in TriggerRunner.Items) {
+                item.AfterParentChanged();
+            }
         }
 
         public override bool ShouldTrigger(ISequenceItem previousItem, ISequenceItem nextItem) {
@@ -120,10 +153,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             if (isFirstTarget || isNewTarget) {
                 Logger.Info($"AstroPM | Before Target trigger firing: {block.TargetName}");
                 if (Parent != null) TriggerRunner.AttachNewParent(Parent);
-                foreach (var item in TriggerRunner.GetItemsSnapshot()) {
-                    token.ThrowIfCancellationRequested();
-                    await item.Run(progress, token);
-                }
+                await TriggerRunner.Run(progress, token);
             }
             _lastTargetName = block.TargetName;
         }
@@ -148,8 +178,21 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public AstroPMAfterTargetTrigger() {
         }
 
-        private AstroPMAfterTargetTrigger(AstroPMAfterTargetTrigger cloneMe) : base(cloneMe) {
+        private AstroPMAfterTargetTrigger(AstroPMAfterTargetTrigger cloneMe) : this() {
             CopyMetaData(cloneMe);
+            TriggerRunner = (SequentialContainer)cloneMe.TriggerRunner.Clone();
+            TriggerRunner.AttachNewParent(Parent);
+        }
+
+        public override void AfterParentChanged() {
+            base.AfterParentChanged();
+            foreach (ISequenceItem item in TriggerRunner.Items) {
+                if (item.Parent == null) item.AttachNewParent(TriggerRunner);
+            }
+            TriggerRunner.AttachNewParent(Parent);
+            foreach (ISequenceItem item in TriggerRunner.Items) {
+                item.AfterParentChanged();
+            }
         }
 
         public override bool ShouldTrigger(ISequenceItem previousItem, ISequenceItem nextItem) {
@@ -165,10 +208,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             Logger.Info($"AstroPM | After Target trigger firing: {block.TargetName}");
             if (Parent != null) TriggerRunner.AttachNewParent(Parent);
-            foreach (var item in TriggerRunner.GetItemsSnapshot()) {
-                token.ThrowIfCancellationRequested();
-                await item.Run(progress, token);
-            }
+            await TriggerRunner.Run(progress, token);
         }
 
         public override Task Execute(ISequenceContainer context, IProgress<ApplicationStatus> progress, CancellationToken token) {

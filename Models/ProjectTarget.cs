@@ -176,8 +176,37 @@ namespace AstroPM.NINA.Plugin.Models {
         [JsonProperty("avoid_lunar")]
         public bool AvoidLunar { get; set; }
 
+        [JsonProperty("moon_avoidance_profile")]
+        public MoonAvoidanceProfileData MoonAvoidanceProfile { get; set; }
+
+        [JsonIgnore]
+        public bool HasMoonAvoidance => AvoidLunar || MoonAvoidanceProfile != null;
+
         [JsonIgnore]
         public int Remaining => Math.Max(0, PlannedCount - AcceptedCount);
+    }
+
+    public class MoonAvoidanceProfileData {
+        [JsonProperty("name")]
+        public string Name { get; set; } = "";
+
+        [JsonProperty("moon_separation_deg")]
+        public double MoonSeparationDeg { get; set; } = 60.0;
+
+        [JsonProperty("moon_avoidance_width_days")]
+        public double MoonAvoidanceWidthDays { get; set; } = 7.0;
+
+        [JsonProperty("moon_relax_scale")]
+        public double MoonRelaxScale { get; set; } = 0.0;
+
+        [JsonProperty("moon_min_altitude")]
+        public double MoonMinAltitude { get; set; } = -15.0;
+
+        [JsonProperty("moon_max_altitude")]
+        public double MoonMaxAltitude { get; set; } = 5.0;
+
+        [JsonProperty("max_moon_illumination_pct")]
+        public double MaxMoonIlluminationPct { get; set; } = 40.0;
     }
 
     public class ConstraintsData {

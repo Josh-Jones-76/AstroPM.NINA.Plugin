@@ -55,6 +55,8 @@ namespace AstroPM.NINA.Plugin.Models {
         public string DarkSafe { get; set; } = "";
         public string LaEnabled { get; set; } = "";
         public string LaSafe { get; set; } = "";
+        public string FilterProfile { get; set; } = "";
+        public string AcceptedProfiles { get; set; } = "";
         public int SlotIndex { get; set; } = -1;
         public DateTime UtcTime { get; set; }
     }
@@ -94,7 +96,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 var panel = target.Target.Panels[pi];
                 for (int ei = 0; ei < panel.ExposureSets.Count; ei++) {
                     var es = panel.ExposureSets[ei];
-                    if (RemainingForEs(targetIdx, pi, ei, es) > 0 && (!es.AvoidLunar || moonDown))
+                    if (RemainingForEs(targetIdx, pi, ei, es) > 0 && (!es.HasMoonAvoidance || moonDown))
                         return true;
                 }
             }
@@ -106,7 +108,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 var panel = target.Target.Panels[pi];
                 for (int ei = 0; ei < panel.ExposureSets.Count; ei++) {
                     var es = panel.ExposureSets[ei];
-                    if (es.AvoidLunar && RemainingForEs(targetIdx, pi, ei, es) > 0)
+                    if (es.HasMoonAvoidance && RemainingForEs(targetIdx, pi, ei, es) > 0)
                         return true;
                 }
             }
@@ -120,7 +122,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 for (int ei = 0; ei < panel.ExposureSets.Count; ei++) {
                     var es = panel.ExposureSets[ei];
                     int rem = RemainingForEs(targetIdx, pi, ei, es);
-                    if (rem > 0 && (!es.AvoidLunar || moonDown))
+                    if (rem > 0 && (!es.HasMoonAvoidance || moonDown))
                         total += rem * es.ExposureLengthSec;
                 }
             }
@@ -221,13 +223,28 @@ namespace AstroPM.NINA.Plugin.Models {
                             moonOk[i] = moonSeps[i] >= requiredSep;
                         }
                     }
+
+                    // Per-ES profile: if ANY LA filter's profile passes, mark slot as moon-ok
+                    // (least-restrictive — lets target enter moon-up passes; fine-grained in PickExposureSet)
+                    if (!moonOk[i]) {
+                        foreach (var panel in target.Panels) {
+                            foreach (var es in panel.ExposureSets) {
+                                if (es.MoonAvoidanceProfile == null) continue;
+                                if (IsExposureSetMoonSafe(es, slot, moonSeps[i], constraints)) {
+                                    moonOk[i] = true;
+                                    break;
+                                }
+                            }
+                            if (moonOk[i]) break;
+                        }
+                    }
                 }
 
                 double lunarFreeSec = 0, nonLunarSec = 0;
                 foreach (var panel in target.Panels) {
                     foreach (var es in panel.ExposureSets) {
                         var remaining = es.Remaining * es.ExposureLengthSec;
-                        if (es.AvoidLunar)
+                        if (es.HasMoonAvoidance)
                             lunarFreeSec += remaining;
                         else
                             nonLunarSec += remaining;
@@ -254,7 +271,7 @@ namespace AstroPM.NINA.Plugin.Models {
                         double panelLaSec = 0, panelNonLaSec = 0;
                         foreach (var es in panel.ExposureSets) {
                             var remaining = Math.Max(0, es.PlannedCount - es.AcceptedCount) * es.ExposureLengthSec;
-                            if (es.AvoidLunar) panelLaSec += remaining;
+                            if (es.HasMoonAvoidance) panelLaSec += remaining;
                             else panelNonLaSec += remaining;
                         }
                         if (panelLaSec + panelNonLaSec <= 0) continue;
@@ -325,7 +342,9 @@ namespace AstroPM.NINA.Plugin.Models {
             var panels = target.Target.Panels.OrderBy(p => p.PanelIndex).ToList();
             bool isMultiPanel = panels.Count > 1;
             bool moonDown = slots[slotIdx].MoonAltDeg <= 0;
-            bool moonSafe = moonDown || target.SlotMoonOk[slotIdx];
+            var slot = slots[slotIdx];
+            double moonSepDeg = slotIdx < target.MoonSepPerSlot.Length ? target.MoonSepPerSlot[slotIdx] : 0;
+            var projectConstraints = target.Constraints;
 
             var candidates = new List<(ExposureSetData Es, string PanelLabel, int PanelIdx, int EsIdx, int Remaining, bool IsLunar)>();
             for (int pi = 0; pi < panels.Count; pi++) {
@@ -336,8 +355,8 @@ namespace AstroPM.NINA.Plugin.Models {
                     var es = panel.ExposureSets[ei];
                     int rem = state.RemainingForEs(targetIdx, pi, ei, es);
                     if (rem <= 0) continue;
-                    if (es.AvoidLunar && !moonSafe) continue;
-                    candidates.Add((es, pl, pi, ei, rem, es.AvoidLunar));
+                    if (es.HasMoonAvoidance && !IsExposureSetMoonSafe(es, slot, moonSepDeg, projectConstraints)) continue;
+                    candidates.Add((es, pl, pi, ei, rem, es.HasMoonAvoidance));
                 }
             }
 
@@ -366,7 +385,7 @@ namespace AstroPM.NINA.Plugin.Models {
             }
 
             bool anyLaWork = moonDown && candidates.Any(c => c.IsLunar);
-            bool moonUpButSafe = !moonDown && moonSafe;
+            bool moonUpButSafe = !moonDown && candidates.Any(c => c.IsLunar);
 
             List<(ExposureSetData Es, string PanelLabel, int PanelIdx, int EsIdx, int Remaining, bool IsLunar)> panelCandidates;
             if (anyLaWork) {
@@ -417,6 +436,19 @@ namespace AstroPM.NINA.Plugin.Models {
                 if (moonDown) {
                     int lunarCmp = b.IsLunar.CompareTo(a.IsLunar);
                     if (lunarCmp != 0) return lunarCmp;
+                    // Among LA filters during moon-down: most restrictive first (needs dark time most)
+                    if (a.IsLunar && b.IsLunar) {
+                        double aReq = ComputeRequiredSepForEs(a.Es, slot, projectConstraints);
+                        double bReq = ComputeRequiredSepForEs(b.Es, slot, projectConstraints);
+                        int reqCmp = bReq.CompareTo(aReq);
+                        if (reqCmp != 0) return reqCmp;
+                    }
+                } else if (a.IsLunar && b.IsLunar) {
+                    // Moon is up: most relaxed first — they tolerate moon, save restrictive for moon-down
+                    double aReq = ComputeRequiredSepForEs(a.Es, slot, projectConstraints);
+                    double bReq = ComputeRequiredSepForEs(b.Es, slot, projectConstraints);
+                    int reqCmp = aReq.CompareTo(bReq);
+                    if (reqCmp != 0) return reqCmp;
                 }
                 return b.Remaining.CompareTo(a.Remaining);
             });
@@ -432,7 +464,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     if (cycle.SubsOnFilter < filterSwitchCount) {
                         var same = panelCandidates.FirstOrDefault(c => c.Es.FilterName == cycle.FilterName);
                         if (same.Es != null) {
-                            bool cycleFilterIsLunar = same.Es.AvoidLunar;
+                            bool cycleFilterIsLunar = same.Es.HasMoonAvoidance;
                             if (moonDown && anyLaWork && !cycleFilterIsLunar) {
                                 // Moon is down — break cycle to prioritize lunar-avoid filters
                             } else {
@@ -490,6 +522,102 @@ namespace AstroPM.NINA.Plugin.Models {
             int m = (int)rem;
             double s = (rem - m) * 60;
             return $"{sign}{d:D2}°{m:D2}'{s:00.0}\"";
+        }
+
+        /// <summary>Compute the required moon separation for an ES using its profile or project fallback.</summary>
+        private static double ComputeRequiredSepForEs(ExposureSetData es, TimeSlot slot, ObservingConstraints projectConstraints) {
+            ObservingConstraints c;
+            if (es.MoonAvoidanceProfile != null) {
+                c = new ObservingConstraints {
+                    MoonAvoidanceEnabled = true,
+                    MinMoonSeparationDeg = es.MoonAvoidanceProfile.MoonSeparationDeg,
+                    MoonAvoidanceWidthDays = es.MoonAvoidanceProfile.MoonAvoidanceWidthDays,
+                    MoonRelaxScale = es.MoonAvoidanceProfile.MoonRelaxScale,
+                    MinMoonAltitude = es.MoonAvoidanceProfile.MoonMinAltitude,
+                    MaxMoonAltitude = es.MoonAvoidanceProfile.MoonMaxAltitude,
+                    MaxMoonIlluminationPct = es.MoonAvoidanceProfile.MaxMoonIlluminationPct,
+                };
+            } else {
+                c = projectConstraints;
+            }
+            return AstroCalculator.RequiredMoonSeparation(slot.UtcStart, slot.MoonAltDeg, c);
+        }
+
+        private static readonly (string Name, double Sep, double Width, double Relax, double MinAlt, double MaxAlt, double MaxIllum)[] BuiltInProfiles = {
+            ("No Moon",   180.0, 14.0, 0.0, -90.0, -2.0,  0.0),
+            ("Strict",     90.0,  8.0, 0.0, -15.0,  5.0, 30.0),
+            ("Moderate",   60.0,  5.0, 2.0, -15.0,  5.0, 60.0),
+            ("Relaxed",    25.0,  3.0, 3.0, -15.0,  5.0, 80.0),
+        };
+
+        internal static string GetFilterProfileName(ExposureSetData es) {
+            if (es.MoonAvoidanceProfile != null) return es.MoonAvoidanceProfile.Name;
+            if (es.AvoidLunar) return "Project Default";
+            return "No LA";
+        }
+
+        internal static string GetAcceptedProfiles(ExposureSetData es, TimeSlot slot, double moonSepDeg) {
+            if (!es.HasMoonAvoidance) return "—";
+            if (slot.MoonAltDeg <= 0) return "No Moon, Strict, Moderate, Relaxed";
+
+            var accepted = new List<string>();
+            foreach (var p in BuiltInProfiles) {
+                var c = new ObservingConstraints {
+                    MoonAvoidanceEnabled = true,
+                    MinMoonSeparationDeg = p.Sep,
+                    MoonAvoidanceWidthDays = p.Width,
+                    MoonRelaxScale = p.Relax,
+                    MinMoonAltitude = p.MinAlt,
+                    MaxMoonAltitude = p.MaxAlt,
+                    MaxMoonIlluminationPct = p.MaxIllum,
+                };
+                if (slot.MoonAltDeg <= c.MaxMoonAltitude)
+                    accepted.Add(p.Name);
+                else if (slot.MoonIllumPct <= c.MaxMoonIlluminationPct)
+                    accepted.Add(p.Name);
+                else {
+                    var reqSep = AstroCalculator.RequiredMoonSeparation(slot.UtcStart, slot.MoonAltDeg, c);
+                    if (moonSepDeg >= reqSep)
+                        accepted.Add(p.Name);
+                }
+            }
+            return accepted.Count > 0 ? string.Join(", ", accepted) : "None";
+        }
+
+        /// <summary>
+        /// Per-ExposureSet moon safety: evaluates the ES's own profile curve,
+        /// or falls back to project-level constraints.
+        /// </summary>
+        internal static bool IsExposureSetMoonSafe(ExposureSetData es, TimeSlot slot, double moonSepDeg, ObservingConstraints projectConstraints) {
+            // No moon avoidance for this filter at all
+            if (!es.HasMoonAvoidance) return true;
+
+            // Moon below horizon — always safe
+            if (slot.MoonAltDeg <= 0) return true;
+
+            // Build constraints from the ES's profile, or fall back to project-level
+            ObservingConstraints c;
+            if (es.MoonAvoidanceProfile != null) {
+                c = new ObservingConstraints {
+                    MoonAvoidanceEnabled = true,
+                    MinMoonSeparationDeg = es.MoonAvoidanceProfile.MoonSeparationDeg,
+                    MoonAvoidanceWidthDays = es.MoonAvoidanceProfile.MoonAvoidanceWidthDays,
+                    MoonRelaxScale = es.MoonAvoidanceProfile.MoonRelaxScale,
+                    MinMoonAltitude = es.MoonAvoidanceProfile.MoonMinAltitude,
+                    MaxMoonAltitude = es.MoonAvoidanceProfile.MoonMaxAltitude,
+                    MaxMoonIlluminationPct = es.MoonAvoidanceProfile.MaxMoonIlluminationPct,
+                };
+            } else {
+                // AvoidLunar=true with no profile → use project-level constraints
+                c = projectConstraints;
+            }
+
+            if (!c.MoonAvoidanceEnabled) return true;
+            if (slot.MoonAltDeg <= c.MaxMoonAltitude) return true;
+            if (slot.MoonIllumPct <= c.MaxMoonIlluminationPct) return true;
+
+            var requiredSep = AstroCalculator.RequiredMoonSeparation(slot.UtcStart, slot.MoonAltDeg, c);
+            return moonSepDeg >= requiredSep;
         }
     }
 }

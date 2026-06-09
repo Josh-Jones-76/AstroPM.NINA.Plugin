@@ -87,6 +87,8 @@
                         <GridViewColumn Header="Gain" Width="40" DisplayMemberBinding="{Binding Gain}"/>
                         <GridViewColumn Header="Offset" Width="45" DisplayMemberBinding="{Binding Offset}"/>
                         <GridViewColumn Header="Bin" Width="35" DisplayMemberBinding="{Binding Bin}"/>
+                        <GridViewColumn Header="Filter Profile" Width="95" DisplayMemberBinding="{Binding FilterProfile}"/>
+                        <GridViewColumn Header="Accepted Profiles" Width="175" DisplayMemberBinding="{Binding AcceptedProfiles}"/>
                     </GridView>
                 </ListView.View>
             </ListView>
