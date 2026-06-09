@@ -337,7 +337,7 @@ namespace AstroPM.NINA.Plugin.Models {
         public static (ExposureSetData Es, string PanelLabel, int PanelIdx, int EsIdx) PickExposureSet(
             TargetProfile target, int targetIdx, int slotIdx, List<TimeSlot> slots,
             ScheduleSessionState state, bool filterSwitchEnabled, int filterSwitchCount,
-            HashSet<int> allowedPanels = null) {
+            HashSet<int> allowedPanels = null, bool includeCompleted = false) {
 
             var panels = target.Target.Panels.OrderBy(p => p.PanelIndex).ToList();
             bool isMultiPanel = panels.Count > 1;
@@ -354,7 +354,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 for (int ei = 0; ei < panel.ExposureSets.Count; ei++) {
                     var es = panel.ExposureSets[ei];
                     int rem = state.RemainingForEs(targetIdx, pi, ei, es);
-                    if (rem <= 0) continue;
+                    if (rem <= 0 && !includeCompleted) continue;
                     if (es.HasMoonAvoidance && !IsExposureSetMoonSafe(es, slot, moonSepDeg, projectConstraints)) continue;
                     candidates.Add((es, pl, pi, ei, rem, es.HasMoonAvoidance));
                 }
@@ -432,11 +432,12 @@ namespace AstroPM.NINA.Plugin.Models {
                 panelCandidates = candidates;
             }
 
+            bool moonRising = slotIdx + 1 < slots.Count && slots[slotIdx + 1].MoonAltDeg > slot.MoonAltDeg;
+
             panelCandidates.Sort((a, b) => {
                 if (moonDown) {
                     int lunarCmp = b.IsLunar.CompareTo(a.IsLunar);
                     if (lunarCmp != 0) return lunarCmp;
-                    // Among LA filters during moon-down: most restrictive first (needs dark time most)
                     if (a.IsLunar && b.IsLunar) {
                         double aReq = ComputeRequiredSepForEs(a.Es, slot, projectConstraints);
                         double bReq = ComputeRequiredSepForEs(b.Es, slot, projectConstraints);
@@ -444,10 +445,11 @@ namespace AstroPM.NINA.Plugin.Models {
                         if (reqCmp != 0) return reqCmp;
                     }
                 } else if (a.IsLunar && b.IsLunar) {
-                    // Moon is up: most relaxed first — they tolerate moon, save restrictive for moon-down
                     double aReq = ComputeRequiredSepForEs(a.Es, slot, projectConstraints);
                     double bReq = ComputeRequiredSepForEs(b.Es, slot, projectConstraints);
-                    int reqCmp = aReq.CompareTo(bReq);
+                    // Moon rising (conditions worsening): most restrictive first — use them before window closes
+                    // Moon setting (conditions improving): most relaxed first — save restrictive for better conditions
+                    int reqCmp = moonRising ? bReq.CompareTo(aReq) : aReq.CompareTo(bReq);
                     if (reqCmp != 0) return reqCmp;
                 }
                 return b.Remaining.CompareTo(a.Remaining);

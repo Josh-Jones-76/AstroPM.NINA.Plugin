@@ -159,6 +159,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             NighttimeData = nighttimeCalculator.Calculate();
 
+            // Initialize Target so other plugins (e.g. SequencerPlus) don't get a null
+            // when they walk the tree looking for IDeepSkyObjectContainer before we execute.
+            var astro = profileService.ActiveProfile.AstrometrySettings;
+            Target = new InputTarget(
+                Angle.ByDegree(astro.Latitude),
+                Angle.ByDegree(astro.Longitude),
+                astro.Horizon);
+
             // Add a placeholder so NINA never sees an empty container (which it would skip).
             // Our Execute() override handles all real work — this just prevents the skip.
             Add(new AstroPMPlaceholderItem());
@@ -569,6 +577,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 return;
             }
 
+            foreach (var t in targets)
+                global::NINA.Core.Utility.Logger.Info($"AstroPM | Target: {t.TargetName} loc={t.LocationName} scope={t.TelescopeName} panels={t.Panels?.Count ?? 0} remaining={t.Panels?.Sum(p => p.ExposureSets?.Sum(es => es.Remaining) ?? 0) ?? 0}");
+            global::NINA.Core.Utility.Logger.Info($"AstroPM | Settings: SortChain={settings.SortChain} MosaicPanelPref={settings.MosaicPanelPreference} Bonus={settings.BonusEnabled} Dither={settings.DitherEnabled}/{settings.DitherEvery} FilterSwitch={settings.FilterSwitchEnabled}/{settings.FilterSwitchCount}");
+
             progress?.Report(new ApplicationStatus { Status = $"Astro PM: Calculating schedule for {targets.Count} targets..." });
 
             double latDeg = _profileService.ActiveProfile.AstrometrySettings.Latitude;
@@ -588,15 +600,37 @@ namespace AstroPM.NINA.Plugin.Instructions {
             global::NINA.Core.Utility.Logger.Info(
                 $"AstroPM | BuildSchedule: date={date:yyyy-MM-dd} (local={localNow:HH:mm}), lat={latDeg:F4}, lon={lonDeg:F4}, tz={tz.Id}, targets={targets.Count}");
             var slots = SessionScheduler.BuildTimeSlots(date, latDeg, lonDeg, tz);
-            var profiles = SessionScheduler.BuildTargetProfiles(targets, slots, latDeg, lonDeg);
+            var profiles = SessionScheduler.BuildTargetProfiles(targets, slots, latDeg, lonDeg, settings.MosaicPanelPreference);
+
+            foreach (var p in profiles)
+                global::NINA.Core.Utility.Logger.Info($"AstroPM | Profile: {p.DisplayName} PanelIdx={p.PanelIndex} LA={p.RemainingLunarFreeSec / 60:F0}m NonLA={p.RemainingNonLunarSec / 60:F0}m window={p.WindowStartSlot}-{p.WindowEndSlot}");
 
             if (profiles.Count == 0) {
                 Notification.ShowWarning("Astro PM: No targets are visible tonight from this location.");
                 return;
             }
 
-            var log = SessionScheduler.RunSchedule(slots, profiles, tz,
-                settings.DitherEnabled, settings.DitherEvery, settings.FilterSwitchEnabled, settings.FilterSwitchCount, settings.BonusEnabled);
+            foreach (var p in profiles) p.AllocatedSec = 0;
+
+            var order = Enumerable.Range(0, profiles.Count).ToList();
+            var matrix = ScheduleEngine.BuildMatrix(slots, profiles, order);
+
+            if (matrix.FirstUsableSlot < 0) {
+                Notification.ShowWarning("Astro PM: No usable time window for any target.");
+                return;
+            }
+
+            var sortChain = ParseSortChain(settings.SortChain);
+            var moonDownChain = new List<SortCriteria> { SortCriteria.MostLaWork };
+            foreach (var c in sortChain)
+                if (c != SortCriteria.MostLaWork) moonDownChain.Add(c);
+
+            ScheduleEngine.PaintSlots(matrix, sortChain, moonDownChain, settings.BonusEnabled);
+
+            var state = new ScheduleSessionState();
+            var log = ScheduleEngine.WalkToLog(matrix, state, tz,
+                settings.DitherEnabled, settings.DitherEvery, settings.FilterSwitchEnabled, settings.FilterSwitchCount, sortChain,
+                bonusEnabled: settings.BonusEnabled);
 
             _lastLog = log;
             _lastSlots = slots;
@@ -1030,30 +1064,38 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     }
 
                     bool isPanelSlew = entry.Target.Contains(" → ");
-                    var baseName = isPanelSlew
+                    var slewTarget = isPanelSlew
                         ? entry.Target.Substring(0, entry.Target.IndexOf(" → "))
                         : entry.Target;
                     var panelLabel = isPanelSlew
                         ? entry.Target.Substring(entry.Target.IndexOf(" → ") + 3)
                         : "";
 
-                    var profile = profiles.FirstOrDefault(p => p.Target.TargetName == baseName);
+                    var profile = profiles.FirstOrDefault(p => p.DisplayName == slewTarget)
+                               ?? profiles.FirstOrDefault(p => p.Target.TargetName == slewTarget);
 
                     double ra = profile?.Target.RaHours ?? 0;
                     double dec = profile?.Target.DecDegrees ?? 0;
                     double rot = profile?.Target.RotationDeg ?? 0;
 
-                    if (isPanelSlew && profile != null) {
-                        var panel = profile.Target.Panels?.FirstOrDefault(p =>
+                    if (profile != null && profile.PanelIndex.HasValue) {
+                        var pnl = profile.Target.Panels?.FirstOrDefault(p => p.PanelIndex == profile.PanelIndex.Value);
+                        if (pnl != null) {
+                            ra = pnl.RaHours;
+                            dec = pnl.DecDegrees;
+                            rot = pnl.RotationDeg;
+                        }
+                    } else if (isPanelSlew && profile != null) {
+                        var pnl = profile.Target.Panels?.FirstOrDefault(p =>
                             string.Equals(p.Label, panelLabel, StringComparison.OrdinalIgnoreCase));
-                        if (panel != null) {
-                            ra = panel.RaHours;
-                            dec = panel.DecDegrees;
-                            rot = panel.RotationDeg;
+                        if (pnl != null) {
+                            ra = pnl.RaHours;
+                            dec = pnl.DecDegrees;
+                            rot = pnl.RotationDeg;
                         }
                     }
 
-                    var displayName = isPanelSlew ? $"{baseName} {panelLabel}" : baseName;
+                    var displayName = isPanelSlew ? $"{slewTarget} {panelLabel}" : slewTarget;
 
                     current = new TargetBlock {
                         TargetName = displayName,
@@ -1085,6 +1127,17 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
 
             return blocks;
+        }
+
+        private static List<SortCriteria> ParseSortChain(string csv) {
+            if (string.IsNullOrWhiteSpace(csv))
+                return new List<SortCriteria>(ScheduleEngine.DefaultSortChain);
+            var parsed = new List<SortCriteria>();
+            foreach (var v in csv.Split(',')) {
+                if (Enum.TryParse<SortCriteria>(v.Trim(), out var sc))
+                    parsed.Add(sc);
+            }
+            return parsed.Count > 0 ? parsed : new List<SortCriteria>(ScheduleEngine.DefaultSortChain);
         }
 
         private static string FormatLogLine(SimLogEntry e) {

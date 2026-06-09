@@ -800,8 +800,48 @@ namespace AstroPM.NINA.Plugin.Models {
                 var target = prof.Target;
                 int targetIdx = row.RowIndex;
 
+                // Before slewing to a new target, check if it has planned work at this slot.
+                // If not, find a target with planned work — don't waste time on bonus when others need it.
+                if (currentTarget != prof) {
+                    var probeAllowed = prof.PanelIndex.HasValue
+                        ? new HashSet<int> { prof.PanelIndex.Value } : (HashSet<int>)null;
+                    var probe = SessionScheduler.PickExposureSet(
+                        prof, targetIdx, s, matrix.Slots, state,
+                        filterSwitchEnabled, filterSwitchCount, probeAllowed);
+                    if (probe.Es == null) {
+                        int fallbackRow = -1;
+                        for (int r = 0; r < matrix.Rows.Count; r++) {
+                            if (r == rowIdx) continue;
+                            if (!matrix.CanImage[r][s]) continue;
+                            var fp = matrix.Rows[r].Profile;
+                            var fAllowed = fp.PanelIndex.HasValue
+                                ? new HashSet<int> { fp.PanelIndex.Value } : (HashSet<int>)null;
+                            var fPick = SessionScheduler.PickExposureSet(
+                                fp, r, s, matrix.Slots, state,
+                                filterSwitchEnabled, filterSwitchCount, fAllowed);
+                            if (fPick.Es != null) { fallbackRow = r; break; }
+                        }
+                        if (fallbackRow >= 0) {
+                            for (int fs = s; fs <= matrix.LastUsableSlot; fs++) {
+                                if (matrix.SlotAssignment[fs] != rowIdx) break;
+                                matrix.SlotAssignment[fs] = fallbackRow;
+                            }
+                            rowIdx = fallbackRow;
+                            row = matrix.Rows[rowIdx];
+                            prof = row.Profile;
+                            target = prof.Target;
+                            targetIdx = row.RowIndex;
+                        }
+                    }
+                }
+
                 if (currentTarget != prof) {
                     EmitDarkness(log, matrix, tz, s, ref emittedDarkStart, ref emittedDarkEnd);
+
+                    var slewPnl = prof.PanelIndex.HasValue
+                        ? target.Panels.FirstOrDefault(p => p.PanelIndex == prof.PanelIndex.Value) : null;
+                    double slewRa = slewPnl?.RaHours ?? target.RaHours;
+                    double slewDec = slewPnl?.DecDegrees ?? target.DecDegrees;
 
                     var slewTime = TimeZoneInfo.ConvertTimeFromUtc(currentUtc, tz);
                     log.Add(new SimLogEntry {
@@ -809,8 +849,8 @@ namespace AstroPM.NINA.Plugin.Models {
                         Time = slewTime.ToString("HH:mm"),
                         Target = prof.DisplayName,
                         Rotation = $"{target.RotationDeg:F1}°",
-                        RA = SessionScheduler.FormatRa(target.RaHours),
-                        DEC = SessionScheduler.FormatDec(target.DecDegrees),
+                        RA = SessionScheduler.FormatRa(slewRa),
+                        DEC = SessionScheduler.FormatDec(slewDec),
                         SlotIndex = s,
                         UtcTime = currentUtc,
                     });
@@ -862,9 +902,23 @@ namespace AstroPM.NINA.Plugin.Models {
                         prof, targetIdx, currentSlotIdx, matrix.Slots, state,
                         filterSwitchEnabled, filterSwitchCount, allowedPanels);
 
-                    if (pick.Es == null && lastEs != null && bonusEnabled)
+                    if (pick.Es == null && bonusEnabled)
                     {
-                        pick = (lastEs, lastPanelLabel, lastPanelIdx, lastEsIdx);
+                        if (lastEs != null)
+                        {
+                            var gapSlot = currentSlotIdx >= 0 && currentSlotIdx < matrix.Slots.Count
+                                ? matrix.Slots[currentSlotIdx] : null;
+                            double gapMoonSep = currentSlotIdx >= 0 && currentSlotIdx < prof.MoonSepPerSlot.Length
+                                ? prof.MoonSepPerSlot[currentSlotIdx] : 0;
+                            bool gapMoonOk = !lastEs.HasMoonAvoidance || (gapSlot != null
+                                && SessionScheduler.IsExposureSetMoonSafe(lastEs, gapSlot, gapMoonSep, prof.Constraints));
+                            if (gapMoonOk)
+                                pick = (lastEs, lastPanelLabel, lastPanelIdx, lastEsIdx);
+                        }
+                        if (pick.Es == null)
+                            pick = SessionScheduler.PickExposureSet(
+                                prof, targetIdx, currentSlotIdx, matrix.Slots, state,
+                                filterSwitchEnabled, filterSwitchCount, allowedPanels, includeCompleted: true);
                     }
                     if (pick.Es == null) break;
 
@@ -875,14 +929,19 @@ namespace AstroPM.NINA.Plugin.Models {
                     string panelLabel = pick.PanelLabel;
                     bool isMultiPanel = target.Panels.Count > 1;
 
+                    var pnl = pick.PanelIdx >= 0
+                        ? target.Panels.FirstOrDefault(p => p.PanelIndex == pick.PanelIdx) : null;
+                    double panelRa = pnl?.RaHours ?? target.RaHours;
+                    double panelDec = pnl?.DecDegrees ?? target.DecDegrees;
+
                     if (isMultiPanel && currentPanel != null && panelLabel != currentPanel) {
                         log.Add(new SimLogEntry {
                             Command = "Slew",
                             Time = TimeZoneInfo.ConvertTimeFromUtc(currentUtc, tz).ToString("HH:mm"),
                             Target = $"{prof.DisplayName} → {panelLabel}",
                             Rotation = $"{target.RotationDeg:F1}°",
-                            RA = SessionScheduler.FormatRa(target.RaHours),
-                            DEC = SessionScheduler.FormatDec(target.DecDegrees),
+                            RA = SessionScheduler.FormatRa(panelRa),
+                            DEC = SessionScheduler.FormatDec(panelDec),
                             SlotIndex = currentSlotIdx,
                             UtcTime = currentUtc,
                         });
@@ -958,8 +1017,8 @@ namespace AstroPM.NINA.Plugin.Models {
                         Offset = $"{es.Offset}",
                         Bin = bin,
                         Rotation = $"{target.RotationDeg:F1}°",
-                        RA = SessionScheduler.FormatRa(target.RaHours),
-                        DEC = SessionScheduler.FormatDec(target.DecDegrees),
+                        RA = SessionScheduler.FormatRa(panelRa),
+                        DEC = SessionScheduler.FormatDec(panelDec),
                         Sort1 = sortRanks.TryGetValue(rowIdx, out var sr) ? sr[0] : "",
                         Sort2 = sr != null ? sr[1] : "",
                         Sort3 = sr != null ? sr[2] : "",
