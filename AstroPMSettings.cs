@@ -24,6 +24,8 @@ namespace AstroPM.NINA.Plugin
         private bool _bonusEnabled = true;
         private bool _mosaicPanelPreference = true;
         private string _sortChain = "LowestPeakAltitude,SettingSoonest,MostRemainingWork,Constrained";
+        private string _strategy = "SharedTime";
+        private double _filterSwitchTolerance = 0.5;
 
         public string SyncToken
         {
@@ -119,6 +121,21 @@ namespace AstroPM.NINA.Plugin
         {
             get => _sortChain;
             set { if (_sortChain != value) { _sortChain = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Imaging strategy: "SharedTime" (Proportional Time) or "ManualPriority".</summary>
+        public string Strategy
+        {
+            get => _strategy;
+            set { if (_strategy != value) { _strategy = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Filter switch tolerance (0.0–1.0): a switch may only start a filter
+        /// that can fit at least FilterSwitchCount × tolerance subs in its runway.</summary>
+        public double FilterSwitchTolerance
+        {
+            get => _filterSwitchTolerance;
+            set { if (Math.Abs(_filterSwitchTolerance - value) > 0.0001) { _filterSwitchTolerance = value; OnPropertyChanged(); } }
         }
 
         // ── Persistence ──

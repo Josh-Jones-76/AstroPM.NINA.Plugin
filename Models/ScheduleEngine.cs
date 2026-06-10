@@ -6,6 +6,8 @@ namespace AstroPM.NINA.Plugin.Models {
 
     internal enum SlotWorkType { Any, LaPreferred, NonLaPreferred }
 
+    public enum ImagingStrategy { SharedTime, ManualPriority }
+
     public enum SortCriteria {
         SettingSoonest,
         Constrained,
@@ -16,12 +18,134 @@ namespace AstroPM.NINA.Plugin.Models {
         UserPriority,
     }
 
+    // ─── V4 Tier types ───────────────────────────────────────────────────
+
+    public class TierInfo {
+        public int TierIndex { get; set; }
+        public double Restrictiveness { get; set; }
+        public bool RequiresMoonDown { get; set; }
+        public string Label { get; set; } = "";
+    }
+
+    internal class OverlapInfo {
+        public int[] CandidateRows { get; set; } = Array.Empty<int>();
+        public int Contention { get; set; }
+        public bool IsExclusive => Contention == 1;
+    }
+
+    public static class TierClassifier {
+        public static double ComputeRestrictiveness(MoonAvoidanceProfileData profile) {
+            return profile.MoonSeparationDeg * (1.0 + 100.0 / (profile.MaxMoonIlluminationPct + 1.0));
+        }
+
+        public static double ComputeRestrictiveness(double moonSepDeg, double maxMoonIllumPct) {
+            return moonSepDeg * (1.0 + 100.0 / (maxMoonIllumPct + 1.0));
+        }
+
+        public static bool IsNoMoonProfile(MoonAvoidanceProfileData profile) {
+            return profile.Name.Equals("No Moon", StringComparison.OrdinalIgnoreCase)
+                || (profile.MoonMaxAltitude <= 0 && profile.MaxMoonIlluminationPct <= 0);
+        }
+
+        public static (TierInfo[] Tiers, Dictionary<ExposureSetData, int> EsToTier) ClassifyExposureSets(
+            IEnumerable<ExposureSetData> exposureSets,
+            ObservingConstraints projectConstraints) {
+
+            var tiers = new List<TierInfo>();
+            var esMap = new Dictionary<ExposureSetData, int>();
+
+            // Tier 0: No moon avoidance (always available)
+            tiers.Add(new TierInfo {
+                TierIndex = 0,
+                Restrictiveness = 0,
+                RequiresMoonDown = false,
+                Label = "No LA",
+            });
+
+            // Group ES by their effective moon avoidance configuration
+            var profileGroups = new Dictionary<string, (TierInfo Tier, List<ExposureSetData> Sets)>();
+
+            foreach (var es in exposureSets) {
+                if (!es.HasMoonAvoidance) {
+                    esMap[es] = 0;
+                    continue;
+                }
+
+                string groupKey;
+                double restrictiveness;
+                bool requiresMoonDown;
+                string label;
+
+                if (es.MoonAvoidanceProfile != null) {
+                    groupKey = $"profile:{es.MoonAvoidanceProfile.Name}";
+                    requiresMoonDown = IsNoMoonProfile(es.MoonAvoidanceProfile);
+                    restrictiveness = requiresMoonDown
+                        ? double.MaxValue
+                        : ComputeRestrictiveness(es.MoonAvoidanceProfile);
+                    label = es.MoonAvoidanceProfile.Name;
+                } else {
+                    // AvoidLunar=true with no profile → project default
+                    groupKey = "project-default";
+                    requiresMoonDown = false;
+                    restrictiveness = ComputeRestrictiveness(
+                        projectConstraints.MinMoonSeparationDeg,
+                        projectConstraints.MaxMoonIlluminationPct);
+                    label = "Project Default";
+                }
+
+                if (!profileGroups.ContainsKey(groupKey)) {
+                    var tier = new TierInfo {
+                        TierIndex = -1, // assigned after sorting
+                        Restrictiveness = restrictiveness,
+                        RequiresMoonDown = requiresMoonDown,
+                        Label = label,
+                    };
+                    profileGroups[groupKey] = (tier, new List<ExposureSetData> { es });
+                } else {
+                    profileGroups[groupKey].Sets.Add(es);
+                }
+            }
+
+            // Sort tiers by restrictiveness (least → most), assign indices
+            var sortedGroups = profileGroups.Values
+                .OrderBy(g => g.Tier.Restrictiveness)
+                .ToList();
+
+            int tierIdx = 1;
+            foreach (var (tier, sets) in sortedGroups) {
+                tier.TierIndex = tierIdx;
+                tiers.Add(tier);
+                foreach (var es in sets)
+                    esMap[es] = tierIdx;
+                tierIdx++;
+            }
+
+            return (tiers.ToArray(), esMap);
+        }
+    }
+
     internal class TargetRow {
         public TargetProfile Profile { get; set; }
         public int RowIndex { get; set; }
 
-        public double RemainingLaSec { get; set; }
-        public double RemainingNonLaSec { get; set; }
+        // V4 per-tier work tracking
+        public double[] TierWorkSec { get; set; } = Array.Empty<double>();
+        public int[] TierMoonUpSafeSlots { get; set; } = Array.Empty<int>();
+
+        // V4 tier-aware usability, computed PRE-paint from initial tier work:
+        // true only if some tier with work can actually image at this slot.
+        // Unlike CanImage (altitude only) this accounts for moon safety per tier.
+        public bool[] UsableSlot { get; set; } = Array.Empty<bool>();
+
+        // V3 compat — derived from tiers
+        public double RemainingLaSec {
+            get => TierWorkSec.Length > 1 ? TierWorkSec.Skip(1).Sum() : 0;
+            set { }
+        }
+        public double RemainingNonLaSec {
+            get => TierWorkSec.Length > 0 ? TierWorkSec[0] : 0;
+            set { }
+        }
 
         public int FirstUsableSlot { get; set; } = -1;
         public int LastUsableSlot { get; set; } = -1;
@@ -32,14 +156,27 @@ namespace AstroPM.NINA.Plugin.Models {
         public double MinChunkSec { get; set; }
         public int MinChunkSlots { get; set; }
 
-        public double TotalWorkSec => RemainingLaSec + RemainingNonLaSec;
-        public bool HasLaWork => RemainingLaSec > 0;
-        public bool HasNonLaWork => RemainingNonLaSec > 0;
+        public double TotalWorkSec => TierWorkSec.Length > 0 ? TierWorkSec.Sum() : 0;
+        public bool HasLaWork => TierWorkSec.Length > 1 && TierWorkSec.Skip(1).Any(x => x > 0);
+        public bool HasNonLaWork => TierWorkSec.Length > 0 && TierWorkSec[0] > 0;
         public bool IsConstrained { get; set; }
 
         public double PeakAltitude { get; set; }
         public int UserPriorityIndex { get; set; }
         public bool PreFiltered { get; set; }
+
+        public int MostRestrictiveTierWithWork() {
+            for (int t = TierWorkSec.Length - 1; t >= 1; t--)
+                if (TierWorkSec[t] > 0) return t;
+            return 0;
+        }
+
+        public int LeastRestrictiveSafeTierWithWork(bool[][] tierSafe, int slot) {
+            for (int t = 1; t < TierWorkSec.Length; t++)
+                if (TierWorkSec[t] > 0 && tierSafe[t][slot]) return t;
+            if (TierWorkSec.Length > 0 && TierWorkSec[0] > 0) return 0;
+            return -1;
+        }
     }
 
     internal class ScheduleMatrix {
@@ -49,6 +186,15 @@ namespace AstroPM.NINA.Plugin.Models {
         public bool[][] CanImage { get; set; } = Array.Empty<bool[]>();
         public bool[][] MoonSafe { get; set; } = Array.Empty<bool[]>();
         public bool[] MoonDown { get; set; } = Array.Empty<bool>();
+
+        // V4 per-tier safety: TierSafe[row][tier][slot]
+        public bool[][][] TierSafe { get; set; } = Array.Empty<bool[][]>();
+
+        // V4 slot allocation tier: which tier of work was allocated at each slot (-1 = none)
+        public int[] SlotAllocTier { get; set; } = Array.Empty<int>();
+
+        // V4 overlap analysis
+        public OverlapInfo[] SlotOverlap { get; set; } = Array.Empty<OverlapInfo>();
 
         public int[] SlotAssignment { get; set; } = Array.Empty<int>();
         public SlotWorkType[] SlotWorkHint { get; set; } = Array.Empty<SlotWorkType>();
@@ -97,12 +243,16 @@ namespace AstroPM.NINA.Plugin.Models {
                 CanImage = new bool[rowCount][],
                 MoonSafe = new bool[rowCount][],
                 MoonDown = new bool[slotCount],
+                TierSafe = new bool[rowCount][][],
+                SlotAllocTier = new int[slotCount],
+                SlotOverlap = new OverlapInfo[slotCount],
                 SlotAssignment = new int[slotCount],
                 SlotWorkHint = new SlotWorkType[slotCount],
                 PrunedSlot = new bool[slotCount],
             };
 
             Array.Fill(matrix.SlotAssignment, -1);
+            Array.Fill(matrix.SlotAllocTier, -1);
 
             for (int s = 0; s < slotCount; s++)
                 matrix.MoonDown[s] = slots[s].MoonAltDeg <= 0;
@@ -132,15 +282,52 @@ namespace AstroPM.NINA.Plugin.Models {
                 matrix.CanImage[r] = canImage;
                 matrix.MoonSafe[r] = moonSafe;
 
+                // V4: populate per-tier safety from profile
+                matrix.TierSafe[r] = prof.TierSlotSafe.Length > 0
+                    ? prof.TierSlotSafe
+                    : new[] { Enumerable.Repeat(true, slotCount).ToArray() };
+
+                // V4: compute per-tier moon-up safe slot counts
+                int tierCount = prof.Tiers.Length > 0 ? prof.Tiers.Length : 1;
+                var tierMoonUpSafe = new int[tierCount];
+                for (int t = 0; t < tierCount; t++) {
+                    for (int s = 0; s < slotCount; s++) {
+                        if (!canImage[s] || matrix.MoonDown[s]) continue;
+                        if (t < matrix.TierSafe[r].Length && matrix.TierSafe[r][t][s])
+                            tierMoonUpSafe[t]++;
+                    }
+                }
+
+                // V4: per-tier work seconds
+                var tierWorkSec = prof.TierRemainingSec.Length > 0
+                    ? (double[])prof.TierRemainingSec.Clone()
+                    : new[] { prof.RemainingNonLunarSec + prof.RemainingLunarFreeSec };
+
                 double minChunkSec = prof.Constraints.MinTimeOnTargetHrs * 3600;
                 int userPri = priorityOrder.IndexOf(r);
                 if (userPri < 0) userPri = r;
 
+                // V4: tier-aware usability — a slot only counts if some tier with
+                // actual work can image there (moon-down is safe for all tiers).
+                var usableSlot = new bool[slotCount];
+                for (int s = 0; s < slotCount; s++) {
+                    if (!canImage[s]) continue;
+                    for (int t = 0; t < tierWorkSec.Length; t++) {
+                        if (tierWorkSec[t] <= 0) continue;
+                        if (t == 0 || matrix.MoonDown[s]
+                            || (t < matrix.TierSafe[r].Length && matrix.TierSafe[r][t][s])) {
+                            usableSlot[s] = true;
+                            break;
+                        }
+                    }
+                }
+
                 var row = new TargetRow {
                     Profile = prof,
                     RowIndex = r,
-                    RemainingLaSec = prof.RemainingLunarFreeSec,
-                    RemainingNonLaSec = prof.RemainingNonLunarSec,
+                    TierWorkSec = tierWorkSec,
+                    TierMoonUpSafeSlots = tierMoonUpSafe,
+                    UsableSlot = usableSlot,
                     FirstUsableSlot = firstUsable,
                     LastUsableSlot = lastUsable,
                     TotalUsableSlots = totalUsable,
@@ -170,6 +357,251 @@ namespace AstroPM.NINA.Plugin.Models {
             }
 
             return matrix;
+        }
+
+        // ─── Overlap Analysis ────────────────────────────────────────────────
+
+        public static void ComputeOverlap(ScheduleMatrix matrix) {
+            int slotCount = matrix.Slots.Count;
+            for (int s = 0; s < slotCount; s++) {
+                var candidates = new List<int>();
+                for (int r = 0; r < matrix.Rows.Count; r++) {
+                    if (matrix.Rows[r].PreFiltered) continue;
+                    if (matrix.CanImage[r][s] && matrix.Rows[r].TotalWorkSec > 0)
+                        candidates.Add(r);
+                }
+                matrix.SlotOverlap[s] = new OverlapInfo {
+                    CandidateRows = candidates.ToArray(),
+                    Contention = candidates.Count,
+                };
+            }
+        }
+
+        // ─── Moon Block Organization ─────────────────────────────────────────
+
+        public static void OrganizeMoonBlocks(ScheduleMatrix matrix) {
+            int slotCount = matrix.Slots.Count;
+            var rows = matrix.Rows;
+
+            for (int s = 0; s < slotCount; s++) {
+                if (matrix.SlotAssignment[s] >= 0) continue;
+
+                if (matrix.MoonDown[s]) {
+                    // Moon-down: assign tier hint by most restrictive first
+                    // No Moon tiers (RequiresMoonDown) get absolute priority
+                    int bestRow = -1;
+                    int bestTier = -1;
+                    double bestRestrictiveness = -1;
+
+                    foreach (int r in matrix.SlotOverlap[s].CandidateRows) {
+                        var row = rows[r];
+                        if (!matrix.CanImage[r][s]) continue;
+
+                        var tiers = row.Profile.Tiers;
+                        for (int t = tiers.Length - 1; t >= 1; t--) {
+                            if (row.TierWorkSec[t] <= 0) continue;
+                            double restr = tiers[t].Restrictiveness;
+                            if (tiers[t].RequiresMoonDown) restr = double.MaxValue;
+
+                            if (restr > bestRestrictiveness) {
+                                bestRestrictiveness = restr;
+                                bestRow = r;
+                                bestTier = t;
+                            }
+                        }
+                    }
+
+                    if (bestRow >= 0)
+                        matrix.SlotAllocTier[s] = bestTier;
+                } else {
+                    // Moon-up: determine direction (rising or setting)
+                    bool moonRising = s > 0
+                        ? matrix.Slots[s].MoonAltDeg > matrix.Slots[s - 1].MoonAltDeg
+                        : matrix.Slots[s].MoonAltDeg > 0;
+
+                    // Moon rising: use relaxed first (save restrictive for when they can't image)
+                    // Moon setting: use restrictive first (conditions improving, relaxed can wait)
+                    int bestRow = -1;
+                    int bestTier = -1;
+                    double bestScore = moonRising ? double.MaxValue : -1;
+
+                    foreach (int r in matrix.SlotOverlap[s].CandidateRows) {
+                        var row = rows[r];
+                        if (!matrix.CanImage[r][s]) continue;
+
+                        var tiers = row.Profile.Tiers;
+                        for (int t = 1; t < tiers.Length; t++) {
+                            if (row.TierWorkSec[t] <= 0) continue;
+                            if (t >= matrix.TierSafe[r].Length || !matrix.TierSafe[r][t][s]) continue;
+
+                            double restr = tiers[t].Restrictiveness;
+                            if (moonRising && restr < bestScore) {
+                                bestScore = restr;
+                                bestRow = r;
+                                bestTier = t;
+                            } else if (!moonRising && restr > bestScore) {
+                                bestScore = restr;
+                                bestRow = r;
+                                bestTier = t;
+                            }
+                        }
+                    }
+
+                    if (bestRow >= 0)
+                        matrix.SlotAllocTier[s] = bestTier;
+                    else
+                        matrix.SlotAllocTier[s] = 0; // fallback to non-LA
+                }
+            }
+        }
+
+        // ─── PaintSlotsGreedy (ManualPriority strategy) ──────────────────────
+
+        public static void PaintSlotsGreedy(
+            ScheduleMatrix matrix,
+            List<int> priorityOrder,
+            bool bonusEnabled) {
+
+            PaintTrace.Clear();
+            PaintTrace.AppendLine("=== PAINT TRACE (Greedy / ManualPriority) ===");
+
+            // Pre-filter: skip targets whose total accessible work < minimum
+            foreach (var row in matrix.Rows) {
+                double accessibleSec = 0;
+                int ri = row.RowIndex;
+                for (int t = 0; t < row.TierWorkSec.Length; t++) {
+                    int safeSlots = 0;
+                    for (int s = 0; s < matrix.Slots.Count; s++) {
+                        if (!matrix.CanImage[ri][s]) continue;
+                        if (t == 0 || matrix.MoonDown[s] || (t < matrix.TierSafe[ri].Length && matrix.TierSafe[ri][t][s]))
+                            safeSlots++;
+                    }
+                    accessibleSec += Math.Min(row.TierWorkSec[t], safeSlots * 300.0);
+                }
+                if (accessibleSec < row.MinChunkSec) {
+                    for (int t = 0; t < row.TierWorkSec.Length; t++)
+                        row.TierWorkSec[t] = 0;
+                    row.PreFiltered = true;
+                }
+            }
+
+            // Pass 0: Reserve exclusive windows (only one target can image)
+            for (int s = 0; s < matrix.Slots.Count; s++) {
+                if (matrix.SlotOverlap[s] == null || matrix.SlotOverlap[s].Contention != 1) continue;
+                int ri = matrix.SlotOverlap[s].CandidateRows[0];
+                var row = matrix.Rows[ri];
+                if (row.PreFiltered || row.TotalWorkSec <= 0) continue;
+
+                matrix.SlotAssignment[s] = ri;
+                int tier = matrix.MoonDown[s]
+                    ? row.MostRestrictiveTierWithWork()
+                    : row.LeastRestrictiveSafeTierWithWork(matrix.TierSafe[ri], s);
+                if (tier < 0) tier = 0;
+                matrix.SlotAllocTier[s] = tier;
+                matrix.SlotWorkHint[s] = tier == 0 ? SlotWorkType.NonLaPreferred
+                    : matrix.MoonDown[s] ? SlotWorkType.LaPreferred : SlotWorkType.Any;
+                DecrementWork(row, 300.0, matrix.SlotWorkHint[s]);
+            }
+            TraceSnapshot(matrix, "After Pass 0 (exclusive)");
+
+            // Greedy allocation: walk priority order, give each target as much as it can use
+            foreach (int orderIdx in priorityOrder) {
+                if (orderIdx < 0 || orderIdx >= matrix.Rows.Count) continue;
+                var row = matrix.Rows[orderIdx];
+                if (row.PreFiltered || row.TotalWorkSec <= 0) continue;
+                int ri = row.RowIndex;
+
+                // Phase A: Moon-down slots — most restrictive tiers first
+                for (int t = row.TierWorkSec.Length - 1; t >= 0; t--) {
+                    if (row.TierWorkSec[t] <= 0) continue;
+                    double budget = row.TierWorkSec[t];
+
+                    for (int s = 0; s < matrix.Slots.Count && budget > 0; s++) {
+                        if (!matrix.MoonDown[s]) continue;
+                        if (matrix.SlotAssignment[s] >= 0) continue;
+                        if (!matrix.CanImage[ri][s]) continue;
+
+                        matrix.SlotAssignment[s] = ri;
+                        matrix.SlotAllocTier[s] = t;
+                        var hint = t > 0 ? SlotWorkType.LaPreferred : SlotWorkType.Any;
+                        matrix.SlotWorkHint[s] = hint;
+                        DecrementWork(row, 300.0, hint);
+                        budget -= 300.0;
+                    }
+                }
+
+                // Phase B: Moon-up slots — use tier info for safe allocation
+                for (int s = 0; s < matrix.Slots.Count; s++) {
+                    if (matrix.MoonDown[s]) continue;
+                    if (matrix.SlotAssignment[s] >= 0) continue;
+                    if (!matrix.CanImage[ri][s]) continue;
+                    if (row.TotalWorkSec <= 0) break;
+
+                    int bestTier = -1;
+                    for (int t = 1; t < row.TierWorkSec.Length; t++) {
+                        if (row.TierWorkSec[t] <= 0) continue;
+                        if (t < matrix.TierSafe[ri].Length && matrix.TierSafe[ri][t][s]) { bestTier = t; break; }
+                    }
+                    if (bestTier < 0 && row.TierWorkSec.Length > 0 && row.TierWorkSec[0] > 0)
+                        bestTier = 0;
+                    if (bestTier < 0) continue;
+
+                    matrix.SlotAssignment[s] = ri;
+                    matrix.SlotAllocTier[s] = bestTier;
+                    var hint2 = bestTier > 0 ? SlotWorkType.NonLaPreferred : SlotWorkType.Any;
+                    matrix.SlotWorkHint[s] = hint2;
+                    DecrementWork(row, 300.0, hint2);
+                }
+            }
+            TraceSnapshot(matrix, "After greedy allocation");
+
+            EnforceMinimumAllocations(matrix);
+            PruneSlivers(matrix);
+
+            // Bonus / gap fill
+            if (bonusEnabled) {
+                for (int s = 1; s < matrix.Slots.Count; s++) {
+                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0) {
+                        int ri = matrix.SlotAssignment[s - 1];
+                        if (matrix.CanImage[ri][s]) {
+                            matrix.SlotAssignment[s] = ri;
+                            matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s - 1];
+                        }
+                    }
+                }
+                for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
+                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0) {
+                        int ri = matrix.SlotAssignment[s + 1];
+                        if (matrix.CanImage[ri][s]) {
+                            matrix.SlotAssignment[s] = ri;
+                            matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s + 1];
+                        }
+                    }
+                }
+            }
+
+            DefragmentSlots(matrix);
+            PruneSlivers(matrix);
+
+            // Absorb pruned slots into adjacent targets
+            for (int s = 1; s < matrix.Slots.Count; s++) {
+                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0) {
+                    int ri = matrix.SlotAssignment[s - 1];
+                    if (matrix.CanImage[ri][s]) {
+                        matrix.SlotAssignment[s] = ri;
+                        matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s - 1];
+                    }
+                }
+            }
+            for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
+                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0) {
+                    int ri = matrix.SlotAssignment[s + 1];
+                    if (matrix.CanImage[ri][s]) {
+                        matrix.SlotAssignment[s] = ri;
+                        matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s + 1];
+                    }
+                }
+            }
         }
 
         // ─── PaintSlots ──────────────────────────────────────────────────────
@@ -272,7 +704,7 @@ namespace AstroPM.NINA.Plugin.Models {
             // Pass 1: Moon-down LA priority
             {
                 var candidates = matrix.Rows
-                    .Where(r => r.HasLaWork && r.MoonDownSlots > 0)
+                    .Where(r => !r.PreFiltered && r.HasLaWork && r.MoonDownSlots > 0)
                     .ToList();
                 PaintTrace.AppendLine($"Pass 1 candidates ({candidates.Count}): {string.Join(", ", candidates.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
                 var sorted = ApplySortChain(candidates, moonDownSortChain);
@@ -286,7 +718,7 @@ namespace AstroPM.NINA.Plugin.Models {
             // Pass 2: Moon-down remaining
             {
                 var candidates = matrix.Rows
-                    .Where(r => r.HasNonLaWork && HasUnpaintedSlots(matrix, r, moonDownOnly: true))
+                    .Where(r => !r.PreFiltered && r.HasNonLaWork && HasUnpaintedSlots(matrix, r, moonDownOnly: true))
                     .ToList();
                 PaintTrace.AppendLine($"Pass 2 candidates ({candidates.Count}): {string.Join(", ", candidates.Select(c => c.Profile.DisplayName))}");
                 var sorted = ApplySortChain(candidates, sortChain);
@@ -300,7 +732,8 @@ namespace AstroPM.NINA.Plugin.Models {
             // Pass 3: Moon-up slots
             {
                 var candidates = matrix.Rows
-                    .Where(r => (r.HasNonLaWork || (r.HasLaWork && HasMoonSafeMoonUpSlots(matrix, r)))
+                    .Where(r => !r.PreFiltered
+                                && (r.HasNonLaWork || (r.HasLaWork && HasMoonSafeMoonUpSlots(matrix, r)))
                                 && HasUnpaintedSlots(matrix, r, moonDownOnly: false))
                     .ToList();
                 PaintTrace.AppendLine($"Pass 3 candidates ({candidates.Count}): {string.Join(", ", candidates.Select(c => $"{c.Profile.DisplayName} NonLA={c.RemainingNonLaSec/60:F0}m LA={c.RemainingLaSec/60:F0}m"))}");
@@ -311,15 +744,14 @@ namespace AstroPM.NINA.Plugin.Models {
                     int ri = row.RowIndex;
                     int moonSafeMuSlots = 0;
                     for (int s = 0; s < matrix.Slots.Count; s++)
-                        if (!matrix.MoonDown[s] && matrix.CanImage[ri][s] && matrix.MoonSafe[ri][s] && matrix.SlotAssignment[s] < 0)
+                        if (!matrix.MoonDown[s] && row.UsableSlot[s] && matrix.SlotAssignment[s] < 0)
                             moonSafeMuSlots++;
                     accessibleWork[ri] = row.RemainingNonLaSec + Math.Min(row.RemainingLaSec, moonSafeMuSlots * 300.0);
                     PaintTrace.AppendLine($"  {row.Profile.DisplayName}: moonSafeMuSlots={moonSafeMuSlots}, accessibleWork={accessibleWork[ri]/60:F0}m");
                 }
 
                 PaintPassFairShare(matrix, sorted,
-                    (ri, s) => !matrix.MoonDown[s] && matrix.CanImage[ri][s] && matrix.SlotAssignment[s] < 0
-                               && (matrix.Rows[ri].HasNonLaWork || matrix.MoonSafe[ri][s]),
+                    (ri, s) => !matrix.MoonDown[s] && matrix.Rows[ri].UsableSlot[s] && matrix.SlotAssignment[s] < 0,
                     SlotWorkType.NonLaPreferred,
                     r => accessibleWork.GetValueOrDefault(r.RowIndex));
             }
@@ -352,6 +784,9 @@ namespace AstroPM.NINA.Plugin.Models {
                 }
             }
 
+            // Defragment: merge A-B-A patterns into A-A-B to reduce target transitions
+            DefragmentSlots(matrix);
+
             PruneSlivers(matrix);
 
             // Absorb pruned slots into adjacent targets
@@ -371,6 +806,67 @@ namespace AstroPM.NINA.Plugin.Models {
                         matrix.SlotAssignment[s] = ri;
                         matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s + 1];
                     }
+                }
+            }
+        }
+
+        // ─── DefragmentSlots ─────────────────────────────────────────────────
+        // Merge A-B-A patterns into A-A-B to reduce target transitions. A swap
+        // requires both targets to be tier-aware usable in their swapped slots.
+
+        private static void DefragmentSlots(ScheduleMatrix matrix) {
+            bool changed = true;
+            int iterations = 0;
+            while (changed && iterations++ < 20) {
+                changed = false;
+                var blocks = new List<(int Target, int Start, int End)>();
+                int cur = -2, bStart = 0;
+                for (int s = 0; s <= matrix.Slots.Count; s++) {
+                    int t = s < matrix.Slots.Count ? matrix.SlotAssignment[s] : -2;
+                    if (t != cur) {
+                        if (cur >= 0) blocks.Add((cur, bStart, s - 1));
+                        cur = t;
+                        bStart = s;
+                    }
+                }
+
+                for (int i = 0; i + 2 < blocks.Count; i++) {
+                    if (blocks[i].Target != blocks[i + 2].Target) continue;
+                    if (blocks[i].Target < 0 || blocks[i + 1].Target < 0) continue;
+
+                    // Blocks must be contiguous in slots — the block list skips
+                    // unassigned gaps, and rewriting across a gap would paint slots
+                    // nobody validated (no CanImage/UsableSlot check on gap slots).
+                    if (blocks[i].End + 1 != blocks[i + 1].Start) continue;
+                    if (blocks[i + 1].End + 1 != blocks[i + 2].Start) continue;
+
+                    int targetA = blocks[i].Target;
+                    int targetB = blocks[i + 1].Target;
+                    int bSlotStart = blocks[i + 1].Start;
+                    int bSlotEnd = blocks[i + 1].End;
+                    int a2SlotStart = blocks[i + 2].Start;
+                    int a2SlotEnd = blocks[i + 2].End;
+                    int bLen = bSlotEnd - bSlotStart + 1;
+                    int a2Len = a2SlotEnd - a2SlotStart + 1;
+
+                    // Both targets must be able to actually produce work in their
+                    // swapped slots (tier-aware: moon safety, not just altitude)
+                    bool canSwap = true;
+                    for (int s = bSlotStart; s <= bSlotEnd && canSwap; s++)
+                        if (!matrix.Rows[targetA].UsableSlot[s]) canSwap = false;
+                    for (int s = a2SlotStart; s <= a2SlotEnd && canSwap; s++)
+                        if (!matrix.Rows[targetB].UsableSlot[s]) canSwap = false;
+
+                    if (!canSwap) continue;
+
+                    int regionStart = bSlotStart;
+                    for (int s = regionStart; s < regionStart + a2Len; s++)
+                        matrix.SlotAssignment[s] = targetA;
+                    for (int s = regionStart + a2Len; s < regionStart + a2Len + bLen; s++)
+                        matrix.SlotAssignment[s] = targetB;
+
+                    changed = true;
+                    break;
                 }
             }
         }
@@ -506,6 +1002,56 @@ namespace AstroPM.NINA.Plugin.Models {
                     extended++;
                 }
 
+                // Phase 2: still short — borrow edge slots from adjacent targets that
+                // can spare them (stay above their own minimum). Without this, a target
+                // whose exclusive window is just short of the minimum gets cleared and
+                // the exclusive slots go idle (nobody else can image them).
+                if (assigned + extended < matrix.Rows[r].MinChunkSlots) {
+                    int needed2 = matrix.Rows[r].MinChunkSlots - assigned - extended;
+
+                    var slotCounts = new int[matrix.Rows.Count];
+                    for (int s = 0; s < matrix.SlotAssignment.Length; s++)
+                        if (matrix.SlotAssignment[s] >= 0)
+                            slotCounts[matrix.SlotAssignment[s]]++;
+
+                    bool CanBorrowFrom(int victim) =>
+                        victim >= 0 && victim != r
+                        && slotCounts[victim] - 1 >= matrix.Rows[victim].MinChunkSlots;
+
+                    bool TryTake(int s) {
+                        if (!matrix.CanImage[r][s]) return false;
+                        int victim = matrix.SlotAssignment[s];
+                        if (victim == r) return false;
+                        if (victim >= 0) {
+                            if (!CanBorrowFrom(victim)) return false;
+                            slotCounts[victim]--;
+                        }
+                        matrix.SlotAssignment[s] = r;
+                        matrix.SlotWorkHint[s] = SlotWorkType.Any;
+                        slotCounts[r]++;
+                        needed2--; extended++;
+                        return true;
+                    }
+
+                    // Enumerate this target's runs and extend each run's edges,
+                    // borrowing from neighbors who can spare the slots.
+                    var runs2 = new List<(int Start, int End)>();
+                    int rs2 = -1;
+                    for (int s = 0; s <= matrix.SlotAssignment.Length; s++) {
+                        bool match = s < matrix.SlotAssignment.Length && matrix.SlotAssignment[s] == r;
+                        if (match && rs2 < 0) rs2 = s;
+                        else if (!match && rs2 >= 0) { runs2.Add((rs2, s - 1)); rs2 = -1; }
+                    }
+
+                    foreach (var run in runs2.OrderByDescending(x => x.End - x.Start)) {
+                        for (int s = run.End + 1; s < matrix.SlotAssignment.Length && needed2 > 0; s++)
+                            if (!TryTake(s)) break;
+                        for (int s = run.Start - 1; s >= 0 && needed2 > 0; s--)
+                            if (!TryTake(s)) break;
+                        if (needed2 <= 0) break;
+                    }
+                }
+
                 if (assigned + extended < matrix.Rows[r].MinChunkSlots) {
                     for (int s = 0; s < matrix.SlotAssignment.Length; s++)
                         if (matrix.SlotAssignment[s] == r)
@@ -535,6 +1081,22 @@ namespace AstroPM.NINA.Plugin.Models {
 
                 foreach (var run in runs) {
                     if (run.Length >= minChunk) continue;
+
+                    // Don't prune if this run is separated from ALL good runs by
+                    // another target's slots — it's an independent allocation (e.g.
+                    // moon-up block), not a fragmented sliver of a nearby run.
+                    bool adjacentToGoodRun = false;
+                    foreach (var good in runs) {
+                        if (good.Length < minChunk) continue;
+                        int gapStart = good.Start < run.Start ? good.Start + good.Length : run.Start + run.Length;
+                        int gapEnd = good.Start < run.Start ? run.Start : good.Start;
+                        bool separated = false;
+                        for (int g = gapStart; g < gapEnd; g++) {
+                            if (matrix.SlotAssignment[g] >= 0 && matrix.SlotAssignment[g] != r) { separated = true; break; }
+                        }
+                        if (!separated) { adjacentToGoodRun = true; break; }
+                    }
+                    if (!adjacentToGoodRun) continue;
 
                     bool canAbsorb = false;
                     int before = run.Start - 1;
@@ -576,6 +1138,23 @@ namespace AstroPM.NINA.Plugin.Models {
 
             foreach (var run in runs) {
                 if (workBudget <= 0) break;
+
+                // Per-block minimum: a fresh run too short to host MinTimeOnTarget is
+                // only allowed while the target hasn't yet reached its minimum
+                // allocation (fragments as a PRIMARY allocation are fine — e.g. a
+                // mosaic panel taking leftover space between neighbors). Once a
+                // target has its block, extra time must be a contiguous extension or
+                // a real ≥minimum block — never a sliver visit requiring a slew.
+                bool adjacentToOwn = (run.Start > 0 && matrix.SlotAssignment[run.Start - 1] == ri)
+                    || (run.Start + run.Length < matrix.SlotAssignment.Length
+                        && matrix.SlotAssignment[run.Start + run.Length] == ri);
+                if (!adjacentToOwn && run.Length < row.MinChunkSlots) {
+                    int alreadyPainted = 0;
+                    for (int s2 = 0; s2 < matrix.SlotAssignment.Length; s2++)
+                        if (matrix.SlotAssignment[s2] == ri) alreadyPainted++;
+                    if (alreadyPainted >= row.MinChunkSlots)
+                        continue;
+                }
 
                 int slotsToAssign = Math.Min(run.Length, (int)Math.Ceiling(workBudget / 300.0));
 
@@ -648,11 +1227,9 @@ namespace AstroPM.NINA.Plugin.Models {
         }
 
         private static bool HasMoonSafeMoonUpSlots(ScheduleMatrix matrix, TargetRow row) {
-            int ri = row.RowIndex;
             for (int s = 0; s < matrix.Slots.Count; s++) {
                 if (matrix.MoonDown[s]) continue;
-                if (!matrix.CanImage[ri][s]) continue;
-                if (matrix.MoonSafe[ri][s]) return true;
+                if (row.UsableSlot[s]) return true;
             }
             return false;
         }
@@ -707,7 +1284,8 @@ namespace AstroPM.NINA.Plugin.Models {
             bool ditherEnabled, int ditherEvery,
             bool filterSwitchEnabled, int filterSwitchCount,
             List<SortCriteria> sortChain = null,
-            bool bonusEnabled = true) {
+            bool bonusEnabled = true,
+            double filterSwitchTolerance = 0.5) {
 
             var log = new List<SimLogEntry>();
 
@@ -807,8 +1385,32 @@ namespace AstroPM.NINA.Plugin.Models {
                         ? new HashSet<int> { prof.PanelIndex.Value } : (HashSet<int>)null;
                     var probe = SessionScheduler.PickExposureSet(
                         prof, targetIdx, s, matrix.Slots, state,
-                        filterSwitchEnabled, filterSwitchCount, probeAllowed);
+                        filterSwitchEnabled, filterSwitchCount, probeAllowed,
+                        filterSwitchTolerance: filterSwitchTolerance);
                     if (probe.Es == null) {
+                        // Find where this target's contiguous run ends
+                        int runEnd = s;
+                        for (int fs = s + 1; fs <= matrix.LastUsableSlot; fs++) {
+                            if (matrix.SlotAssignment[fs] != rowIdx) break;
+                            runEnd = fs;
+                        }
+
+                        // Scan forward to find the first slot in this run where the target CAN image
+                        int firstViableSlot = -1;
+                        for (int fs = s + 1; fs <= runEnd; fs++) {
+                            state.FilterCycle.Remove(prof);
+                            var laterProbe = SessionScheduler.PickExposureSet(
+                                prof, targetIdx, fs, matrix.Slots, state,
+                                filterSwitchEnabled, filterSwitchCount,
+                                prof.PanelIndex.HasValue ? new HashSet<int> { prof.PanelIndex.Value } : null,
+                                filterSwitchTolerance: filterSwitchTolerance);
+                            if (laterProbe.Es != null) { firstViableSlot = fs; break; }
+                        }
+                        state.FilterCycle.Remove(prof);
+
+                        // Determine how many leading slots to reassign
+                        int reassignEnd = firstViableSlot >= 0 ? firstViableSlot : runEnd + 1;
+
                         int fallbackRow = -1;
                         for (int r = 0; r < matrix.Rows.Count; r++) {
                             if (r == rowIdx) continue;
@@ -818,14 +1420,15 @@ namespace AstroPM.NINA.Plugin.Models {
                                 ? new HashSet<int> { fp.PanelIndex.Value } : (HashSet<int>)null;
                             var fPick = SessionScheduler.PickExposureSet(
                                 fp, r, s, matrix.Slots, state,
-                                filterSwitchEnabled, filterSwitchCount, fAllowed);
+                                filterSwitchEnabled, filterSwitchCount, fAllowed,
+                                filterSwitchTolerance: filterSwitchTolerance);
                             if (fPick.Es != null) { fallbackRow = r; break; }
                         }
                         if (fallbackRow >= 0) {
-                            for (int fs = s; fs <= matrix.LastUsableSlot; fs++) {
-                                if (matrix.SlotAssignment[fs] != rowIdx) break;
+                            // Only reassign the leading unviable slots, not the entire run
+                            for (int fs = s; fs < reassignEnd; fs++)
                                 matrix.SlotAssignment[fs] = fallbackRow;
-                            }
+
                             rowIdx = fallbackRow;
                             row = matrix.Rows[rowIdx];
                             prof = row.Profile;
@@ -833,6 +1436,10 @@ namespace AstroPM.NINA.Plugin.Models {
                             targetIdx = row.RowIndex;
                         }
                     }
+
+                    // Probe and fallback calls modify FilterCycle as a side effect.
+                    // Reset it so the inner while starts with a clean cycle.
+                    state.FilterCycle.Remove(prof);
                 }
 
                 if (currentTarget != prof) {
@@ -858,6 +1465,9 @@ namespace AstroPM.NINA.Plugin.Models {
                     currentFilter = null;
                     currentPanel = null;
                     subsSinceDither = 0;
+
+                    // Reset filter cycle so each visit starts a fresh FilterSwitchCount batch
+                    state.FilterCycle.Remove(prof);
 
                     if (target.Panels.Count > 1 && !prof.PanelIndex.HasValue) {
                         foreach (var key in state.PanelTimeOnTarget.Keys
@@ -898,9 +1508,18 @@ namespace AstroPM.NINA.Plugin.Models {
                         }
                     }
 
+                    // Compute remaining seconds assigned to this target for tolerance check
+                    double targetRemainingSec = Math.Max(0, (slotEnd - currentUtc).TotalSeconds);
+                    for (int fs = s + 1; fs <= matrix.LastUsableSlot; fs++) {
+                        if (matrix.SlotAssignment[fs] != rowIdx) break;
+                        targetRemainingSec += 300.0;
+                    }
+
                     var pick = SessionScheduler.PickExposureSet(
                         prof, targetIdx, currentSlotIdx, matrix.Slots, state,
-                        filterSwitchEnabled, filterSwitchCount, allowedPanels);
+                        filterSwitchEnabled, filterSwitchCount, allowedPanels,
+                        filterSwitchTolerance: filterSwitchTolerance,
+                        targetRemainingSec: targetRemainingSec);
 
                     if (pick.Es == null && bonusEnabled)
                     {
@@ -918,7 +1537,9 @@ namespace AstroPM.NINA.Plugin.Models {
                         if (pick.Es == null)
                             pick = SessionScheduler.PickExposureSet(
                                 prof, targetIdx, currentSlotIdx, matrix.Slots, state,
-                                filterSwitchEnabled, filterSwitchCount, allowedPanels, includeCompleted: true);
+                                filterSwitchEnabled, filterSwitchCount, allowedPanels, includeCompleted: true,
+                                filterSwitchTolerance: filterSwitchTolerance,
+                                targetRemainingSec: targetRemainingSec);
                     }
                     if (pick.Es == null) break;
 
@@ -1002,7 +1623,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     string acceptedProfiles = "";
                     if (esSlot != null) {
                         filterProfile = SessionScheduler.GetFilterProfileName(es);
-                        acceptedProfiles = SessionScheduler.GetAcceptedProfiles(es, esSlot, esMoonSep);
+                        acceptedProfiles = SessionScheduler.GetAcceptedProfiles(es, esSlot, esMoonSep, target);
                     }
 
                     log.Add(new SimLogEntry {

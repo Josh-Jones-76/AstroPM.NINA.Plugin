@@ -49,7 +49,20 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private bool _mosaicPanelPreference;
         private List<SortCriteria> _sortChain;
         private ObservableCollection<SortChipItem> _sortChainItems = new ObservableCollection<SortChipItem>();
-        private string _strategyDescription = "Divides moon-down and moon-up time evenly across all targets. Minimizes target switching based on a targets minimum time on target. Moon-avoidance filters have priority during moon-down periods throughout the evening. Target minimum altitudes are respected.";
+        private ImagingStrategy _strategy = ImagingStrategy.SharedTime;
+        private double _filterSwitchTolerance = 0.5;
+        private string _strategyDescription = "";
+
+        // Uniform with the AstroPM desktop simulator — keep wording in sync
+        public static readonly Dictionary<ImagingStrategy, string> StrategyLabels = new Dictionary<ImagingStrategy, string> {
+            [ImagingStrategy.SharedTime] = "Proportional Time Across All Targets",
+            [ImagingStrategy.ManualPriority] = "Manual Priority Targeting",
+        };
+
+        public static readonly Dictionary<ImagingStrategy, string> StrategyDescriptions = new Dictionary<ImagingStrategy, string> {
+            [ImagingStrategy.SharedTime] = "Divides time proportionally based on each target's remaining work. Targets with more work get more time. LA filters prioritized during moon-down.",
+            [ImagingStrategy.ManualPriority] = "Images each target continuously while usable. Lunar avoidance filters prioritized when moon is down. Targets imaged in priority order.",
+        };
 
         public static readonly Color[] TargetCurveColors = {
             Color.FromRgb(0x4F, 0xC3, 0xF7), // Light blue
@@ -124,9 +137,13 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _ditherEvery = settings.DitherEvery;
             _filterSwitchEnabled = settings.FilterSwitchEnabled;
             _filterSwitchCount = settings.FilterSwitchCount;
+            _filterSwitchTolerance = settings.FilterSwitchTolerance;
             _bonusImagesEnabled = settings.BonusEnabled;
             _mosaicPanelPreference = settings.MosaicPanelPreference;
             _sortChain = ParseSortChain(settings.SortChain);
+            if (Enum.TryParse<ImagingStrategy>(settings.Strategy, out var savedStrategy))
+                _strategy = savedStrategy;
+            _strategyDescription = StrategyDescriptions[_strategy];
             RefreshSortChainItems();
 
             SimulateCommand = new RelayCommand(async _ => await RunSimulationAsync(), _ => !IsSimulating);
@@ -367,14 +384,61 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             set { _filterSwitchCount = value; OnPropertyChanged(); SaveSimSettings(); }
         }
 
+        public double FilterSwitchTolerance {
+            get => _filterSwitchTolerance;
+            set { _filterSwitchTolerance = value; OnPropertyChanged(); SaveSimSettings(); }
+        }
+
+        public List<KeyValuePair<ImagingStrategy, string>> StrategyOptions { get; } =
+            StrategyLabels.ToList();
+
+        public List<KeyValuePair<double, string>> ToleranceOptions { get; } =
+            new List<KeyValuePair<double, string>> {
+                new KeyValuePair<double, string>(0.0, "0%"),
+                new KeyValuePair<double, string>(0.1, "10%"),
+                new KeyValuePair<double, string>(0.2, "20%"),
+                new KeyValuePair<double, string>(0.3, "30%"),
+                new KeyValuePair<double, string>(0.4, "40%"),
+                new KeyValuePair<double, string>(0.5, "50%"),
+                new KeyValuePair<double, string>(0.6, "60%"),
+                new KeyValuePair<double, string>(0.7, "70%"),
+                new KeyValuePair<double, string>(0.8, "80%"),
+                new KeyValuePair<double, string>(0.9, "90%"),
+                new KeyValuePair<double, string>(1.0, "100%"),
+            };
+
+        public ImagingStrategy Strategy {
+            get => _strategy;
+            set {
+                if (_strategy == value) return;
+                _strategy = value;
+                StrategyDescription = StrategyDescriptions[value];
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PriorityHint));
+                SaveSimSettings();
+                _ = RunSimulationAsync();
+            }
+        }
+
+        // Uniform with the AstroPM desktop simulator's Step 2 hint
+        public string PriorityHint => _strategy == ImagingStrategy.ManualPriority
+            ? "—  ordered by each project's Priority setting (1 = highest)"
+            : "";
+
         public bool BonusImagesEnabled {
             get => _bonusImagesEnabled;
-            set { _bonusImagesEnabled = value; OnPropertyChanged(); SaveSimSettings(); _ = RunSimulationAsync(); }
+            set {
+                if (_bonusImagesEnabled == value) return;
+                _bonusImagesEnabled = value; OnPropertyChanged(); SaveSimSettings(); _ = RunSimulationAsync();
+            }
         }
 
         public bool MosaicPanelPreference {
             get => _mosaicPanelPreference;
-            set { _mosaicPanelPreference = value; OnPropertyChanged(); SaveSimSettings(); _ = RunSimulationAsync(); }
+            set {
+                if (_mosaicPanelPreference == value) return;
+                _mosaicPanelPreference = value; OnPropertyChanged(); SaveSimSettings(); _ = RunSimulationAsync();
+            }
         }
 
         public ObservableCollection<SortChipItem> SortChainItems {
@@ -603,7 +667,12 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
             foreach (var p in _profiles) p.AllocatedSec = 0;
 
-            var order = Enumerable.Range(0, _profiles.Count).ToList();
+            // Priority order from Project.Priority (1 = highest, 0 = unset → last),
+            // synced from the Astro PM cloud. Drives the Manual Priority strategy.
+            var order = Enumerable.Range(0, _profiles.Count)
+                .OrderBy(i => _profiles[i].Target.Priority == 0 ? int.MaxValue : _profiles[i].Target.Priority)
+                .ThenBy(i => i)
+                .ToList();
             var matrix = ScheduleEngine.BuildMatrix(_slots, _profiles, order);
 
             if (matrix.FirstUsableSlot < 0) {
@@ -611,7 +680,13 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 return;
             }
 
-            ScheduleEngine.PaintSlots(matrix, _sortChain, BuildMoonDownChain(), _bonusImagesEnabled);
+            ScheduleEngine.ComputeOverlap(matrix);
+            ScheduleEngine.OrganizeMoonBlocks(matrix);
+
+            if (_strategy == ImagingStrategy.ManualPriority)
+                ScheduleEngine.PaintSlotsGreedy(matrix, order, _bonusImagesEnabled);
+            else
+                ScheduleEngine.PaintSlots(matrix, _sortChain, BuildMoonDownChain(), _bonusImagesEnabled);
 
             try {
                 var diag = ScheduleEngine.DumpDiagnostic(matrix, _sortChain, tz);
@@ -622,7 +697,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             var state = new ScheduleSessionState();
             _log = ScheduleEngine.WalkToLog(matrix, state, tz,
                 _ditherEnabled, _ditherEvery, _filterSwitchEnabled, _filterSwitchCount, _sortChain,
-                bonusEnabled: _bonusImagesEnabled);
+                bonusEnabled: _bonusImagesEnabled,
+                filterSwitchTolerance: _filterSwitchTolerance);
         }
 
         private List<ProjectTarget> FilterTargets() {
@@ -658,9 +734,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.DitherEvery = _ditherEvery;
             settings.FilterSwitchEnabled = _filterSwitchEnabled;
             settings.FilterSwitchCount = _filterSwitchCount;
+            settings.FilterSwitchTolerance = _filterSwitchTolerance;
             settings.BonusEnabled = _bonusImagesEnabled;
             settings.MosaicPanelPreference = _mosaicPanelPreference;
             settings.SortChain = string.Join(",", _sortChain);
+            settings.Strategy = _strategy.ToString();
             settings.Save();
         }
 
@@ -673,18 +751,30 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
             var tz = TimeZoneInfo.Local;
 
-            // Order cards by first slew time to match AstroPM
-            var firstSlewTime = new Dictionary<int, DateTime>();
-            if (_log != null) {
-                foreach (var entry in _log.Where(e => e.Command == "Slew")) {
-                    int pIdx = _profiles.FindIndex(p => p.DisplayName == entry.Target);
-                    if (pIdx >= 0 && !firstSlewTime.ContainsKey(pIdx))
-                        firstSlewTime[pIdx] = entry.UtcTime;
+            // Manual Priority: order cards by each project's Priority setting and
+            // number them. Proportional: order by first slew time to match AstroPM.
+            List<int> orderedIndices;
+            var priorityRank = new Dictionary<int, int>(); // profileIndex → display rank (1-based)
+            if (_strategy == ImagingStrategy.ManualPriority) {
+                orderedIndices = Enumerable.Range(0, _profiles.Count)
+                    .OrderBy(i => _profiles[i].Target.Priority == 0 ? int.MaxValue : _profiles[i].Target.Priority)
+                    .ThenBy(i => i)
+                    .ToList();
+                for (int rank = 0; rank < orderedIndices.Count; rank++)
+                    priorityRank[orderedIndices[rank]] = rank + 1;
+            } else {
+                var firstSlewTime = new Dictionary<int, DateTime>();
+                if (_log != null) {
+                    foreach (var entry in _log.Where(e => e.Command == "Slew")) {
+                        int pIdx = _profiles.FindIndex(p => p.DisplayName == entry.Target);
+                        if (pIdx >= 0 && !firstSlewTime.ContainsKey(pIdx))
+                            firstSlewTime[pIdx] = entry.UtcTime;
+                    }
                 }
+                orderedIndices = Enumerable.Range(0, _profiles.Count)
+                    .OrderBy(i => firstSlewTime.ContainsKey(i) ? firstSlewTime[i] : DateTime.MaxValue)
+                    .ToList();
             }
-            var orderedIndices = Enumerable.Range(0, _profiles.Count)
-                .OrderBy(i => firstSlewTime.ContainsKey(i) ? firstSlewTime[i] : DateTime.MaxValue)
-                .ToList();
 
             _profileColorMap = new Dictionary<int, Color>();
             var projectColorMap = new Dictionary<string, Color>();
@@ -788,6 +878,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
                 cards.Add(new TargetCardModel {
                     Name = prof.DisplayName,
+                    PriorityBadge = priorityRank.TryGetValue(i, out var rank) ? $"#{rank}" : "",
+                    PriorityBadgeVisibility = priorityRank.ContainsKey(i) ? Visibility.Visible : Visibility.Collapsed,
                     AllocatedTime = allocTime,
                     Window = window,
                     AltitudeRange = altRange,

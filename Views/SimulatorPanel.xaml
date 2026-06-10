@@ -92,12 +92,16 @@
                    Margin="4,0,0,8"
                    Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse, FallbackValue=Visible}"/>
 
-        <!-- ═══ Step 1: Simulator Settings ═══ -->
-        <TextBlock Text="Step 1.  Simulator Settings" Style="{StaticResource StepHeading}"/>
+        <!-- ═══ Step 1: Simulator Strategy & Settings ═══ -->
+        <TextBlock Text="Step 1.  Simulator Strategy &amp; Settings" Style="{StaticResource StepHeading}"/>
 
         <Border Background="#1A1A1A" BorderBrush="#333333" BorderThickness="1"
                 CornerRadius="4" Padding="16,12" Margin="0,0,0,8">
             <StackPanel>
+                <ComboBox Width="320" HorizontalAlignment="Left" Margin="0,0,0,6"
+                          ItemsSource="{Binding StrategyOptions}"
+                          DisplayMemberPath="Value" SelectedValuePath="Key"
+                          SelectedValue="{Binding Strategy, Mode=TwoWay}"/>
                 <TextBlock Text="{Binding StrategyDescription}" FontSize="11" Foreground="#888888"
                            TextWrapping="Wrap"/>
 
@@ -156,6 +160,14 @@
                              TextAlignment="Center"/>
                     <TextBlock Text="subs" FontSize="11" Foreground="#888888"
                                VerticalAlignment="Center" Margin="4,0,0,0"/>
+                    <TextBlock Text="tolerance" FontSize="11" Foreground="#888888"
+                               VerticalAlignment="Center" Margin="14,0,4,0"/>
+                    <ComboBox Width="60" VerticalAlignment="Center"
+                              IsEnabled="{Binding FilterSwitchEnabled}"
+                              ItemsSource="{Binding ToleranceOptions}"
+                              DisplayMemberPath="Value" SelectedValuePath="Key"
+                              SelectedValue="{Binding FilterSwitchTolerance, Mode=TwoWay}"
+                              ToolTip="A filter switch may only start a filter that can fit at least this percentage of the switch count in its remaining runway (target time or moon-safety window)"/>
 
                 </WrapPanel>
 
@@ -198,8 +210,12 @@
         </Border>
 
         <!-- ═══ Step 2: Nightly Targets ═══ -->
-        <TextBlock Text="Step 2.  Nightly Targets" Style="{StaticResource StepHeading}"
-                   Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}"/>
+        <StackPanel Orientation="Horizontal"
+                    Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Step 2.  Nightly Targets" Style="{StaticResource StepHeading}"/>
+            <TextBlock Text="{Binding PriorityHint}" FontSize="11" Foreground="#666666"
+                       VerticalAlignment="Center" Margin="6,0,0,4"/>
+        </StackPanel>
 
         <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                       Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}"
@@ -215,12 +231,18 @@
                         <Border Background="#1A1A1A" BorderBrush="#333333" BorderThickness="1"
                                 CornerRadius="4" Padding="10,14,10,14" Margin="0,0,8,8" Width="420">
                             <StackPanel>
-                                <!-- Target name + color dot -->
+                                <!-- Target name + color dot + priority badge -->
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                     <Ellipse Width="10" Height="10" Fill="{Binding ColorBrush}"
                                              VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
                                                Foreground="#DCDCDC"/>
+                                    <Border Background="#007ACC" CornerRadius="8" Padding="6,1"
+                                            Margin="8,0,0,0" VerticalAlignment="Center"
+                                            Visibility="{Binding PriorityBadgeVisibility}">
+                                        <TextBlock Text="{Binding PriorityBadge}" FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="White"/>
+                                    </Border>
                                 </StackPanel>
 
                                 <!-- Stats grid (vertical like AstroPM) -->

@@ -579,7 +579,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             foreach (var t in targets)
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Target: {t.TargetName} loc={t.LocationName} scope={t.TelescopeName} panels={t.Panels?.Count ?? 0} remaining={t.Panels?.Sum(p => p.ExposureSets?.Sum(es => es.Remaining) ?? 0) ?? 0}");
-            global::NINA.Core.Utility.Logger.Info($"AstroPM | Settings: SortChain={settings.SortChain} MosaicPanelPref={settings.MosaicPanelPreference} Bonus={settings.BonusEnabled} Dither={settings.DitherEnabled}/{settings.DitherEvery} FilterSwitch={settings.FilterSwitchEnabled}/{settings.FilterSwitchCount}");
+            global::NINA.Core.Utility.Logger.Info($"AstroPM | Settings: Strategy={settings.Strategy} SortChain={settings.SortChain} MosaicPanelPref={settings.MosaicPanelPreference} Bonus={settings.BonusEnabled} Dither={settings.DitherEnabled}/{settings.DitherEvery} FilterSwitch={settings.FilterSwitchEnabled}/{settings.FilterSwitchCount} Tolerance={settings.FilterSwitchTolerance:P0}");
 
             progress?.Report(new ApplicationStatus { Status = $"Astro PM: Calculating schedule for {targets.Count} targets..." });
 
@@ -612,7 +612,12 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             foreach (var p in profiles) p.AllocatedSec = 0;
 
-            var order = Enumerable.Range(0, profiles.Count).ToList();
+            // Priority order from Project.Priority (1 = highest, 0 = unset → last),
+            // synced from the Astro PM cloud. Drives the Manual Priority strategy.
+            var order = Enumerable.Range(0, profiles.Count)
+                .OrderBy(i => profiles[i].Target.Priority == 0 ? int.MaxValue : profiles[i].Target.Priority)
+                .ThenBy(i => i)
+                .ToList();
             var matrix = ScheduleEngine.BuildMatrix(slots, profiles, order);
 
             if (matrix.FirstUsableSlot < 0) {
@@ -625,12 +630,20 @@ namespace AstroPM.NINA.Plugin.Instructions {
             foreach (var c in sortChain)
                 if (c != SortCriteria.MostLaWork) moonDownChain.Add(c);
 
-            ScheduleEngine.PaintSlots(matrix, sortChain, moonDownChain, settings.BonusEnabled);
+            ScheduleEngine.ComputeOverlap(matrix);
+            ScheduleEngine.OrganizeMoonBlocks(matrix);
+
+            if (Enum.TryParse<ImagingStrategy>(settings.Strategy, out var strategy)
+                && strategy == ImagingStrategy.ManualPriority)
+                ScheduleEngine.PaintSlotsGreedy(matrix, order, settings.BonusEnabled);
+            else
+                ScheduleEngine.PaintSlots(matrix, sortChain, moonDownChain, settings.BonusEnabled);
 
             var state = new ScheduleSessionState();
             var log = ScheduleEngine.WalkToLog(matrix, state, tz,
                 settings.DitherEnabled, settings.DitherEvery, settings.FilterSwitchEnabled, settings.FilterSwitchCount, sortChain,
-                bonusEnabled: settings.BonusEnabled);
+                bonusEnabled: settings.BonusEnabled,
+                filterSwitchTolerance: settings.FilterSwitchTolerance);
 
             _lastLog = log;
             _lastSlots = slots;
@@ -748,8 +761,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             Action<string, TargetBlock> updateSimple = (cmd, b) => UpdateLiveStatus(cmd, b);
 
-            const int maxSlewRetries = 3;
-            const int slewRetryDelaySec = 30;
+            // Slew retries are spaced widely so a passing cloud band (which defeats
+            // plate solving with "not enough stars") can clear before we give up on the block.
+            const int maxSlewRetries = 5;
+            const int slewRetryDelaySec = 600;
             bool slewSucceeded = false;
 
             for (int attempt = 1; attempt <= maxSlewRetries; attempt++) {
@@ -768,9 +783,15 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         $"AstroPM | Slew failed for {block.TargetName} (attempt {attempt}/{maxSlewRetries}): {ex.Message}");
 
                     if (attempt < maxSlewRetries) {
+                        // Don't bother waiting if the retry would land past the block's window
+                        if (DateTime.UtcNow.AddSeconds(slewRetryDelaySec) >= block.UtcEnd) {
+                            global::NINA.Core.Utility.Logger.Warning(
+                                $"AstroPM | Block window for {block.TargetName} ends before next retry — giving up early");
+                            break;
+                        }
                         UpdateLiveStatus("Slew Error", block);
                         progress?.Report(new ApplicationStatus {
-                            Status = $"Astro PM: Slew failed — retrying in {slewRetryDelaySec}s ({attempt}/{maxSlewRetries})..."
+                            Status = $"Astro PM: Slew failed — retrying in {slewRetryDelaySec / 60} min ({attempt}/{maxSlewRetries})..."
                         });
                         await Task.Delay(TimeSpan.FromSeconds(slewRetryDelaySec), token);
                     }

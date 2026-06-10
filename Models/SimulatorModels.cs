@@ -6,6 +6,8 @@ namespace AstroPM.NINA.Plugin.Models {
 
     public class TargetCardModel {
         public string Name { get; set; } = "";
+        public string PriorityBadge { get; set; } = "";
+        public Visibility PriorityBadgeVisibility { get; set; } = Visibility.Collapsed;
         public string AllocatedTime { get; set; } = "";
         public string Window { get; set; } = "";
         public string AltitudeRange { get; set; } = "";

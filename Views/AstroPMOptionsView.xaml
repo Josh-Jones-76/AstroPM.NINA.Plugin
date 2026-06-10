@@ -722,6 +722,7 @@
                             <DataGridTextColumn Header="Px W" Binding="{Binding CameraPixelWidth}" Width="0.5*" />
                             <DataGridTextColumn Header="Px H" Binding="{Binding CameraPixelHeight}" Width="0.5*" />
                             <DataGridTextColumn Header="Px Size" Binding="{Binding CameraPixelSizeUm, StringFormat={}{0:F2}}" Width="0.6*" />
+                            <DataGridTextColumn Header="Priority" Binding="{Binding PriorityDisplay}" Width="0.6*" />
                             <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="0.7*" />
                         </DataGrid.Columns>
                     </DataGrid>

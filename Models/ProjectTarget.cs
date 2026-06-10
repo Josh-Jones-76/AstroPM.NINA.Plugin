@@ -38,6 +38,11 @@ namespace AstroPM.NINA.Plugin.Models {
         [JsonProperty("status")]
         public string Status { get; set; }
 
+        /// <summary>Scheduling priority for Manual Priority strategy: 1 = highest, 0 = unset (sorts last).
+        /// Rides inside the constraints JSON blob so the cloud API needs no changes.</summary>
+        [JsonIgnore]
+        public int Priority => Constraints?.Priority ?? 0;
+
         [JsonProperty("telescope_name")]
         public string TelescopeName { get; set; }
 
@@ -97,6 +102,10 @@ namespace AstroPM.NINA.Plugin.Models {
 
         [JsonIgnore]
         public string PanelGridDisplay => $"{PanelRows}x{PanelColumns}";
+
+        /// <summary>Priority for display: blank when unset (0).</summary>
+        [JsonIgnore]
+        public string PriorityDisplay => Priority > 0 ? Priority.ToString() : "";
 
         [JsonIgnore]
         public string SensorDisplay =>
@@ -210,6 +219,10 @@ namespace AstroPM.NINA.Plugin.Models {
     }
 
     public class ConstraintsData {
+        /// <summary>Scheduling priority: 1 = highest, 0 = unset (sorts last).</summary>
+        [JsonProperty("priority")]
+        public int Priority { get; set; }
+
         [JsonProperty("twilight_type_index")]
         public int TwilightTypeIndex { get; set; }
 
