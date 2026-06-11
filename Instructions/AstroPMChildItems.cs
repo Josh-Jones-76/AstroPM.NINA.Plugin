@@ -335,9 +335,18 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 return;
             }
             if (DateTime.UtcNow.AddSeconds(_exposureSec) > _blockEndUtc) {
+                // End-of-night grace: for the final block of the session there is no next
+                // block waiting, so take one last sub that runs past the end rather than
+                // cutting it. Self-limiting — once it finishes, the "past block end" check
+                // above stops any further exposures. Interior blocks stay strict.
+                bool isFinalBlock = _blockEndUtc >= _sessionEndUtc.AddSeconds(-60);
+                if (!isFinalBlock) {
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | Exposure skipped (would exceed block end by {(DateTime.UtcNow.AddSeconds(_exposureSec) - _blockEndUtc).TotalSeconds:F0}s): {_block.TargetName} {_filterName} {_exposureSec:F0}s #{_subNumber}");
+                    return;
+                }
                 global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Exposure skipped (would exceed block end by {(DateTime.UtcNow.AddSeconds(_exposureSec) - _blockEndUtc).TotalSeconds:F0}s): {_block.TargetName} {_filterName} {_exposureSec:F0}s #{_subNumber}");
-                return;
+                    $"AstroPM | End-of-night grace: taking final sub exceeding session end by {(DateTime.UtcNow.AddSeconds(_exposureSec) - _blockEndUtc).TotalSeconds:F0}s: {_block.TargetName} {_filterName} {_exposureSec:F0}s #{_subNumber}");
             }
 
             // Switch filter if not already done in pre-trigger phase
@@ -367,6 +376,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 _resolvedFilter, new BinningMode((short)_binX, (short)_binY), 1) {
                 Gain = _gain,
                 Offset = _offset,
+                // ProgressExposureCount becomes Image.ExposureNumber → $$FRAMENR$$
+                // in the file pattern; _subNumber is the per-filter sub count.
+                ProgressExposureCount = _subNumber,
+                TotalExposureCount = _subNumber,
             };
 
             var exposureData = await _imagingMediator.CaptureImage(captureSequence, token, progress);

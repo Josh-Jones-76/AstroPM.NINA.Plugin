@@ -1333,6 +1333,7 @@ namespace AstroPM.NINA.Plugin.Models {
             string currentPanel = null;
             int subsSinceDither = 0;
             bool emittedDarkStart = false, emittedDarkEnd = false;
+            bool endOfNightGraceUsed = false;
             ExposureSetData lastEs = null;
             string lastPanelLabel = "";
             int lastPanelIdx = -1;
@@ -1544,7 +1545,16 @@ namespace AstroPM.NINA.Plugin.Models {
                     if (pick.Es == null) break;
 
                     var es = pick.Es;
-                    if (currentUtc.AddSeconds(es.ExposureLengthSec) > nightEnd) break;
+                    if (currentUtc.AddSeconds(es.ExposureLengthSec) > nightEnd) {
+                        // End-of-night grace: rather than cutting the last sub of the night,
+                        // take one final exposure that starts before night end and runs past it.
+                        // Interior block boundaries are unaffected — this only fires at session
+                        // end, and only once (currentUtc passes nightEnd, ending all loops).
+                        if (endOfNightGraceUsed) break;
+                        endOfNightGraceUsed = true;
+                        global::NINA.Core.Utility.Logger.Info(
+                            $"AstroPM | End-of-night grace: scheduling final {es.FilterName} {es.ExposureLengthSec:F0}s sub exceeding night end by {(currentUtc.AddSeconds(es.ExposureLengthSec) - nightEnd).TotalSeconds:F0}s");
+                    }
 
                     string filterName = es.FilterName;
                     string panelLabel = pick.PanelLabel;

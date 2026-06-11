@@ -25,6 +25,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel.Composition;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -170,6 +171,40 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // Add a placeholder so NINA never sees an empty container (which it would skip).
             // Our Execute() override handles all real work — this just prevents the skip.
             Add(new AstroPMPlaceholderItem());
+        }
+
+        // ── Serialization hygiene ──
+        // The placeholder is runtime-only and not MEF-exported, so NINA cannot re-create
+        // it when loading a saved sequence: each save/load cycle logs an "unknown sequence
+        // item" error and accumulates an UnknownSequenceItem fossil in the JSON. Strip
+        // runtime children before save, and scrub fossils left by older builds after load.
+
+        [OnSerializing]
+        private void OnSerializingStripRuntimeItems(StreamingContext context) {
+            ScrubPlaceholders();
+        }
+
+        [OnSerialized]
+        private void OnSerializedRestorePlaceholder(StreamingContext context) {
+            EnsurePlaceholder();
+        }
+
+        [OnDeserialized]
+        private void OnDeserializedScrubFossils(StreamingContext context) {
+            ScrubPlaceholders();
+            EnsurePlaceholder();
+        }
+
+        private void ScrubPlaceholders() {
+            foreach (var item in GetItemsSnapshot()) {
+                if (item is AstroPMPlaceholderItem || item is UnknownSequenceItem) {
+                    Items.Remove(item);
+                }
+            }
+        }
+
+        private void EnsurePlaceholder() {
+            if (Items.Count == 0) Add(new AstroPMPlaceholderItem());
         }
 
         private TargetInstructionSet(TargetInstructionSet cloneMe) : this(
