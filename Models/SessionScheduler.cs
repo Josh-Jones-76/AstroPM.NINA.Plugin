@@ -189,7 +189,12 @@ namespace AstroPM.NINA.Plugin.Models {
         }
 
         public static List<TargetProfile> BuildTargetProfiles(List<ProjectTarget> targets, List<TimeSlot> slots,
-            double latDeg, double lonDeg, bool mosaicPanelPreference = false) {
+            double latDeg, double lonDeg, bool mosaicPanelPreference = false, HorizonProfile customHorizon = null) {
+            // Custom .hrz horizon (NINA's profile horizon file, if loaded): a slot is only
+            // usable when the target clears the obstruction line at its azimuth, in
+            // addition to MinTargetAltitude. The desktop simulator applies the same check
+            // using the site's stored .hrz, so both produce identical schedules when the
+            // same file is loaded on both sides.
             var profiles = new List<TargetProfile>();
             foreach (var target in targets) {
                 var constraints = target.ToObservingConstraints();
@@ -210,6 +215,11 @@ namespace AstroPM.NINA.Plugin.Models {
 
                     bool isDark = slot.SunAltDeg < constraints.SunAltitudeThreshold;
                     bool aboveMinAlt = altitudes[i] >= constraints.MinTargetAltitude;
+                    if (aboveMinAlt && customHorizon != null) {
+                        var az = AstroCalculator.TargetAzimuthAtTime(
+                            slot.UtcStart, target.RaHours, target.DecDegrees, latDeg, lonDeg);
+                        aboveMinAlt = altitudes[i] >= customHorizon.AltitudeAt(az);
+                    }
                     usable[i] = isDark && aboveMinAlt;
 
                     if (usable[i]) {

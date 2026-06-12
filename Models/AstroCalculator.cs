@@ -84,6 +84,28 @@ namespace AstroPM.NINA.Plugin.Models {
             return Math.Max(0, alt);
         }
 
+        /// <summary>
+        /// Target azimuth at a specific UTC time, degrees from North (0=N, 90=E, 180=S, 270=W).
+        /// Same hour-angle math as TargetAltitudeAtTime so alt/az pairs are consistent.
+        /// Line-for-line port of the desktop AstroCalculator — keep identical.
+        /// </summary>
+        public static double TargetAzimuthAtTime(DateTime utc, double raHours, double decDeg,
+            double latDeg, double lonDeg) {
+            var lst = LocalSiderealTime(utc, lonDeg);
+            var ha = (lst - raHours) * 15.0;
+
+            var latRad = latDeg * Deg2Rad;
+            var decRad = decDeg * Deg2Rad;
+            var haRad = ha * Deg2Rad;
+
+            var y = -Math.Sin(haRad) * Math.Cos(decRad);
+            var x = Math.Sin(decRad) * Math.Cos(latRad) - Math.Cos(decRad) * Math.Cos(haRad) * Math.Sin(latRad);
+
+            var az = Math.Atan2(y, x) * Rad2Deg;
+            if (az < 0) az += 360.0;
+            return az;
+        }
+
         public static double MoonTargetSeparation(DateTime utc, double targetRaHours, double targetDecDeg, double lonDeg) {
             var moonRaDec = MoonRaDec(utc, lonDeg);
             var moonRaDeg = moonRaDec.raHours * 15.0;

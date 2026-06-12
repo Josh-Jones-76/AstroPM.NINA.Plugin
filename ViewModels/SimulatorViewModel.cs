@@ -22,6 +22,9 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private List<TimeSlot> _slots;
         private List<TargetProfile> _profiles;
         private List<SimLogEntry> _log;
+        // Custom horizon (.hrz) from the NINA profile, captured per simulation run —
+        // drives the engine's usable-slot check and the card constraint rows.
+        private HorizonProfile _customHorizon;
 
         private DateTime _selectedDate = DateTime.Now.Hour < 7 ? DateTime.Today.AddDays(-1) : DateTime.Today;
         private string _selectedLocation;
@@ -658,7 +661,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
             var tz = TimeZoneInfo.Local;
             _slots = SessionScheduler.BuildTimeSlots(_selectedDate, lat, lon, tz);
-            _profiles = SessionScheduler.BuildTargetProfiles(targets, _slots, lat, lon, _mosaicPanelPreference);
+
+            // NINA's custom horizon (.hrz) — same obstruction check the live instruction
+            // set applies, so the simulator preview matches what will actually run.
+            _customHorizon = HorizonProfile.LoadFromNinaProfile();
+            _profiles = SessionScheduler.BuildTargetProfiles(targets, _slots, lat, lon, _mosaicPanelPreference, _customHorizon);
 
             if (_profiles.Count == 0) {
                 _log = new List<SimLogEntry> { new SimLogEntry { Command = "Info", Target = "No targets visible tonight." } };
@@ -914,6 +921,28 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 DetailColor = DimBrush,
             });
 
+            // Custom horizon (.hrz from the NINA profile) — best clearance over the
+            // usable window. Same obstruction math the engine uses for SlotUsable.
+            if (_customHorizon != null && prof.WindowStartSlot >= 0) {
+                double bestClear = double.MinValue, bestHrz = 0, bestAz = 0;
+                for (int s = prof.WindowStartSlot; s <= prof.WindowEndSlot && s < _slots.Count; s++) {
+                    double az = AstroCalculator.TargetAzimuthAtTime(
+                        _slots[s].UtcStart, prof.Target.RaHours, prof.Target.DecDegrees, _latitude, _longitude);
+                    double hrzAlt = _customHorizon.AltitudeAt(az);
+                    double clear = prof.AltitudePerSlot[s] - hrzAlt;
+                    if (clear > bestClear) { bestClear = clear; bestHrz = hrzAlt; bestAz = az; }
+                }
+                bool hrzPass = bestClear >= 0;
+                checks.Add(new ConstraintCheckModel {
+                    Icon = hrzPass ? "✓" : "✗", IconColor = hrzPass ? PassBrush : FailBrush,
+                    Label = "Custom Horizon",
+                    Detail = hrzPass
+                        ? $"Clears {bestHrz:F0}° horizon by {bestClear:F0}° (az {bestAz:F0}°)"
+                        : $"{-bestClear:F0}° below {bestHrz:F0}° horizon (az {bestAz:F0}°)",
+                    DetailColor = DimBrush,
+                });
+            }
+
             double allocHrs = prof.AllocatedSec / 3600.0;
             bool timePass = c.MinTimeOnTargetHrs <= 0 || allocHrs >= c.MinTimeOnTargetHrs;
             checks.Add(new ConstraintCheckModel {
@@ -1052,6 +1081,24 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 Detail = $"Peak {alt:F0}° {(altPass ? "≥" : "<")} {c.MinTargetAltitude:F0}° min",
                 DetailColor = DimBrush,
             });
+
+            // Custom horizon (.hrz from the NINA profile) — at this slot's azimuth.
+            // Same obstruction math the engine uses for SlotUsable.
+            if (_customHorizon != null) {
+                double az = AstroCalculator.TargetAzimuthAtTime(
+                    slot.UtcStart, prof.Target.RaHours, prof.Target.DecDegrees, _latitude, _longitude);
+                double hrzAlt = _customHorizon.AltitudeAt(az);
+                bool hrzPass = alt >= hrzAlt;
+                double clearance = alt - hrzAlt;
+                checks.Add(new ConstraintCheckModel {
+                    Icon = hrzPass ? "✓" : "✗", IconColor = hrzPass ? PassBrush : FailBrush,
+                    Label = "Custom Horizon",
+                    Detail = hrzPass
+                        ? $"Clears {hrzAlt:F0}° horizon by {clearance:F0}° (az {az:F0}°)"
+                        : $"{-clearance:F0}° below {hrzAlt:F0}° horizon (az {az:F0}°)",
+                    DetailColor = DimBrush,
+                });
+            }
 
             double allocHrs = prof.AllocatedSec / 3600.0;
             bool timePass = c.MinTimeOnTargetHrs <= 0 || allocHrs >= c.MinTimeOnTargetHrs;
