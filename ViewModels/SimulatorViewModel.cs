@@ -55,6 +55,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private ImagingStrategy _strategy = ImagingStrategy.SharedTime;
         private double _filterSwitchTolerance = 0.5;
         private string _strategyDescription = "";
+        private PlaybackMode _playback = PlaybackMode.TimeAware;
 
         // Uniform with the AstroPM desktop simulator — keep wording in sync
         public static readonly Dictionary<ImagingStrategy, string> StrategyLabels = new Dictionary<ImagingStrategy, string> {
@@ -65,6 +66,16 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         public static readonly Dictionary<ImagingStrategy, string> StrategyDescriptions = new Dictionary<ImagingStrategy, string> {
             [ImagingStrategy.SharedTime] = "Divides time proportionally based on each target's remaining work. Targets with more work get more time. LA filters prioritized during moon-down.",
             [ImagingStrategy.ManualPriority] = "Images each target continuously while usable. Lunar avoidance filters prioritized when moon is down. Targets imaged in priority order.",
+        };
+
+        public static readonly Dictionary<PlaybackMode, string> PlaybackLabels = new Dictionary<PlaybackMode, string> {
+            [PlaybackMode.TimeAware] = "Time-Aware Scheduling",
+            [PlaybackMode.Sequential] = "Sequential Playback",
+        };
+
+        public static readonly Dictionary<PlaybackMode, string> PlaybackDescriptions = new Dictionary<PlaybackMode, string> {
+            [PlaybackMode.TimeAware] = "After delays (autofocus, safety holds, meridian flips) the session jumps ahead to the exposure that should be running now, keeping the night on schedule across targets. The last few subs of a block can be skipped to catch up, but there is a chance that the overhead will cause fewer subs than the perfect simulation provided.",
+            [PlaybackMode.Sequential] = "Runs each target's exposures strictly in order and never skips. After a safety hold on the same target it resumes where it left off. A block may capture fewer subs if overhead (autofocus, dither, plate solves, etc.) adds to your runs, but always in the planned order. Target switches are still honored at block boundaries.",
         };
 
         public static readonly Color[] TargetCurveColors = {
@@ -147,6 +158,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             if (Enum.TryParse<ImagingStrategy>(settings.Strategy, out var savedStrategy))
                 _strategy = savedStrategy;
             _strategyDescription = StrategyDescriptions[_strategy];
+            if (Enum.TryParse<PlaybackMode>(settings.PlaybackMode, out var savedPlayback))
+                _playback = savedPlayback;
             RefreshSortChainItems();
 
             SimulateCommand = new RelayCommand(async _ => await RunSimulationAsync(), _ => !IsSimulating);
@@ -422,6 +435,24 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 _ = RunSimulationAsync();
             }
         }
+
+        public List<KeyValuePair<PlaybackMode, string>> PlaybackOptions { get; } =
+            PlaybackLabels.ToList();
+
+        public PlaybackMode Playback {
+            get => _playback;
+            set {
+                if (_playback == value) return;
+                _playback = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PlaybackDescription));
+                // No RunSimulationAsync: playback mode changes how the plugin executes the
+                // plan, not the plan itself, so the simulation graph is unaffected.
+                SaveSimSettings();
+            }
+        }
+
+        public string PlaybackDescription => PlaybackDescriptions[_playback];
 
         // Uniform with the AstroPM desktop simulator's Step 2 hint
         public string PriorityHint => _strategy == ImagingStrategy.ManualPriority
@@ -746,6 +777,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.MosaicPanelPreference = _mosaicPanelPreference;
             settings.SortChain = string.Join(",", _sortChain);
             settings.Strategy = _strategy.ToString();
+            settings.PlaybackMode = _playback.ToString();
             settings.Save();
         }
 
@@ -944,13 +976,28 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             }
 
             double allocHrs = prof.AllocatedSec / 3600.0;
-            bool timePass = c.MinTimeOnTargetHrs <= 0 || allocHrs >= c.MinTimeOnTargetHrs;
+            // A target whose entire remaining workload is below the configured
+            // minimum is finishing — it can't reach a full min-block again, so the
+            // engine schedules a final short block to complete it. Treat the Time
+            // check as satisfied in that case rather than flagging a red ✗ on a
+            // target that's correctly completing. (Mirrors the engine's
+            // end-of-target minChunk reduction in ScheduleEngine.BuildMatrix.)
+            double remainingWorkSec = prof.TierRemainingSec.Length > 0
+                ? prof.TierRemainingSec.Sum()
+                : prof.RemainingNonLunarSec + prof.RemainingLunarFreeSec;
+            bool finishing = c.MinTimeOnTargetHrs > 0 && remainingWorkSec > 0
+                && remainingWorkSec < c.MinTimeOnTargetHrs * 3600;
+            bool timePass = c.MinTimeOnTargetHrs <= 0
+                || allocHrs >= c.MinTimeOnTargetHrs
+                || (finishing && allocHrs > 0);
             checks.Add(new ConstraintCheckModel {
                 Icon = timePass ? "✓" : "✗", IconColor = timePass ? PassBrush : FailBrush,
                 Label = "Time",
-                Detail = c.MinTimeOnTargetHrs > 0
-                    ? $"{allocHrs:F1}h {(timePass ? "≥" : "<")} {c.MinTimeOnTargetHrs:F1}h min"
-                    : $"{allocHrs:F1}h (no min set)",
+                Detail = c.MinTimeOnTargetHrs <= 0
+                    ? $"{allocHrs:F1}h (no min set)"
+                    : finishing && timePass
+                        ? $"{allocHrs:F1}h (finishing — last {remainingWorkSec / 3600.0:F1}h)"
+                        : $"{allocHrs:F1}h {(timePass ? "≥" : "<")} {c.MinTimeOnTargetHrs:F1}h min",
                 DetailColor = DimBrush,
             });
 
@@ -1101,13 +1148,28 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             }
 
             double allocHrs = prof.AllocatedSec / 3600.0;
-            bool timePass = c.MinTimeOnTargetHrs <= 0 || allocHrs >= c.MinTimeOnTargetHrs;
+            // A target whose entire remaining workload is below the configured
+            // minimum is finishing — it can't reach a full min-block again, so the
+            // engine schedules a final short block to complete it. Treat the Time
+            // check as satisfied in that case rather than flagging a red ✗ on a
+            // target that's correctly completing. (Mirrors the engine's
+            // end-of-target minChunk reduction in ScheduleEngine.BuildMatrix.)
+            double remainingWorkSec = prof.TierRemainingSec.Length > 0
+                ? prof.TierRemainingSec.Sum()
+                : prof.RemainingNonLunarSec + prof.RemainingLunarFreeSec;
+            bool finishing = c.MinTimeOnTargetHrs > 0 && remainingWorkSec > 0
+                && remainingWorkSec < c.MinTimeOnTargetHrs * 3600;
+            bool timePass = c.MinTimeOnTargetHrs <= 0
+                || allocHrs >= c.MinTimeOnTargetHrs
+                || (finishing && allocHrs > 0);
             checks.Add(new ConstraintCheckModel {
                 Icon = timePass ? "✓" : "✗", IconColor = timePass ? PassBrush : FailBrush,
                 Label = "Time",
-                Detail = c.MinTimeOnTargetHrs > 0
-                    ? $"{allocHrs:F1}h {(timePass ? "≥" : "<")} {c.MinTimeOnTargetHrs:F1}h min"
-                    : $"{allocHrs:F1}h (no min set)",
+                Detail = c.MinTimeOnTargetHrs <= 0
+                    ? $"{allocHrs:F1}h (no min set)"
+                    : finishing && timePass
+                        ? $"{allocHrs:F1}h (finishing — last {remainingWorkSec / 3600.0:F1}h)"
+                        : $"{allocHrs:F1}h {(timePass ? "≥" : "<")} {c.MinTimeOnTargetHrs:F1}h min",
                 DetailColor = DimBrush,
             });
 

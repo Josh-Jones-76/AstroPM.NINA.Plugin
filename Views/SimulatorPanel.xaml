@@ -105,6 +105,16 @@
                 <TextBlock Text="{Binding StrategyDescription}" FontSize="11" Foreground="#888888"
                            TextWrapping="Wrap"/>
 
+                <!-- Execution playback: Time-Aware (skip ahead after delays) vs Sequential (in order) -->
+                <TextBlock Text="Execution Playback" FontSize="11" Foreground="#AAAAAA"
+                           Margin="0,12,0,4"/>
+                <ComboBox Width="320" HorizontalAlignment="Left" Margin="0,0,0,6"
+                          ItemsSource="{Binding PlaybackOptions}"
+                          DisplayMemberPath="Value" SelectedValuePath="Key"
+                          SelectedValue="{Binding Playback, Mode=TwoWay}"/>
+                <TextBlock Text="{Binding PlaybackDescription}" FontSize="11" Foreground="#888888"
+                           TextWrapping="Wrap"/>
+
                 <Border Height="1" Background="#333333" Margin="0,10,0,10"/>
 
                 <WrapPanel VerticalAlignment="Center">

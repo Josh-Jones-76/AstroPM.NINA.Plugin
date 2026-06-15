@@ -539,13 +539,19 @@ namespace AstroPM.NINA.Plugin.Models {
             bool moonRising = slotIdx + 1 < slots.Count && slots[slotIdx + 1].MoonAltDeg > slot.MoonAltDeg;
             bool preferRelaxed = !moonDown && !moonRising;
 
-            // Stable within-tier order (ES definition order) so the rotation
-            // exhausts every filter in a tier before advancing to the next tier —
-            // a remaining-count tiebreak would reshuffle after each batch.
+            // Within a tier (equal headroom + restrictiveness) the filter with the
+            // MOST remaining work runs first, so colour channels stay balanced and no
+            // single filter is perpetually cut off at the window's end (e.g. B in an
+            // R,G,B set). The sort key is the START-of-night remaining
+            // (PlannedCount - AcceptedCount), which is constant for the whole walk —
+            // NOT the live decrementing count, which would reshuffle after every batch
+            // and break the round-robin's clean one-pass-per-cycle advance. Definition
+            // order is the final tiebreak so the sort stays deterministic.
             var defOrder = new Dictionary<ExposureSetData, int>();
             for (int ci = 0; ci < panelCandidates.Count; ci++)
                 if (!defOrder.ContainsKey(panelCandidates[ci].Es))
                     defOrder[panelCandidates[ci].Es] = ci;
+            int StartRemaining(ExposureSetData es) => Math.Max(0, es.PlannedCount - es.AcceptedCount);
 
             double RestrictivenessFor(ExposureSetData es) {
                 if (es.MoonAvoidanceProfile != null)
@@ -565,6 +571,8 @@ namespace AstroPM.NINA.Plugin.Models {
                 double bR = RestrictivenessFor(b.Es);
                 int reqCmp = preferRelaxed ? aR.CompareTo(bR) : bR.CompareTo(aR);
                 if (reqCmp != 0) return reqCmp;
+                int remCmp = StartRemaining(b.Es).CompareTo(StartRemaining(a.Es)); // most remaining first
+                if (remCmp != 0) return remCmp;
                 return defOrder[a.Es].CompareTo(defOrder[b.Es]);
             });
 

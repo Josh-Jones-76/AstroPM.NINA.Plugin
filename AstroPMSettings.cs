@@ -26,6 +26,7 @@ namespace AstroPM.NINA.Plugin
         private string _sortChain = "LowestPeakAltitude,SettingSoonest,MostRemainingWork,Constrained";
         private string _strategy = "SharedTime";
         private double _filterSwitchTolerance = 0.5;
+        private string _playbackMode = "TimeAware";
 
         public string SyncToken
         {
@@ -136,6 +137,15 @@ namespace AstroPM.NINA.Plugin
         {
             get => _filterSwitchTolerance;
             set { if (Math.Abs(_filterSwitchTolerance - value) > 0.0001) { _filterSwitchTolerance = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Live exposure-loop playback: "TimeAware" (skip ahead to the wall-clock
+        /// entry after delays) or "Sequential" (play each block's entries in order, never
+        /// skipping; resume in place after a hold on the same target). See PlaybackMode enum.</summary>
+        public string PlaybackMode
+        {
+            get => _playbackMode;
+            set { if (_playbackMode != value) { _playbackMode = value; OnPropertyChanged(); } }
         }
 
         // ── Persistence ──

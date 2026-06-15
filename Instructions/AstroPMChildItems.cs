@@ -115,8 +115,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     Angle.ByDegree(_block.DecDegrees),
                     Epoch.J2000));
 
-            bool useRotator = Math.Abs(_block.RotationDeg) > 0.01
-                && _rotatorMediator.GetInfo()?.Connected == true;
+            // Rotate to the planned PA whenever a rotator is connected — including a
+            // planned PA of 0° (north-up), which is a real orientation, not "no
+            // preference." (The old guard skipped rotation at PA≈0, so a target framed
+            // at 0° silently inherited the previous target's rotator angle.) CenterAndRotate
+            // is a no-op when the camera is already within NINA's rotation tolerance, so an
+            // already-aligned target costs nothing. No rotator connected → Center only,
+            // leaving the camera at whatever angle it's currently set to.
+            bool useRotator = _rotatorMediator.GetInfo()?.Connected == true;
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             if (useRotator) {
@@ -129,7 +135,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 await slewCenterRotate.Execute(progress, token);
             } else {
                 global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Slew mode: Center only (rotator {(_rotatorMediator.GetInfo()?.Connected == true ? "connected but PA~0" : "not connected")})");
+                    "AstroPM | Slew mode: Center only (no rotator connected — keeping current camera angle)");
                 var slewCenter = new Center(_profileService, _telescopeMediator,
                     _imagingMediator, _filterWheelMediator, _guiderMediator,
                     _domeMediator, _domeFollower, _plateSolverFactory, _windowServiceFactory);

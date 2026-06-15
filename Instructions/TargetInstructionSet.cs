@@ -875,57 +875,79 @@ namespace AstroPM.NINA.Plugin.Instructions {
             var filterImageCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
             int lastExecutedIndex = -1;
+
+            // Playback mode (read once per block, so a resume after a hold honors the
+            // current setting). Sequential: walk this block's entries strictly in order and
+            // never skip — after autofocus/hold delays we resume where we left off rather
+            // than jumping ahead, so a block simply captures fewer subs if it runs long.
+            // Time-Aware (default): jump to the entry that should be running now — right for
+            // long safety closures. The block.UtcEnd guard stops both modes at the boundary.
+            Enum.TryParse<PlaybackMode>(AstroPMSettings.Load().PlaybackMode, out var playbackMode);
+            bool sequential = playbackMode == PlaybackMode.Sequential;
+            global::NINA.Core.Utility.Logger.Info(
+                $"AstroPM | Block {block.TargetName}: playback mode = {(sequential ? "Sequential" : "Time-Aware")}");
+
             while (DateTime.UtcNow < block.UtcEnd && !_skipBlock) {
                 token.ThrowIfCancellationRequested();
 
-                // Find the schedule entry we should be on right now.
-                // Walk backward from end to find the last entry whose UtcTime <= now.
-                var now = DateTime.UtcNow;
-                int targetIndex = -1;
-                for (int i = actionEntries.Count - 1; i >= 0; i--) {
-                    if (actionEntries[i].UtcTime <= now) {
-                        targetIndex = i;
-                        break;
-                    }
-                }
-
-                // If we're before the first entry, wait a moment and retry
-                if (targetIndex < 0) {
-                    await Task.Delay(1000, token);
-                    continue;
-                }
-
-                // If we land on a Dither, skip forward to the next exposure
-                while (targetIndex < actionEntries.Count && actionEntries[targetIndex].Command == "Dither") {
-                    targetIndex++;
-                }
-                if (targetIndex >= actionEntries.Count) break;
-
-                // If we've already executed this entry or a later one, we need the NEXT entry
-                if (targetIndex <= lastExecutedIndex) {
+                int targetIndex;
+                if (sequential) {
+                    // Strictly the next entry in order; skip Dither markers (applied below).
                     targetIndex = lastExecutedIndex + 1;
-                    // Skip dithers again
+                    while (targetIndex < actionEntries.Count && actionEntries[targetIndex].Command == "Dither") {
+                        targetIndex++;
+                    }
+                    if (targetIndex >= actionEntries.Count) break;
+                } else {
+                    // Find the schedule entry we should be on right now.
+                    // Walk backward from end to find the last entry whose UtcTime <= now.
+                    var now = DateTime.UtcNow;
+                    targetIndex = -1;
+                    for (int i = actionEntries.Count - 1; i >= 0; i--) {
+                        if (actionEntries[i].UtcTime <= now) {
+                            targetIndex = i;
+                            break;
+                        }
+                    }
+
+                    // If we're before the first entry, wait a moment and retry
+                    if (targetIndex < 0) {
+                        await Task.Delay(1000, token);
+                        continue;
+                    }
+
+                    // If we land on a Dither, skip forward to the next exposure
                     while (targetIndex < actionEntries.Count && actionEntries[targetIndex].Command == "Dither") {
                         targetIndex++;
                     }
                     if (targetIndex >= actionEntries.Count) break;
 
-                    // If the next entry hasn't started yet, wait for it
-                    if (actionEntries[targetIndex].UtcTime > now) {
-                        var waitMs = (actionEntries[targetIndex].UtcTime - now).TotalMilliseconds;
-                        if (waitMs > 500) {
-                            await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(waitMs, 5000)), token);
-                            continue;
+                    // If we've already executed this entry or a later one, we need the NEXT entry
+                    if (targetIndex <= lastExecutedIndex) {
+                        targetIndex = lastExecutedIndex + 1;
+                        // Skip dithers again
+                        while (targetIndex < actionEntries.Count && actionEntries[targetIndex].Command == "Dither") {
+                            targetIndex++;
+                        }
+                        if (targetIndex >= actionEntries.Count) break;
+
+                        // If the next entry hasn't started yet, wait for it
+                        if (actionEntries[targetIndex].UtcTime > now) {
+                            var waitMs = (actionEntries[targetIndex].UtcTime - now).TotalMilliseconds;
+                            if (waitMs > 500) {
+                                await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(waitMs, 5000)), token);
+                                continue;
+                            }
                         }
                     }
-                }
 
-                // Log if we skipped entries to catch up
-                if (targetIndex > lastExecutedIndex + 1 && lastExecutedIndex >= 0) {
-                    int skipped = targetIndex - lastExecutedIndex - 1;
-                    global::NINA.Core.Utility.Logger.Info(
-                        $"AstroPM | Time-sync: skipped {skipped} entries to stay on schedule " +
-                        $"(jumped from #{lastExecutedIndex + 1} to #{targetIndex + 1} — {actionEntries[targetIndex].Filter})");
+                    // Log if we skipped entries to catch up
+                    if (targetIndex > lastExecutedIndex + 1 && lastExecutedIndex >= 0) {
+                        int skipped = targetIndex - lastExecutedIndex - 1;
+                        global::NINA.Core.Utility.Logger.Info(
+                            $"AstroPM | Time-sync: skipped {skipped} entries to stay on schedule " +
+                            $"(jumped from #{lastExecutedIndex + 1} to #{targetIndex + 1} — {actionEntries[targetIndex].Filter})");
+                    }
                 }
 
                 var entry = actionEntries[targetIndex];

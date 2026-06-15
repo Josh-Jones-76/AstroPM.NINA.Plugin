@@ -8,6 +8,16 @@ namespace AstroPM.NINA.Plugin.Models {
 
     public enum ImagingStrategy { SharedTime, ManualPriority }
 
+    /// <summary>
+    /// How the live exposure loop plays a target block's planned entries.
+    /// TimeAware (default): after delays (autofocus, safety holds, meridian flips) it
+    /// jumps to the entry that should be running now — right for long closures, but can
+    /// skip the last subs of a block. Sequential: plays entries strictly in order and
+    /// never skips; after a hold on the same target it resumes where it left off.
+    /// Target boundaries (block end) are honored in both modes.
+    /// </summary>
+    public enum PlaybackMode { TimeAware, Sequential }
+
     public enum SortCriteria {
         SettingSoonest,
         Constrained,
@@ -304,6 +314,22 @@ namespace AstroPM.NINA.Plugin.Models {
                     : new[] { prof.RemainingNonLunarSec + prof.RemainingLunarFreeSec };
 
                 double minChunkSec = prof.Constraints.MinTimeOnTargetHrs * 3600;
+
+                // End-of-target completion: when a target's *entire* remaining
+                // workload is less than one minimum block, it can never satisfy
+                // the configured minimum again — it would sit just below the
+                // threshold forever (pre-filtered out every night) and the
+                // project's final frames would never get scheduled. Shrink the
+                // minimum block to the work that's actually left so those last
+                // frames can pass the pre-filter, paint as one contiguous block,
+                // and survive min-enforcement. NO-OP for any target that still
+                // has a full block of work (min(minChunkSec, remaining) ==
+                // minChunkSec); a target that's genuinely sky-limited still gets
+                // pre-filtered because accessibleSec stays below this value.
+                double remainingWorkSec = tierWorkSec.Sum();
+                if (remainingWorkSec > 0 && remainingWorkSec < minChunkSec)
+                    minChunkSec = remainingWorkSec;
+
                 int userPri = priorityOrder.IndexOf(r);
                 if (userPri < 0) userPri = r;
 
