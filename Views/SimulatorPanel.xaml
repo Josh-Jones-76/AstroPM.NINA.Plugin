@@ -537,6 +537,7 @@
                             <GridViewColumn Header="Gain" Width="45" DisplayMemberBinding="{Binding Gain}"/>
                             <GridViewColumn Header="Offset" Width="50" DisplayMemberBinding="{Binding Offset}"/>
                             <GridViewColumn Header="Bin" Width="35" DisplayMemberBinding="{Binding Bin}"/>
+                            <GridViewColumn Header="Readout" Width="50" DisplayMemberBinding="{Binding ReadoutMode}"/>
                             <GridViewColumn Header="Rot" Width="45" DisplayMemberBinding="{Binding Rotation}"/>
                             <GridViewColumn Header="RA" Width="95" DisplayMemberBinding="{Binding RA}"/>
                             <GridViewColumn Header="DEC" Width="95" DisplayMemberBinding="{Binding DEC}"/>

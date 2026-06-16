@@ -47,6 +47,7 @@ namespace AstroPM.NINA.Plugin.Models {
         public string Gain { get; set; } = "";
         public string Offset { get; set; } = "";
         public string Bin { get; set; } = "";
+        public string ReadoutMode { get; set; } = "";
         public string Rotation { get; set; } = "";
         public string RA { get; set; } = "";
         public string DEC { get; set; } = "";

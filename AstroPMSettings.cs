@@ -27,6 +27,7 @@ namespace AstroPM.NINA.Plugin
         private string _strategy = "SharedTime";
         private double _filterSwitchTolerance = 0.5;
         private string _playbackMode = "TimeAware";
+        private bool _offlineMode;
 
         public string SyncToken
         {
@@ -62,6 +63,14 @@ namespace AstroPM.NINA.Plugin
         {
             get => _autoRefreshOnOpen;
             set { if (_autoRefreshOnOpen != value) { _autoRefreshOnOpen = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Offline/Vacation Mode — when true, no cloud fetches happen anywhere; all paths use the
+        /// local target cache, and captures are counted down against the cache for multi-night accuracy.</summary>
+        public bool OfflineMode
+        {
+            get => _offlineMode;
+            set { if (_offlineMode != value) { _offlineMode = value; OnPropertyChanged(); } }
         }
 
         public string SimStatusFilter

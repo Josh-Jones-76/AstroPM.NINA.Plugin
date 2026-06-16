@@ -603,6 +603,22 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 return;
             }
 
+            // Offline/Vacation Mode: never touch the network — drive the sim straight from the cache.
+            if (settings.OfflineMode) {
+                var ovCache = TargetCacheService.Load();
+                if (ovCache != null) {
+                    _allTargets = ovCache.Targets;
+                    RebuildFilters();
+                    SetCacheOffline(ovCache.FetchedUtc);
+                } else {
+                    StatusText = "Offline/Vacation Mode — no cached targets available.";
+                    CacheStatusText = "Cloud Targets: No data cached yet";
+                    CacheAvailable = false;
+                    IsSimulating = false;
+                    return;
+                }
+            }
+            else
             try {
                 var response = await _apiService.ListTargetsAsync(settings.SyncToken, null);
                 if (response.Success && response.Targets != null) {
@@ -753,6 +769,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 targets = targets.Where(t => string.Equals(t.LocationName, settings.LocationFilter, StringComparison.OrdinalIgnoreCase));
             if (!string.IsNullOrEmpty(settings.TelescopeFilter))
                 targets = targets.Where(t => string.Equals(t.TelescopeName, settings.TelescopeFilter, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(settings.CameraFilter))
+                targets = targets.Where(t => string.Equals(t.CameraName, settings.CameraFilter, StringComparison.OrdinalIgnoreCase));
 
             return targets.ToList();
         }

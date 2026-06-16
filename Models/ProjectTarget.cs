@@ -182,6 +182,9 @@ namespace AstroPM.NINA.Plugin.Models {
         [JsonProperty("binning_y")]
         public int BinningY { get; set; } = 1;
 
+        [JsonProperty("readout_mode")]
+        public string ReadoutMode { get; set; } = "";
+
         [JsonProperty("avoid_lunar")]
         public bool AvoidLunar { get; set; }
 

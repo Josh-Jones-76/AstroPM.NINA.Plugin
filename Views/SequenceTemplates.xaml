@@ -83,25 +83,22 @@
                         </DockPanel>
                     </Border>
 
-                    <!-- Start Now button — DEBUG ONLY, uncomment for local testing, remove before deploying
-                    <Button Command="{Binding StartNowCommand}" Content="&#9654; Start Now"
-                            FontSize="10" Padding="10,3" Margin="0,4,0,0"
-                            HorizontalAlignment="Left" Cursor="Hand"
-                            Background="{DynamicResource NotificationWarningBrush}"
-                            Foreground="{DynamicResource ButtonForegroundBrush}"
-                            BorderThickness="0">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Visibility" Value="Collapsed"/>
+                    <!-- Cloud-fetch summary (count + source/time, or cache age / offline mode) -->
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Visible"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding LiveCommand}" Value="Waiting">
-                                        <Setter Property="Visibility" Value="Visible"/>
+                                    <DataTrigger Binding="{Binding CloudFetchStatus}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </Button.Style>
-                    </Button>
-                    -->
+                        </StackPanel.Style>
+                        <Ellipse Width="9" Height="9" Fill="#22C55E" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock Text="{Binding CloudFetchStatus}" FontSize="11" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"/>
+                    </StackPanel>
 
                     <!-- Blocks heading -->
                     <TextBlock Text="Tonight's Scheduled Targets" FontSize="11" FontWeight="SemiBold"
@@ -318,6 +315,7 @@
                                 <GridViewColumn Header="Gain" Width="40" DisplayMemberBinding="{Binding Gain}"/>
                                 <GridViewColumn Header="Offset" Width="45" DisplayMemberBinding="{Binding Offset}"/>
                                 <GridViewColumn Header="Bin" Width="35" DisplayMemberBinding="{Binding Bin}"/>
+                                <GridViewColumn Header="Readout" Width="50" DisplayMemberBinding="{Binding ReadoutMode}"/>
                                 <GridViewColumn Header="Filter Profile" Width="95" DisplayMemberBinding="{Binding FilterProfile}"/>
                                 <GridViewColumn Header="Accepted Profiles" Width="175" DisplayMemberBinding="{Binding AcceptedProfiles}"/>
                             </GridView>

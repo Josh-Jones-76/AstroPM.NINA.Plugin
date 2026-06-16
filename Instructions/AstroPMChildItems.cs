@@ -240,22 +240,24 @@ namespace AstroPM.NINA.Plugin.Instructions {
         private readonly int _offset;
         private readonly int _binX;
         private readonly int _binY;
+        private readonly int _readoutMode;
         private readonly int _subNumber;
         private readonly DateTime _blockEndUtc;
         private readonly DateTime _sessionEndUtc;
         private readonly IProfileService _profileService;
         private readonly IFilterWheelMediator _filterWheelMediator;
         private readonly IImagingMediator _imagingMediator;
+        private readonly ICameraMediator _cameraMediator;
         private readonly IImageSaveMediator _imageSaveMediator;
         private readonly IImageHistoryVM _imageHistoryVM;
         private readonly Action<string, TargetBlock, string, string, string, string> _updateExposureStatus;
         private readonly Action _onCaptured;
 
         public AstroPMTakeExposureItem(TargetBlock block, string filterName, double exposureSec,
-            int gain, int offset, int binX, int binY, int subNumber,
+            int gain, int offset, int binX, int binY, int readoutMode, int subNumber,
             DateTime blockEndUtc, DateTime sessionEndUtc,
             IProfileService profileService, IFilterWheelMediator filterWheelMediator,
-            IImagingMediator imagingMediator, IImageSaveMediator imageSaveMediator,
+            IImagingMediator imagingMediator, ICameraMediator cameraMediator, IImageSaveMediator imageSaveMediator,
             IImageHistoryVM imageHistoryVM,
             Action<string, TargetBlock, string, string, string, string> updateExposureStatus,
             Action onCaptured) {
@@ -266,12 +268,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _offset = offset;
             _binX = binX;
             _binY = binY;
+            _readoutMode = readoutMode;
             _subNumber = subNumber;
             _blockEndUtc = blockEndUtc;
             _sessionEndUtc = sessionEndUtc;
             _profileService = profileService;
             _filterWheelMediator = filterWheelMediator;
             _imagingMediator = imagingMediator;
+            _cameraMediator = cameraMediator;
             _imageSaveMediator = imageSaveMediator;
             _imageHistoryVM = imageHistoryVM;
             _updateExposureStatus = updateExposureStatus;
@@ -328,6 +332,22 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _filterSwitched = true;
         }
 
+        /// <summary>Apply the per-line readout-mode index for normal (LIGHT) captures — this is the
+        /// value NINA's "Set Readout Mode" instruction uses. Validated against the live camera's mode count.</summary>
+        private void ApplyReadoutMode() {
+            var info = _cameraMediator?.GetInfo();
+            var modes = info?.ReadoutModes?.ToList();
+            if (info == null || !info.Connected || modes == null || modes.Count == 0) return;
+            if (_readoutMode < 0 || _readoutMode >= modes.Count) {
+                global::NINA.Core.Utility.Logger.Warning(
+                    $"AstroPM | Readout mode index {_readoutMode} out of range (camera exposes {modes.Count}). Leaving camera default.");
+                return;
+            }
+            _cameraMediator.SetReadoutModeForNormalImages((short)_readoutMode);
+            global::NINA.Core.Utility.Logger.Info(
+                $"AstroPM | Readout mode {_readoutMode} ({modes[_readoutMode]}) for {_block.TargetName} {_filterName} #{_subNumber}");
+        }
+
         public override async Task Execute(IProgress<ApplicationStatus> progress, CancellationToken token) {
             // Skip if past the block/session end
             if (DateTime.UtcNow >= _blockEndUtc) {
@@ -375,6 +395,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
             _updateExposureStatus?.Invoke("Image", _block, _filterName,
                 $"{_exposureSec:F0}s", $"{_subNumber}", goStr);
+
+            // Apply the per-line readout mode by matching its name against the live camera's
+            // readout modes; NINA applies ReadoutModeForNormalImages at StartExposure.
+            ApplyReadoutMode();
 
             // Capture — use CaptureImage (not CaptureAndPrepareImage) to follow NINA's
             // standard pipeline: capture → add to history → prepare → save.
@@ -432,8 +456,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
 
         public override object Clone() => new AstroPMTakeExposureItem(_block, _filterName, _exposureSec,
-            _gain, _offset, _binX, _binY, _subNumber, _blockEndUtc, _sessionEndUtc,
-            _profileService, _filterWheelMediator, _imagingMediator, _imageSaveMediator,
+            _gain, _offset, _binX, _binY, _readoutMode, _subNumber, _blockEndUtc, _sessionEndUtc,
+            _profileService, _filterWheelMediator, _imagingMediator, _cameraMediator, _imageSaveMediator,
             _imageHistoryVM, _updateExposureStatus, _onCaptured);
         public override string ToString() => $"AstroPM Expose: {_block.TargetName} {_filterName} {_exposureSec:F0}s #{_subNumber}";
     }

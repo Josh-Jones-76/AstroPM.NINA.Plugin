@@ -63,7 +63,7 @@ namespace AstroPM.NINA.Plugin.ViewModels
             System.Windows.Data.BindingOperations.EnableCollectionSynchronization(_targets, _targetsLock);
 
             SaveAndConnectCommand = new RelayCommand(async _ => await SaveAndConnectAsync(), _ => !IsTesting);
-            RefreshCommand = new RelayCommand(async _ => await FetchTargetsAsync(), _ => IsConnected && !IsTesting);
+            RefreshCommand = new RelayCommand(async _ => await FetchTargetsAsync(), _ => !IsTesting && !OfflineMode && !string.IsNullOrWhiteSpace(SyncToken));
             LoadToFramingCommand = new RelayCommand(_ => { LoadSelectedToFraming(); return Task.CompletedTask; }, _ => SelectedTarget != null);
             ClearFiltersCommand = new RelayCommand(_ => { ClearFilters(); return Task.CompletedTask; });
 
@@ -155,6 +155,30 @@ namespace AstroPM.NINA.Plugin.ViewModels
             set { _isConnected = value; OnPropertyChanged(); (RefreshCommand as RelayCommand)?.RaiseCanExecuteChanged(); }
         }
 
+        private bool _isOffline;
+        /// <summary>True when the cloud was unreachable and the browse list is being served from the local cache.</summary>
+        public bool IsOffline
+        {
+            get => _isOffline;
+            set { _isOffline = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>Offline/Vacation Mode toggle — when on, no cloud fetches happen; everything uses the cache.</summary>
+        public bool OfflineMode
+        {
+            get => _settings.OfflineMode;
+            set
+            {
+                if (_settings.OfflineMode == value) return;
+                _settings.OfflineMode = value;
+                _settings.Save();
+                OnPropertyChanged();
+                (RefreshCommand as RelayCommand)?.RaiseCanExecuteChanged();
+                // Re-evaluate the browse list: entering offline serves the cache; leaving lets Save & Connect reconnect.
+                _ = FetchTargetsAsync();
+            }
+        }
+
         public bool IsTesting
         {
             get => _isTesting;
@@ -222,6 +246,13 @@ namespace AstroPM.NINA.Plugin.ViewModels
 
         private async Task FetchTargetsAsync()
         {
+            if (OfflineMode)
+            {
+                // Vacation/Offline mode: never hit the network — serve the local cache.
+                Application.Current?.Dispatcher?.Invoke(() => LoadCachedTargets("Offline/Vacation Mode."));
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(SyncToken))
             {
                 SetStatus("No sync token.", StatusColors.Amber);
@@ -241,6 +272,8 @@ namespace AstroPM.NINA.Plugin.ViewModels
                     if (result.Success && result.Targets != null)
                     {
                         _allTargets = result.Targets;
+                        TargetCacheService.Save(_allTargets);   // refresh the offline cache
+                        IsOffline = false;
                         RebuildFilterOptions();
                         ApplyFilters();
                         IsConnected = true;
@@ -248,23 +281,56 @@ namespace AstroPM.NINA.Plugin.ViewModels
                     }
                     else
                     {
-                        _allTargets.Clear();
-                        _targets.Clear();
-                        IsConnected = false;
-                        SetStatus(result.Message ?? "Failed to connect.", StatusColors.Red);
+                        // Server reachable but returned an error — fall back to the local cache.
+                        LoadCachedTargets(result.Message ?? "Failed to connect.");
                     }
                 });
             }
             catch (Exception ex)
             {
-                IsConnected = false;
-                SetStatus($"Error: {ex.Message}", StatusColors.Red);
-                Application.Current?.Dispatcher?.Invoke(() => { _allTargets.Clear(); _targets.Clear(); });
+                // Network/DNS failure (offline) — serve cached targets instead of clearing.
+                Application.Current?.Dispatcher?.Invoke(() => LoadCachedTargets(FriendlyOfflineMessage(ex)));
             }
             finally
             {
                 IsTesting = false;
             }
+        }
+
+        /// <summary>Populate the browse list from the offline cache and raise the "Offline Mode" banner.
+        /// If no cache exists, clear the list and report why.</summary>
+        private void LoadCachedTargets(string reason)
+        {
+            var cache = TargetCacheService.Load();
+            if (cache != null)
+            {
+                _allTargets = cache.Targets;
+                IsOffline = true;
+                IsConnected = false;
+                RebuildFilterOptions();
+                ApplyFilters();
+                var age = TargetCacheService.AgeDescription(cache.FetchedUtc);
+                SetStatus($"Offline Mode: Cached targets will be used (cached {age}).", StatusColors.Red);
+            }
+            else
+            {
+                _allTargets.Clear();
+                _targets.Clear();
+                IsOffline = false;
+                IsConnected = false;
+                SetStatus($"Offline — no cached targets available. {reason}", StatusColors.Red);
+            }
+        }
+
+        private static string FriendlyOfflineMessage(Exception ex)
+        {
+            var m = ex.Message ?? string.Empty;
+            if (ex is System.Net.Http.HttpRequestException
+                || m.IndexOf("No such host", StringComparison.OrdinalIgnoreCase) >= 0
+                || m.IndexOf("actively refused", StringComparison.OrdinalIgnoreCase) >= 0
+                || m.IndexOf("unreachable", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "No internet connection.";
+            return ex.Message;
         }
 
         private void RebuildFilterOptions()

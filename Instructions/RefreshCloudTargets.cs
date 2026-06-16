@@ -72,6 +72,20 @@ namespace AstroPM.NINA.Plugin.Instructions
 
             progress?.Report(new ApplicationStatus { Status = "AstroPM: Refreshing cloud targets..." });
 
+            // Offline/Vacation Mode: don't fetch — report the existing cache and leave it untouched.
+            if (settings.OfflineMode)
+            {
+                var cache = TargetCacheService.Load();
+                TargetCount = cache?.Targets?.Count ?? 0;
+                FetchSuccess = cache != null;
+                LastFetchTime = "Last Updated: " + DateTime.Now.ToString("MMM d, yyyy h:mm tt");
+                StatusText = cache != null
+                    ? $"Offline/Vacation Mode — using cache from {TargetCacheService.AgeDescription(cache.FetchedUtc)} ({TargetCount} targets)"
+                    : "Offline/Vacation Mode — no cached targets available";
+                Logger.Info("AstroPM Refresh | Offline/Vacation Mode — skipped cloud fetch.");
+                return;
+            }
+
             var apiService = new AstroPMApiService();
             try
             {

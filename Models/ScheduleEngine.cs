@@ -1673,6 +1673,7 @@ namespace AstroPM.NINA.Plugin.Models {
                         Gain = $"{es.Gain}",
                         Offset = $"{es.Offset}",
                         Bin = bin,
+                        ReadoutMode = es.ReadoutMode ?? "",
                         Rotation = $"{target.RotationDeg:F1}°",
                         RA = SessionScheduler.FormatRa(panelRa),
                         DEC = SessionScheduler.FormatDec(panelDec),

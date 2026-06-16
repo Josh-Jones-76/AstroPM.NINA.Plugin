@@ -90,6 +90,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
         private readonly ITelescopeMediator _telescopeMediator;
         private readonly IFilterWheelMediator _filterWheelMediator;
         private readonly IImagingMediator _imagingMediator;
+        private readonly ICameraMediator _cameraMediator;
         private readonly IImageSaveMediator _imageSaveMediator;
         private readonly IImageHistoryVM _imageHistoryVM;
         private readonly IGuiderMediator _guiderMediator;
@@ -117,6 +118,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
         private List<TimeSlot> _lastSlots;
         private List<TargetProfile> _lastProfiles;
         private List<TargetBlock> _blocks;
+        private List<ProjectTarget> _cachedTargets;
         private bool _hasChartData;
         private bool _scheduleBuilt;
         private DateTime _sessionEndUtc;
@@ -135,6 +137,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             ITelescopeMediator telescopeMediator,
             IFilterWheelMediator filterWheelMediator,
             IImagingMediator imagingMediator,
+            ICameraMediator cameraMediator,
             IImageSaveMediator imageSaveMediator,
             IImageHistoryVM imageHistoryVM,
             IGuiderMediator guiderMediator,
@@ -148,6 +151,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _telescopeMediator = telescopeMediator;
             _filterWheelMediator = filterWheelMediator;
             _imagingMediator = imagingMediator;
+            _cameraMediator = cameraMediator;
             _imageSaveMediator = imageSaveMediator;
             _imageHistoryVM = imageHistoryVM;
             _guiderMediator = guiderMediator;
@@ -209,7 +213,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
         private TargetInstructionSet(TargetInstructionSet cloneMe) : this(
             cloneMe._profileService, cloneMe._telescopeMediator, cloneMe._filterWheelMediator,
-            cloneMe._imagingMediator, cloneMe._imageSaveMediator, cloneMe._imageHistoryVM,
+            cloneMe._imagingMediator, cloneMe._cameraMediator, cloneMe._imageSaveMediator, cloneMe._imageHistoryVM,
             cloneMe._guiderMediator, cloneMe._rotatorMediator,
             cloneMe._domeMediator, cloneMe._domeFollower,
             cloneMe._plateSolverFactory, cloneMe._windowServiceFactory,
@@ -281,6 +285,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public string LiveGainOffset { get => _liveGainOffset; private set { _liveGainOffset = value; RaisePropertyChanged(); } }
         public bool HasLiveStatus { get => _hasLiveStatus; private set { _hasLiveStatus = value; RaisePropertyChanged(); } }
 
+        private string _cloudFetchStatus = "";
+        /// <summary>One-line target-fetch summary shown above the block list: count + source/time, or cache age / offline mode.</summary>
+        public string CloudFetchStatus { get => _cloudFetchStatus; private set { _cloudFetchStatus = value; RaisePropertyChanged(); } }
+
         public System.Windows.Input.ICommand ResetScheduleCommand => new RelayCommand(async _ => {
             _scheduleBuilt = false;
             _blocks = null;
@@ -296,11 +304,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
             ResetLiveStatus();
             global::NINA.Core.Utility.Logger.Info("AstroPM | Manual reset — schedule cleared, will re-fetch on next run");
             Notification.ShowInformation("Astro PM: Schedule reset. Start the sequence to fetch new targets.");
-        });
-
-        public System.Windows.Input.ICommand StartNowCommand => new RelayCommand(async _ => {
-            _skipWait = true;
-            global::NINA.Core.Utility.Logger.Info("AstroPM | Start Now pressed — skipping wait and viability check");
         });
 
         public System.Windows.Input.ICommand SkipBlockCommand => new RelayCommand(async _ => {
@@ -568,18 +571,24 @@ namespace AstroPM.NINA.Plugin.Instructions {
             progress?.Report(new ApplicationStatus { Status = "Astro PM: Fetching targets..." });
 
             List<ProjectTarget> targets = null;
-            var apiService = new AstroPMApiService();
-            try {
-                var response = await apiService.ListTargetsAsync(settings.SyncToken, "Active", token);
-                if (response.Success && response.Targets != null) {
-                    targets = response.Targets;
-                    TargetCacheService.Save(targets);
-                    Logger.Info($"AstroPM | Fetched {targets.Count} targets from cloud");
-                } else {
-                    Logger.Warning($"AstroPM | Cloud error: {response.Message}, falling back to cache");
+            string fetchSourceDesc = "";
+            if (!settings.OfflineMode) {
+                var apiService = new AstroPMApiService();
+                try {
+                    var response = await apiService.ListTargetsAsync(settings.SyncToken, "Active", token);
+                    if (response.Success && response.Targets != null) {
+                        targets = response.Targets;
+                        TargetCacheService.Save(targets);
+                        fetchSourceDesc = $"fetched from cloud {DateTime.Now:MMM d, h:mm tt}";
+                        Logger.Info($"AstroPM | Fetched {targets.Count} targets from cloud");
+                    } else {
+                        Logger.Warning($"AstroPM | Cloud error: {response.Message}, falling back to cache");
+                    }
+                } catch (Exception ex) {
+                    Logger.Warning($"AstroPM | Cloud fetch failed ({ex.Message}), falling back to cache");
                 }
-            } catch (Exception ex) {
-                Logger.Warning($"AstroPM | Cloud fetch failed ({ex.Message}), falling back to cache");
+            } else {
+                Logger.Info("AstroPM | Offline/Vacation Mode — skipping cloud fetch, using cached targets.");
             }
 
             if (targets == null) {
@@ -587,6 +596,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 if (cache != null) {
                     targets = cache.Targets;
                     var age = TargetCacheService.AgeDescription(cache.FetchedUtc);
+                    fetchSourceDesc = settings.OfflineMode
+                        ? $"Offline/Vacation Mode — cache from {age}"
+                        : $"cloud unavailable — cache from {age}";
                     Logger.Info($"AstroPM | Using cached targets (fetched {age})");
                 } else {
                     Notification.ShowError("Astro PM: No target data available from cloud or cache.");
@@ -594,13 +606,26 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 }
             }
 
+            // Keep the full loaded list so offline capture-tracking persists count updates
+            // without dropping unscheduled targets from the cache.
+            _cachedTargets = targets;
+
             targets = targets.Where(t => t.Panels != null && t.Panels.Any(p =>
                 p.ExposureSets != null && p.ExposureSets.Any(es => es.Remaining > 0))).ToList();
+
+            // Active projects only — re-filter here even though we request "Active" from the server,
+            // because the cache (used offline) can hold on-hold/planning/old targets: the simulator and
+            // Options fetch ALL statuses, so the server-side filter doesn't protect the cached path.
+            targets = targets.Where(t => string.Equals(t.Status, "Active", StringComparison.OrdinalIgnoreCase)).ToList();
 
             if (!string.IsNullOrEmpty(settings.LocationFilter))
                 targets = targets.Where(t => string.Equals(t.LocationName, settings.LocationFilter, StringComparison.OrdinalIgnoreCase)).ToList();
             if (!string.IsNullOrEmpty(settings.TelescopeFilter))
                 targets = targets.Where(t => string.Equals(t.TelescopeName, settings.TelescopeFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (!string.IsNullOrEmpty(settings.CameraFilter))
+                targets = targets.Where(t => string.Equals(t.CameraName, settings.CameraFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            CloudFetchStatus = $"{targets.Count} targets — {fetchSourceDesc}";
 
             if (targets.Count == 0) {
                 var filterDesc = new List<string>();
@@ -770,7 +795,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 }
             }
 
-            // Check constraints — skip if "Start Now" was pressed (test mode)
+            // Check constraints — bypass viability when the wait was skipped (e.g. Skip Block)
             if (!_skipWait && !IsTargetViable(block, latDeg, lonDeg)) {
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Target constraints failed, skipping: {block.TargetName}");
                 if (_blockSummaries != null && _currentBlockIndex < _blockSummaries.Count)
@@ -884,6 +909,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // long safety closures. The block.UtcEnd guard stops both modes at the boundary.
             Enum.TryParse<PlaybackMode>(AstroPMSettings.Load().PlaybackMode, out var playbackMode);
             bool sequential = playbackMode == PlaybackMode.Sequential;
+            bool offlineMode = AstroPMSettings.Load().OfflineMode;
             global::NINA.Core.Utility.Logger.Info(
                 $"AstroPM | Block {block.TargetName}: playback mode = {(sequential ? "Sequential" : "Time-Aware")}");
 
@@ -951,19 +977,24 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 }
 
                 var entry = actionEntries[targetIndex];
-                var (filterName, exposureSec, gain, offset, binX, binY) = ParseExposureEntry(entry);
+                var (filterName, exposureSec, gain, offset, binX, binY, readoutMode) = ParseExposureEntry(entry);
 
                 if (!filterImageCount.ContainsKey(filterName))
                     filterImageCount[filterName] = 0;
                 int filterSub = filterImageCount[filterName] + 1;
 
                 var exposureItem = new AstroPMTakeExposureItem(block, filterName, exposureSec,
-                    gain, offset, binX, binY, filterSub,
+                    gain, offset, binX, binY, readoutMode, filterSub,
                     block.UtcEnd, _sessionEndUtc,
                     _profileService, _filterWheelMediator, _imagingMediator,
-                    _imageSaveMediator, _imageHistoryVM,
+                    _cameraMediator, _imageSaveMediator, _imageHistoryVM,
                     (cmd, b, f, e, s, go) => UpdateLiveStatus(cmd, b, filter: f, exposure: e, sub: s, gainOffset: go),
-                    () => { filterImageCount[filterName] = filterSub; OnCaptured(); });
+                    () => {
+                        filterImageCount[filterName] = filterSub;
+                        OnCaptured();
+                        if (offlineMode)
+                            RecordOfflineCapture(block, entry.Panel, filterName, exposureSec, gain, offset, binX, binY);
+                    });
 
                 // Switch filter before triggers so NINA's AutofocusAfterFilterChange
                 // sees the new filter on the physical wheel when it evaluates.
@@ -1115,7 +1146,40 @@ namespace AstroPM.NINA.Plugin.Instructions {
             return isDark && aboveMinAlt;
         }
 
-        private static (string Filter, double ExposureSec, int Gain, int Offset, int BinX, int BinY) ParseExposureEntry(SimLogEntry entry) {
+        /// <summary>Offline/Vacation Mode: count a freshly-captured LIGHT frame against the cached target so
+        /// the next night's sim sees reduced remaining. Matches the exposure set by panel + filter + exposure
+        /// (disambiguated by gain/offset/bin), increments Accepted/Acquired, and re-saves the cache.</summary>
+        private void RecordOfflineCapture(TargetBlock block, string panelLabel, string filter, double exposureSec, int gain, int offset, int binX, int binY) {
+            try {
+                var target = block?.Profile?.Target;
+                if (target?.Panels == null || target.Panels.Count == 0) return;
+
+                var panel = target.Panels.FirstOrDefault(p => string.Equals(p.Label, panelLabel, StringComparison.OrdinalIgnoreCase))
+                            ?? (target.Panels.Count == 1 ? target.Panels[0] : null);
+                if (panel?.ExposureSets == null) return;
+
+                var matches = panel.ExposureSets.Where(es =>
+                    string.Equals(es.FilterName, filter, StringComparison.OrdinalIgnoreCase) &&
+                    Math.Abs(es.ExposureLengthSec - exposureSec) < 0.5).ToList();
+                var es = matches.Count <= 1
+                    ? matches.FirstOrDefault()
+                    : (matches.FirstOrDefault(e => e.Gain == gain && e.Offset == offset && e.BinningX == binX && e.BinningY == binY) ?? matches[0]);
+                if (es == null) return;
+
+                es.AcquiredCount++;
+                es.AcceptedCount++;   // offline: optimistically count toward Remaining (Planned - Accepted)
+
+                if (_cachedTargets != null)
+                    TargetCacheService.Save(_cachedTargets);
+
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Offline cache updated: {target.TargetName}/{panel.Label} {filter} {exposureSec:F0}s → {es.AcceptedCount}/{es.PlannedCount} (remaining {es.Remaining})");
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Warning($"AstroPM | Offline capture tracking failed: {ex.Message}");
+            }
+        }
+
+        private static (string Filter, double ExposureSec, int Gain, int Offset, int BinX, int BinY, int ReadoutMode) ParseExposureEntry(SimLogEntry entry) {
             string filter = entry.Filter ?? "—";
             double expSec = 300;
             if (!string.IsNullOrEmpty(entry.Exposure) && double.TryParse(entry.Exposure.TrimEnd('s'), out var parsed))
@@ -1135,7 +1199,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 }
             }
 
-            return (filter, expSec, gain, offset, binX, binY);
+            int.TryParse(entry.ReadoutMode, out int readoutIdx);
+            return (filter, expSec, gain, offset, binX, binY, readoutIdx);
         }
 
         private static List<TargetBlock> ParseBlocks(List<SimLogEntry> log, List<TargetProfile> profiles) {

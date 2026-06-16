@@ -575,6 +575,18 @@
                         <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
                                    FontSize="11" Foreground="{Binding StatusColor}" />
                     </StackPanel>
+
+                    <!-- Offline / Vacation Mode -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,12,0,0">
+                        <CheckBox IsChecked="{Binding OfflineMode, Mode=TwoWay}" VerticalAlignment="Center"
+                                  ToolTip="When enabled, the plugin never contacts the cloud: the simulator, Refresh, and the nightly instruction set all use the local target cache. Captured frames are counted down against the cache so multi-night offline runs stay accurate. Turn this off and Save &amp; Connect to resync when you're back online." />
+                        <TextBlock Text="Offline / Vacation Mode" FontSize="13" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" Margin="6,0,0,0"
+                                   Foreground="{DynamicResource PrimaryBrush}" />
+                    </StackPanel>
+                    <TextBlock Text="Use cached targets only — no cloud fetch. Captures count down the cache for multi-night accuracy. When back online, syncing will fall back to the app totals until images are downloaded and accepted."
+                               FontSize="11" Opacity="0.7" HorizontalAlignment="Left" Margin="0,2,0,0"
+                               TextWrapping="Wrap" Foreground="{DynamicResource PrimaryBrush}" />
                 </StackPanel>
             </Border>
 
@@ -639,6 +651,24 @@
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
                                Margin="0,0,0,8"
                                Text="Manually load any Astro PM target into the NINA framing assistant."/>
+
+                    <!-- Offline banner — shown when the cloud is unreachable and the list is served from cache -->
+                    <Border Background="#33EF4444" BorderBrush="#EF4444" BorderThickness="1"
+                            CornerRadius="4" Padding="8,5" Margin="0,0,0,8">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsOffline}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="⚠ Offline Mode — showing cached targets. Refresh to reconnect when back online."
+                                   Foreground="#EF4444" FontSize="11" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </Border>
 
                     <!-- Filter Bar -->
                     <Grid Margin="0,0,0,8">
