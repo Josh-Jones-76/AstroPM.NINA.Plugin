@@ -819,7 +819,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             if (parentForTargetTriggers != null) {
                 foreach (var trigger in parentForTargetTriggers.GetTriggersSnapshot()) {
                     if (trigger is AstroPMBeforeTargetTrigger beforeTarget)
-                        await beforeTarget.FireIfNeeded(block, progress, token);
+                        await beforeTarget.Fire(block, progress, token);
                 }
             }
 

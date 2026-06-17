@@ -113,8 +113,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
     [JsonObject(MemberSerialization.OptIn)]
     public class AstroPMBeforeTargetTrigger : SequenceTrigger {
 
-        private string _lastTargetName;
-
         [ImportingConstructor]
         public AstroPMBeforeTargetTrigger() {
         }
@@ -144,18 +142,20 @@ namespace AstroPM.NINA.Plugin.Instructions {
             return false;
         }
 
-        internal async Task FireIfNeeded(TargetBlock block, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        internal async Task Fire(TargetBlock block, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (TriggerRunner.GetItemsSnapshot().Count == 0) return;
 
-            bool isNewTarget = _lastTargetName != null && _lastTargetName != block.TargetName;
-            bool isFirstTarget = _lastTargetName == null;
-
-            if (isFirstTarget || isNewTarget) {
-                Logger.Info($"AstroPM | Before Target trigger firing: {block.TargetName}");
-                if (Parent != null) TriggerRunner.AttachNewParent(Parent);
-                await TriggerRunner.Run(progress, token);
-            }
-            _lastTargetName = block.TargetName;
+            // Fire on every block — i.e. every time AstroPM slews to a target. No dedup by
+            // target name: a re-slew to the same object is still a new block and should run
+            // the contained instructions again.
+            Logger.Info($"AstroPM | Before Target trigger firing: {block.TargetName}");
+            if (Parent != null) TriggerRunner.AttachNewParent(Parent);
+            // Reset child status to CREATED before running. We call TriggerRunner.Run()
+            // directly (not via NINA's SequenceTrigger.Run), which bypasses the framework's
+            // per-fire reset — without this, items stay FINISHED after the first fire and
+            // every subsequent run does nothing.
+            TriggerRunner.ResetProgress();
+            await TriggerRunner.Run(progress, token);
         }
 
         public override Task Execute(ISequenceContainer context, IProgress<ApplicationStatus> progress, CancellationToken token) {
@@ -208,6 +208,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             Logger.Info($"AstroPM | After Target trigger firing: {block.TargetName}");
             if (Parent != null) TriggerRunner.AttachNewParent(Parent);
+            // Reset child status to CREATED before running — see Before Target trigger for why.
+            TriggerRunner.ResetProgress();
             await TriggerRunner.Run(progress, token);
         }
 
