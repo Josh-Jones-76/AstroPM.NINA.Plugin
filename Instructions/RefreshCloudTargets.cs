@@ -87,6 +87,12 @@ namespace AstroPM.NINA.Plugin.Instructions
             }
 
             var apiService = new AstroPMApiService();
+
+            // Refresh this rig's settings from the cloud FIRST so the run uses the current strategy,
+            // dither, filter-switch, etc. (and up-to-date site/telescope/camera for filtering). The
+            // remote NINA is rarely opened, so settings changed in the desktop app must land here.
+            await ImagingSystemSettingsService.ApplySelectedFromCloudAsync(settings, apiService, token);
+
             try
             {
                 var response = await apiService.ListTargetsAsync(settings.SyncToken, "Active", token);

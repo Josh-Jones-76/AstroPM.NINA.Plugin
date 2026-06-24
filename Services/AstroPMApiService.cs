@@ -33,6 +33,44 @@ namespace AstroPM.NINA.Plugin.Services
         }
 
         private const string ApiUrl = "https://astro-pm.com/api/project_sync.php";
+        private const string ImagingSystemsApiUrl = "https://astro-pm.com/api/imaging_systems_sync.php";
+
+        /// <summary>
+        /// List the imaging systems (rigs) for the sync token, including their site/telescope/camera
+        /// names and (reserved) simulator settings.
+        /// </summary>
+        public async Task<ApiImagingSystemsResponse> ListImagingSystemsAsync(string syncToken, CancellationToken ct = default)
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["sync_token"] = syncToken,
+                ["action"] = "list"
+            };
+            var json = JsonConvert.SerializeObject(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(ImagingSystemsApiUrl, content, ct).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            var trimmed = body?.TrimStart();
+            if (string.IsNullOrEmpty(trimmed) || (!trimmed.StartsWith("{") && !trimmed.StartsWith("[")))
+            {
+                return new ApiImagingSystemsResponse
+                {
+                    Success = false,
+                    Message = $"HTTP {(int)response.StatusCode}: Server returned non-JSON response."
+                };
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                return new ApiImagingSystemsResponse
+                {
+                    Success = false,
+                    Message = $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}"
+                };
+            }
+            return JsonConvert.DeserializeObject<ApiImagingSystemsResponse>(body);
+        }
 
         /// <summary>
         /// List all targets matching the sync token, optionally filtered by status.

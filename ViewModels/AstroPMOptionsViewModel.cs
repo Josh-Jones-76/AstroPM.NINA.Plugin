@@ -47,6 +47,11 @@ namespace AstroPM.NINA.Plugin.ViewModels
         private ObservableCollection<string> _availableTelescopes = new ObservableCollection<string>();
         private ObservableCollection<string> _availableCameras = new ObservableCollection<string>();
 
+        // Imaging systems (rigs) pulled from the cloud; the selected one drives Location/Telescope/Camera.
+        private List<ImagingSystemInfo> _imagingSystems = new List<ImagingSystemInfo>();
+        private ObservableCollection<string> _availableImagingSystems = new ObservableCollection<string>();
+        private string _selectedImagingSystem;
+
         public AstroPMOptionsViewModel()
         {
             _settings = AstroPMSettings.Load();
@@ -57,6 +62,7 @@ namespace AstroPM.NINA.Plugin.ViewModels
             _locationFilter = _settings.LocationFilter;
             _telescopeFilter = _settings.TelescopeFilter;
             _cameraFilter = _settings.CameraFilter;
+            _selectedImagingSystem = _settings.SelectedImagingSystem;
             _autoRefreshOnOpen = _settings.AutoRefreshOnOpen;
 
             _targets = new ObservableCollection<ProjectTarget>();
@@ -135,6 +141,27 @@ namespace AstroPM.NINA.Plugin.ViewModels
         {
             get => _availableCameras;
             set { _availableCameras = value; OnPropertyChanged(); }
+        }
+
+        public ObservableCollection<string> AvailableImagingSystems
+        {
+            get => _availableImagingSystems;
+            set { _availableImagingSystems = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>The selected imaging system (rig). Picking one sets the read-only Location/Telescope/Camera.</summary>
+        public string SelectedImagingSystem
+        {
+            get => _selectedImagingSystem;
+            set
+            {
+                if (_selectedImagingSystem == value) return;
+                _selectedImagingSystem = value;
+                _settings.SelectedImagingSystem = value ?? string.Empty;
+                _settings.Save();
+                OnPropertyChanged();
+                if (!string.IsNullOrEmpty(value)) ApplyImagingSystem(value);
+            }
         }
 
         public string StatusMessage
@@ -246,6 +273,10 @@ namespace AstroPM.NINA.Plugin.ViewModels
 
         private async Task FetchTargetsAsync()
         {
+            // Refresh imaging systems first so the read-only Location/Telescope/Camera are set
+            // before the target list is filtered by them.
+            await FetchImagingSystemsAsync();
+
             if (OfflineMode)
             {
                 // Vacation/Offline mode: never hit the network — serve the local cache.
@@ -331,6 +362,94 @@ namespace AstroPM.NINA.Plugin.ViewModels
                 || m.IndexOf("unreachable", StringComparison.OrdinalIgnoreCase) >= 0)
                 return "No internet connection.";
             return ex.Message;
+        }
+
+        // ── Imaging systems (rigs) ──
+
+        private async Task FetchImagingSystemsAsync()
+        {
+            try
+            {
+                if (OfflineMode || string.IsNullOrWhiteSpace(SyncToken))
+                {
+                    LoadCachedImagingSystems();
+                    return;
+                }
+                var resp = await _apiService.ListImagingSystemsAsync(SyncToken);
+                if (resp != null && resp.Success && resp.ImagingSystems != null)
+                {
+                    _imagingSystems = resp.ImagingSystems;
+                    ImagingSystemCacheService.Save(_imagingSystems);
+                    Application.Current?.Dispatcher?.Invoke(PopulateImagingSystems);
+                }
+                else
+                {
+                    LoadCachedImagingSystems();
+                }
+            }
+            catch
+            {
+                LoadCachedImagingSystems();
+            }
+        }
+
+        private void LoadCachedImagingSystems()
+        {
+            var cache = ImagingSystemCacheService.Load();
+            _imagingSystems = cache?.Systems ?? new List<ImagingSystemInfo>();
+            Application.Current?.Dispatcher?.Invoke(PopulateImagingSystems);
+        }
+
+        private void PopulateImagingSystems()
+        {
+            AvailableImagingSystems = new ObservableCollection<string>(
+                _imagingSystems.Where(s => s.Enabled)
+                    .Select(s => s.Name)
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .Distinct()
+                    .OrderBy(n => n));
+
+            // Restore the saved selection and apply its equipment (read-only Location/Telescope/Camera).
+            var saved = _settings.SelectedImagingSystem;
+            if (!string.IsNullOrEmpty(saved) && AvailableImagingSystems.Contains(saved))
+            {
+                _selectedImagingSystem = saved;
+                OnPropertyChanged(nameof(SelectedImagingSystem));
+                ApplyImagingSystem(saved);
+            }
+        }
+
+        /// <summary>Drive the read-only Location/Telescope/Camera from the selected imaging system.</summary>
+        private void ApplyImagingSystem(string name)
+        {
+            var sys = _imagingSystems.FirstOrDefault(s =>
+                string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (sys == null) return;
+            LocationFilter = sys.SiteName ?? string.Empty;
+            TelescopeFilter = sys.TelescopeName ?? string.Empty;
+            CameraFilter = sys.CameraName ?? string.Empty;
+
+            // Apply the rig's cloud scheduling settings into NINA's local settings so they're used
+            // at run time and persist offline. Skip while Offline/Vacation mode is on — then the
+            // local values are the user's own override.
+            if (sys.SimSettings != null && !OfflineMode)
+            {
+                var s = sys.SimSettings;
+                if (!string.IsNullOrEmpty(s.Strategy)) _settings.Strategy = s.Strategy;
+                if (!string.IsNullOrEmpty(s.Playback)) _settings.PlaybackMode = s.Playback;
+                if (!string.IsNullOrEmpty(s.SortChain)) _settings.SortChain = s.SortChain;
+                _settings.BonusEnabled = s.BonusEnabled;
+                _settings.MosaicPanelPreference = s.MosaicPanelPreference;
+                _settings.DitherEnabled = s.DitherEnabled;
+                _settings.DitherEvery = s.DitherEvery;
+                _settings.FilterSwitchEnabled = s.FilterSwitchEnabled;
+                _settings.FilterSwitchCount = s.FilterSwitchCount;
+                _settings.FilterSwitchTolerance = s.FilterSwitchTolerance;
+                _settings.Save();
+            }
+
+            // Notify other views (the Simulator panel) so they reload these settings live.
+            AstroPMSettings.NotifyExternallyChanged();
         }
 
         private void RebuildFilterOptions()

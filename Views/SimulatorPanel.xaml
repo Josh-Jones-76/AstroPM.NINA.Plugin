@@ -42,61 +42,12 @@
     </UserControl.Resources>
 
     <StackPanel>
-        <!-- ═══ Cloud Cache Status ═══ -->
-        <StackPanel Orientation="Horizontal" Margin="4,0,0,6">
-            <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,6,0">
-                <Ellipse.Style>
-                    <Style TargetType="Ellipse">
-                        <Setter Property="Fill" Value="#E74C3C"/>
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding CacheAvailable}" Value="True">
-                                <Setter Property="Fill" Value="#22C55E"/>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Ellipse.Style>
-            </Ellipse>
-            <TextBlock Text="{Binding CacheStatusText}" FontSize="11"
-                       Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
-                       VerticalAlignment="Center"/>
-        </StackPanel>
-
-        <!-- ═══ Header Bar: Date + Simulate ═══ -->
-        <Border Background="#1A1A1A" BorderBrush="#333333" BorderThickness="1"
-                CornerRadius="4" Padding="16,12" Margin="0,0,0,8">
-            <WrapPanel VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
-                    <TextBlock Text="DATE" Style="{StaticResource SettingsLabel}"/>
-                    <Button Content="&#9664;" Style="{StaticResource SimBtn}" Width="32" MinWidth="32"
-                            MinHeight="24" FontSize="11" Padding="0"
-                            Command="{Binding DatePrevCommand}"/>
-                    <TextBlock Text="{Binding DateDisplay}" Width="90" TextAlignment="Center"
-                               FontSize="13" Foreground="{DynamicResource PrimaryBrush}"
-                               VerticalAlignment="Center" Margin="4,0"/>
-                    <Button Content="&#9654;" Style="{StaticResource SimBtn}" Width="32" MinWidth="32"
-                            MinHeight="24" FontSize="11" Padding="0"
-                            Command="{Binding DateNextCommand}"/>
-                    <Button Content="Tonight" Style="{StaticResource SimBtn}" MinWidth="50"
-                            FontSize="11" Padding="8,0" Margin="4,0,0,0" Command="{Binding DateTodayCommand}"/>
-                </StackPanel>
-
-                <Button Content="Simulate" Style="{StaticResource SimBtn}" MinWidth="100"
-                        FontSize="12" FontWeight="SemiBold"
-                        Command="{Binding SimulateCommand}" Margin="0,0,0,4"/>
-            </WrapPanel>
-        </Border>
-
-        <!-- Status text when no results -->
-        <TextBlock Text="{Binding StatusText}" FontSize="12"
-                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6"
-                   Margin="4,0,0,8"
-                   Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse, FallbackValue=Visible}"/>
-
         <!-- ═══ Step 1: Simulator Strategy & Settings ═══ -->
         <TextBlock Text="Step 1.  Simulator Strategy &amp; Settings" Style="{StaticResource StepHeading}"/>
 
         <Border Background="#1A1A1A" BorderBrush="#333333" BorderThickness="1"
                 CornerRadius="4" Padding="16,12" Margin="0,0,0,8">
+            <Grid>
             <StackPanel>
                 <ComboBox Width="320" HorizontalAlignment="Left" Margin="0,0,0,6"
                           ItemsSource="{Binding StrategyOptions}"
@@ -216,6 +167,80 @@
                 </StackPanel>
                 <TextBlock Text="Scheduling priority affects how targets are ordered when multiple compete for the same time window."
                            FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0"/>
+            </StackPanel>
+
+            <!-- Cloud-controlled overlay: settings are read-only unless Offline/Vacation mode -->
+            <Border CornerRadius="4" Background="#73141414"
+                    Visibility="{Binding SettingsLocked, Converter={StaticResource BoolToVis}}">
+                <Border VerticalAlignment="Center" HorizontalAlignment="Center" Width="460"
+                        Background="#16212B" BorderBrush="#234152" BorderThickness="1"
+                        CornerRadius="6" Padding="18,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Path Grid.Column="0" Width="20" Height="20" Stretch="Uniform" VerticalAlignment="Top"
+                              Margin="0,1,12,0" Fill="#5599DD"
+                              Data="M12,17A2,2 0 0,0 14,15A2,2 0 0,0 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10A2,2 0 0,1 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Controlled by Astro PM" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="#DCE6F0" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap" FontSize="11.5" LineHeight="17" Foreground="#C2CBD4"
+                                       Text="All strategy and settings come from Astro PM — adjust them in the desktop app's simulator and they sync to this rig automatically. Turn on Offline / Vacation Mode (above) if you need to edit them locally."/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Border>
+            </Grid>
+        </Border>
+
+        <!-- ═══ Run bar: Date + Simulate + stats + cloud/schedule status (above Step 2) ═══ -->
+        <Border Background="#172433" BorderBrush="#333333" BorderThickness="1"
+                CornerRadius="4" Padding="12,8" Margin="0,2,0,8">
+            <StackPanel>
+                <Grid>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left">
+                        <TextBlock Text="DATE" Style="{StaticResource SettingsLabel}"/>
+                        <Button Content="&#9664;" Style="{StaticResource SimBtn}" Width="32" MinWidth="32"
+                                MinHeight="24" FontSize="11" Padding="0" Command="{Binding DatePrevCommand}"/>
+                        <TextBlock Text="{Binding DateDisplay}" Width="90" TextAlignment="Center"
+                                   FontSize="13" Foreground="{DynamicResource PrimaryBrush}"
+                                   VerticalAlignment="Center" Margin="4,0"/>
+                        <Button Content="&#9654;" Style="{StaticResource SimBtn}" Width="32" MinWidth="32"
+                                MinHeight="24" FontSize="11" Padding="0" Command="{Binding DateNextCommand}"/>
+                        <Button Content="Tonight" Style="{StaticResource SimBtn}" MinWidth="50"
+                                FontSize="11" Padding="8,0" Margin="4,0,0,0" Command="{Binding DateTodayCommand}"/>
+                        <Button Content="Simulate" Style="{StaticResource SimBtn}" MinWidth="100"
+                                FontSize="12" FontWeight="SemiBold" Margin="16,0,0,0"
+                                Command="{Binding SimulateCommand}"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding SummaryText}" FontSize="11"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6"
+                               HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                </Grid>
+
+                <!-- Cloud-fetch + schedule status (moved down from the top of the panel) -->
+                <StackPanel Orientation="Horizontal" Margin="2,9,0,0">
+                    <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,6,0">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="#E74C3C"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CacheAvailable}" Value="True">
+                                        <Setter Property="Fill" Value="#22C55E"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <TextBlock Text="{Binding CacheStatusText}" FontSize="11"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding StatusText}" FontSize="11"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6"
+                               VerticalAlignment="Center" Margin="16,0,0,0"/>
+                </StackPanel>
             </StackPanel>
         </Border>
 
@@ -368,9 +393,9 @@
             </ItemsControl>
         </ScrollViewer>
 
-        <!-- ═══ Step 3: Nightly Graph Simulation ═══ -->
+        <!-- ═══ Step 3: NINA Simulation Plan ═══ -->
         <Grid Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}" Margin="4,8,0,6">
-            <TextBlock Text="Step 3.  Nightly Graph Simulation" FontSize="13" FontWeight="SemiBold"
+            <TextBlock Text="Step 3.  NINA Simulation Plan" FontSize="13" FontWeight="SemiBold"
                        Foreground="#007ACC" HorizontalAlignment="Left" VerticalAlignment="Center"/>
             <TextBlock Text="{Binding SummaryText}" FontSize="11"
                        Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6"

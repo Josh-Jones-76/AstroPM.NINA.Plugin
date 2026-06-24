@@ -51,7 +51,8 @@
         </Style>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <ScrollViewer x:Name="RootScroll" VerticalScrollBarVisibility="Auto"
+                  PreviewMouseWheel="RootScroll_PreviewMouseWheel">
         <StackPanel Margin="16">
 
             <!-- ════════════════════════════════════════════════ -->
@@ -601,34 +602,37 @@
                                Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4" />
                     <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7" Margin="0,0,0,10"
-                               Text="Select your observatory location, telescope, and camera. These settings are used by the Browse Targets list, the Simulator, and the Sequencer instruction set." />
+                               Text="Select the imaging system (rig) this NINA instance runs. Its location, telescope, and camera are set automatically from Astro PM and drive the Browse Targets list, the Simulator, and the Sequencer instruction set." />
                     <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
+                            <TextBlock Text="Imaging System" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
+                            <ComboBox Width="240" FontSize="11"
+                                      ItemsSource="{Binding AvailableImagingSystems}"
+                                      SelectedItem="{Binding SelectedImagingSystem, Mode=TwoWay}"
+                                      IsEditable="False" />
+                        </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
                             <TextBlock Text="Location" FontSize="11" VerticalAlignment="Center"
                                        Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
-                            <ComboBox Width="210" FontSize="11"
-                                      ItemsSource="{Binding AvailableLocations}"
-                                      SelectedItem="{Binding LocationFilter, Mode=TwoWay}"
-                                      IsEditable="False" />
+                            <TextBlock Text="{Binding LocationFilter}" FontSize="11" VerticalAlignment="Center"
+                                       MinWidth="80" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryBrush}" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
                             <TextBlock Text="Telescope" FontSize="11" VerticalAlignment="Center"
                                        Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
-                            <ComboBox Width="180" FontSize="11"
-                                      ItemsSource="{Binding AvailableTelescopes}"
-                                      SelectedItem="{Binding TelescopeFilter, Mode=TwoWay}"
-                                      IsEditable="False" />
+                            <TextBlock Text="{Binding TelescopeFilter}" FontSize="11" VerticalAlignment="Center"
+                                       MinWidth="80" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryBrush}" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
                             <TextBlock Text="Camera" FontSize="11" VerticalAlignment="Center"
                                        Foreground="{DynamicResource PrimaryBrush}" Opacity="0.6" Margin="0,0,5,0" />
-                            <ComboBox Width="180" FontSize="11"
-                                      ItemsSource="{Binding AvailableCameras}"
-                                      SelectedItem="{Binding CameraFilter, Mode=TwoWay}"
-                                      IsEditable="False" />
+                            <TextBlock Text="{Binding CameraFilter}" FontSize="11" VerticalAlignment="Center"
+                                       MinWidth="80" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryBrush}" />
                         </StackPanel>
-                        <Button Content="Clear" Style="{StaticResource SyncBtnSmall}"
-                                Command="{Binding ClearFiltersCommand}" Margin="0,0,6,4" />
                     </WrapPanel>
                 </StackPanel>
             </Border>
@@ -816,10 +820,22 @@
                             </Border>
                         </InlineUIContainer>
                     </TextBlock>
-                    <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
-                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
-                               Margin="0,0,0,12"
-                               Text="Automate your night with Astro PM's Simulator. Preview tonight's imaging schedule using your Location, Telescope, and Camera from Astro PM Settings above. Only targets with Active status are included. Change the date and click Simulate to preview any night's plan."/>
+                    <!-- How It Works (styled to match the desktop app) -->
+                    <Border Background="#16212B" BorderBrush="#234152" BorderThickness="1" CornerRadius="4"
+                            Padding="14,11" Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Top" Margin="0,1,10,0"
+                                  Fill="#5599DD"
+                                  Data="M12,2A10,10 0 1,0 22,12 10,10 0 0,0 12,2M11,7H13V9H11V7M11,11H13V17H11V11Z"/>
+                            <StackPanel MaxWidth="940">
+                                <TextBlock Text="How It Works" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="#007ACC" Margin="0,0,0,5"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="#AEB8C2" LineHeight="17">
+                                    <Run Text="This page mirrors the plan you set up in the "/><Run Text="Astro PM desktop app" FontWeight="SemiBold" Foreground="#DCE6F0"/><Run Text=". There, pick this "/><Run Text="imaging system" FontWeight="SemiBold" Foreground="#DCE6F0"/><Run Text=" and configure its simulation strategy, scheduling priority, and capture settings. Astro PM saves them automatically and "/><Run Text="syncs the plan to the cloud" FontWeight="SemiBold" Foreground="#DCE6F0"/><Run Text=". Each night, this plugin pulls the plan down and runs the strategy, schedule, and targets below exactly as shown — so there's no need to configure scheduling in NINA; it simply gets your targets and settings each time the instruction set runs or when you simulate here."/>
+                                </TextBlock>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                     <views:SimulatorPanel x:Name="SimulatorPanelControl" />
                 </StackPanel>
             </Border>

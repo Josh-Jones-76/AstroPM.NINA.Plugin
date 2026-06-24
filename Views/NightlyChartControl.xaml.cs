@@ -398,13 +398,13 @@ namespace AstroPM.NINA.Plugin.Views {
             DateTime timelineEnd = _slots[_slots.Count - 1].UtcStart.AddSeconds(300);
             double timelineSpanSec = (timelineEnd - timelineStart).TotalSeconds;
 
-            var segments = new List<(string FilterName, int ImageCount, double LabelX0, double LabelX1,
+            var segments = new List<(string FilterName, int ImageCount, int BonusCount, double LabelX0, double LabelX1,
                 List<(double X0, double X1)> Rects)>();
-            var bonusSpans = new List<(double X0, double X1)>();
 
             string curFilter = null;
             string lastKnownFilter = "";
             int segImageCount = 0;
+            int segBonusCount = 0;
             double segLabelX0 = 0, segLabelX1 = 0;
             var segRects = new List<(double X0, double X1)>();
             double runX0 = 0, runX1 = 0;
@@ -418,10 +418,11 @@ namespace AstroPM.NINA.Plugin.Views {
             void FlushSegment() {
                 FlushRun();
                 if (curFilter != null && segRects.Count > 0)
-                    segments.Add((curFilter, segImageCount, segLabelX0, segLabelX1,
+                    segments.Add((curFilter, segImageCount, segBonusCount, segLabelX0, segLabelX1,
                         new List<(double, double)>(segRects)));
                 segRects.Clear();
                 segImageCount = 0;
+                segBonusCount = 0;
             }
 
             for (int ei = 0; ei < _log.Count; ei++) {
@@ -443,9 +444,9 @@ namespace AstroPM.NINA.Plugin.Views {
 
                     if (!inRun) { runX0 = x0; runX1 = x1; inRun = true; }
                     else { runX1 = x1; }
-                    segImageCount++;
+                    if (entry.Command == "Bonus") segBonusCount++;
+                    else segImageCount++;
                     lastKnownFilter = entry.Filter;
-                    if (entry.Command == "Bonus") bonusSpans.Add((x0, x1));
                 } else if (entry.Command == "Info" && inRun && entry.UtcTime != default) {
                     double infoX = (entry.UtcTime - timelineStart).TotalSeconds / timelineSpanSec * barW;
                     if (infoX - runX1 > barW * 10.0 / (timelineSpanSec / 60))
@@ -478,6 +479,7 @@ namespace AstroPM.NINA.Plugin.Views {
             FlushSegment();
 
             var labelBrush = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255));
+            var bonusLabelBrush = new SolidColorBrush(Color.FromRgb(0x81, 0xC7, 0x84));
 
             foreach (var seg in segments) {
                 if (!filterColorMap.TryGetValue(seg.FilterName, out var col)) continue;
@@ -495,40 +497,19 @@ namespace AstroPM.NINA.Plugin.Views {
 
                 double labelSpan = seg.LabelX1 - seg.LabelX0;
                 if (labelSpan > 30) {
+                    // Bonus images fold into their filter segment; show their count as a
+                    // green "+N" suffix instead of a separate label that would overlap.
                     var label = new TextBlock {
-                        Text = $"{seg.FilterName} x{seg.ImageCount}", FontSize = 9,
-                        Foreground = labelBrush, TextTrimming = TextTrimming.CharacterEllipsis,
+                        FontSize = 9, Foreground = labelBrush,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
                         MaxWidth = labelSpan - 4, IsHitTestVisible = false,
                     };
+                    label.Inlines.Add(new System.Windows.Documents.Run($"{seg.FilterName} x{seg.ImageCount}"));
+                    if (seg.BonusCount > 0)
+                        label.Inlines.Add(new System.Windows.Documents.Run($"  +{seg.BonusCount}") { Foreground = bonusLabelBrush });
                     Canvas.SetLeft(label, seg.LabelX0 + 2);
                     Canvas.SetTop(label, (barHeight - 13) / 2);
                     FilterBarCanvas.Children.Add(label);
-                }
-            }
-
-            if (bonusSpans.Count > 0) {
-                var merged = new List<(double X0, double X1)>();
-                var cur = bonusSpans[0];
-                for (int i = 1; i < bonusSpans.Count; i++) {
-                    if (bonusSpans[i].X0 <= cur.X1 + 1)
-                        cur.X1 = bonusSpans[i].X1;
-                    else { merged.Add(cur); cur = bonusSpans[i]; }
-                }
-                merged.Add(cur);
-
-                int bonusCount = bonusSpans.Count;
-                var bonusLabelBrush = new SolidColorBrush(Color.FromRgb(0x81, 0xC7, 0x84));
-                foreach (var (bx0, bx1) in merged) {
-                    double span = bx1 - bx0;
-                    if (span > 30) {
-                        var lbl = new TextBlock {
-                            Text = $"Bonus x{bonusCount}", FontSize = 9,
-                            Foreground = bonusLabelBrush, IsHitTestVisible = false,
-                        };
-                        Canvas.SetLeft(lbl, bx0 + 2);
-                        Canvas.SetTop(lbl, (barHeight - 13) / 2);
-                        FilterBarCanvas.Children.Add(lbl);
-                    }
                 }
             }
         }

@@ -28,6 +28,7 @@ namespace AstroPM.NINA.Plugin
         private double _filterSwitchTolerance = 0.5;
         private string _playbackMode = "TimeAware";
         private bool _offlineMode;
+        private string _selectedImagingSystem = string.Empty;
 
         public string SyncToken
         {
@@ -71,6 +72,14 @@ namespace AstroPM.NINA.Plugin
         {
             get => _offlineMode;
             set { if (_offlineMode != value) { _offlineMode = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>The imaging system (rig) this NINA instance represents. Drives the read-only
+        /// Location/Telescope/Camera and (later) the cloud-controlled scheduling settings.</summary>
+        public string SelectedImagingSystem
+        {
+            get => _selectedImagingSystem;
+            set { if (_selectedImagingSystem != value) { _selectedImagingSystem = value; OnPropertyChanged(); } }
         }
 
         public string SimStatusFilter
@@ -190,6 +199,12 @@ namespace AstroPM.NINA.Plugin
             }
             catch { }
         }
+
+        /// <summary>Raised when settings.json is changed by another view-model (e.g. the Options page
+        /// applies a new imaging system) so other views (the Simulator) can reload live.</summary>
+        public static event Action ExternallyChanged;
+
+        public static void NotifyExternallyChanged() => ExternallyChanged?.Invoke();
 
         // ── INotifyPropertyChanged ──
 

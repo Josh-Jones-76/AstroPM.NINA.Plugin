@@ -160,7 +160,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _strategyDescription = StrategyDescriptions[_strategy];
             if (Enum.TryParse<PlaybackMode>(settings.PlaybackMode, out var savedPlayback))
                 _playback = savedPlayback;
+            _settingsLocked = !settings.OfflineMode;
             RefreshSortChainItems();
+
+            // Reload live when the Options page applies a different imaging system / settings.
+            AstroPMSettings.ExternallyChanged += OnSettingsExternallyChanged;
 
             SimulateCommand = new RelayCommand(async _ => await RunSimulationAsync(), _ => !IsSimulating);
             DatePrevCommand = new RelayCommand(async _ => { SelectedDate = SelectedDate.AddDays(-1); await RunSimulationAsync(); }, _ => !IsSimulating);
@@ -603,6 +607,13 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 return;
             }
 
+            // Pull the latest cloud settings for this rig first so the preview reflects current
+            // desktop-app changes (strategy, dither, etc.). Mutates `settings`, saves, and raises
+            // ExternallyChanged → ReloadSettings, so the bound controls + this run use fresh values.
+            if (!settings.OfflineMode) {
+                await ImagingSystemSettingsService.ApplySelectedFromCloudAsync(settings, _apiService);
+            }
+
             // Offline/Vacation Mode: never touch the network — drive the sim straight from the cache.
             if (settings.OfflineMode) {
                 var ovCache = TargetCacheService.Load();
@@ -782,6 +793,42 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
         private void SaveSimFilters() {
             // Simulator now reads filters from universal Astro PM Settings — nothing to save locally.
+        }
+
+        private bool _settingsLocked;
+        /// <summary>True when scheduling settings are cloud-controlled (read-only). False in Offline/Vacation
+        /// mode, when the user may edit them locally.</summary>
+        public bool SettingsLocked {
+            get => _settingsLocked;
+            set { _settingsLocked = value; OnPropertyChanged(); }
+        }
+
+        private void OnSettingsExternallyChanged() {
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) disp.Invoke(ReloadSettings);
+            else ReloadSettings();
+        }
+
+        /// <summary>Re-read settings from disk into the bound controls (without re-saving) and refresh the
+        /// lock state. Call when the panel becomes visible so cloud changes applied in Options show here.</summary>
+        public void ReloadSettings() {
+            var settings = AstroPMSettings.Load();
+            _ditherEnabled = settings.DitherEnabled; OnPropertyChanged(nameof(DitherEnabled));
+            _ditherEvery = settings.DitherEvery; OnPropertyChanged(nameof(DitherEvery));
+            _filterSwitchEnabled = settings.FilterSwitchEnabled; OnPropertyChanged(nameof(FilterSwitchEnabled));
+            _filterSwitchCount = settings.FilterSwitchCount; OnPropertyChanged(nameof(FilterSwitchCount));
+            _filterSwitchTolerance = settings.FilterSwitchTolerance; OnPropertyChanged(nameof(FilterSwitchTolerance));
+            _bonusImagesEnabled = settings.BonusEnabled; OnPropertyChanged(nameof(BonusImagesEnabled));
+            _mosaicPanelPreference = settings.MosaicPanelPreference; OnPropertyChanged(nameof(MosaicPanelPreference));
+            _sortChain = ParseSortChain(settings.SortChain); RefreshSortChainItems();
+            if (Enum.TryParse<ImagingStrategy>(settings.Strategy, out var st)) {
+                _strategy = st; StrategyDescription = StrategyDescriptions[st];
+                OnPropertyChanged(nameof(Strategy)); OnPropertyChanged(nameof(PriorityHint));
+            }
+            if (Enum.TryParse<PlaybackMode>(settings.PlaybackMode, out var pb)) {
+                _playback = pb; OnPropertyChanged(nameof(Playback)); OnPropertyChanged(nameof(PlaybackDescription));
+            }
+            SettingsLocked = !settings.OfflineMode;
         }
 
         private void SaveSimSettings() {

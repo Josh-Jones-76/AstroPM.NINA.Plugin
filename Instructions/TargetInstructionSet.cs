@@ -574,6 +574,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
             string fetchSourceDesc = "";
             if (!settings.OfflineMode) {
                 var apiService = new AstroPMApiService();
+                // Pull the selected rig's latest settings (strategy/dither/etc. + site/telescope/camera)
+                // before fetching/filtering so the schedule reflects current desktop-app changes.
+                await ImagingSystemSettingsService.ApplySelectedFromCloudAsync(settings, apiService, token);
                 try {
                     var response = await apiService.ListTargetsAsync(settings.SyncToken, "Active", token);
                     if (response.Success && response.Targets != null) {

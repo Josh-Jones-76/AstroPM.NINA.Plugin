@@ -727,15 +727,32 @@ namespace AstroPM.NINA.Plugin.Models {
 
             TraceSnapshot(matrix, "After Pass 0b (anchor extend)");
 
-            // Pass 1: Moon-down LA priority
+            // Pass 1: Moon-down LA priority.
+            // Moon-down slots are a scarce, restricted resource. Targets that can ONLY
+            // image moon-down (no moon-safe moon-up slots for their work) get first claim;
+            // moon-flexible targets — which can fall back to moon-up in Pass 3 — compete
+            // only for whatever moon-down slots remain. Without this split a flexible
+            // target with more raw LA work (e.g. a bright-narrowband mosaic that's still
+            // moon-safe up) can swallow the whole moon-down window and strand a
+            // moon-restricted target that has nowhere else to go.
             {
                 var candidates = matrix.Rows
                     .Where(r => !r.PreFiltered && r.HasLaWork && r.MoonDownSlots > 0)
                     .ToList();
-                PaintTrace.AppendLine($"Pass 1 candidates ({candidates.Count}): {string.Join(", ", candidates.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
                 var sorted = ApplySortChain(candidates, moonDownSortChain);
-                PaintPassFairShare(matrix, sorted,
-                    (ri, s) => matrix.MoonDown[s] && matrix.CanImage[ri][s] && matrix.SlotAssignment[s] < 0,
+
+                Func<int, int, bool> mdEligible = (ri, s) =>
+                    matrix.MoonDown[s] && matrix.CanImage[ri][s] && matrix.SlotAssignment[s] < 0;
+
+                var exclusive = sorted.Where(r => !HasMoonSafeMoonUpSlots(matrix, r)).ToList();
+                var flexible = sorted.Where(r => HasMoonSafeMoonUpSlots(matrix, r)).ToList();
+                PaintTrace.AppendLine($"Pass 1 exclusive ({exclusive.Count}): {string.Join(", ", exclusive.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
+                PaintTrace.AppendLine($"Pass 1 flexible ({flexible.Count}): {string.Join(", ", flexible.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
+
+                PaintPassFairShare(matrix, exclusive, mdEligible,
+                    SlotWorkType.LaPreferred,
+                    r => r.RemainingLaSec + r.RemainingNonLaSec);
+                PaintPassFairShare(matrix, flexible, mdEligible,
                     SlotWorkType.LaPreferred,
                     r => r.RemainingLaSec + r.RemainingNonLaSec);
             }
@@ -774,6 +791,73 @@ namespace AstroPM.NINA.Plugin.Models {
                             moonSafeMuSlots++;
                     accessibleWork[ri] = row.RemainingNonLaSec + Math.Min(row.RemainingLaSec, moonSafeMuSlots * 300.0);
                     PaintTrace.AppendLine($"  {row.Profile.DisplayName}: moonSafeMuSlots={moonSafeMuSlots}, accessibleWork={accessibleWork[ri]/60:F0}m");
+                }
+
+                // === Pass 3a — window-exclusive pre-claim for setting-soon targets ===
+                // A target whose imaging window closes well before the night's last usable
+                // moon-up slot can only paint a scarce early sub-window. Without this, the
+                // fungible fair-share pool below lets all-night targets eat those slots and
+                // the setting-soon target is slivered (sort order is inert in the
+                // proportional branch). Give each setting-soon target a BOUNDED first claim
+                // on slots inside its OWN window; the unchanged fair-share allocator then
+                // splits the remainder. Touches no shared-helper code — once these slots are
+                // painted, SlotAssignment[s] >= 0 removes them from the pool automatically.
+                {
+                    const int SettingSoonMarginSlots = 6;   // 30 min: keeps staggered all-night targets OUT
+
+                    int nightLastMu = -1;
+                    for (int s = 0; s < matrix.Slots.Count; s++) {
+                        if (matrix.MoonDown[s] || matrix.SlotAssignment[s] >= 0) continue;
+                        if (sorted.Any(rr => rr.UsableSlot[s]) && s > nightLastMu) nightLastMu = s;
+                    }
+
+                    var settingSoon = sorted
+                        .Where(r => r.LastUsableSlot >= 0 && r.LastUsableSlot < nightLastMu - SettingSoonMarginSlots)
+                        .OrderBy(r => r.LastUsableSlot)
+                        .ThenByDescending(r => accessibleWork.GetValueOrDefault(r.RowIndex))
+                        .ToList();
+
+                    foreach (var r in settingSoon) {
+                        int ri = r.RowIndex;
+                        double accSec = accessibleWork.GetValueOrDefault(ri);
+                        if (accSec <= 0) continue;
+
+                        // Free moon-up slots inside r's own window.
+                        int W = 0;
+                        for (int s = r.FirstUsableSlot; s >= 0 && s <= r.LastUsableSlot && s < matrix.Slots.Count; s++)
+                            if (!matrix.MoonDown[s] && r.UsableSlot[s] && matrix.SlotAssignment[s] < 0) W++;
+                        if (W == 0) continue;
+
+                        // Demand competing INSIDE r's window: each overlapping row counts only
+                        // the work it could place within r's window, not its whole-night demand.
+                        double demandInWindow = 0;
+                        foreach (var o in sorted) {
+                            if (o.LastUsableSlot < r.FirstUsableSlot || o.FirstUsableSlot > r.LastUsableSlot) continue;
+                            int oSlots = 0;
+                            for (int s = r.FirstUsableSlot; s >= 0 && s <= r.LastUsableSlot && s < matrix.Slots.Count; s++)
+                                if (!matrix.MoonDown[s] && o.UsableSlot[s] && matrix.SlotAssignment[s] < 0) oSlots++;
+                            demandInWindow += Math.Min(Math.Max(0, accessibleWork.GetValueOrDefault(o.RowIndex)), oSlots * 300.0);
+                        }
+                        if (demandInWindow <= 0) continue;
+
+                        // Pure proportional share of the window. Because demandInWindow sums
+                        // the in-window demand of all overlapping rows, the reserves across
+                        // co-windowed setting-soon targets are guaranteed to sum to <= W —
+                        // they always fit, so they can never over-reserve and strand each
+                        // other. (A multiplier > 1 here breaks that invariant.)
+                        int capWork  = (int)Math.Ceiling(accSec / 300.0);
+                        int capShare = (int)Math.Floor(W * accSec / demandInWindow);
+                        int reserve  = Math.Min(Math.Min(capWork, capShare), W);
+                        if (reserve <= 0) continue;
+
+                        PaintTrace.AppendLine($"Pass 3a: [{r.Profile.DisplayName}] win={r.FirstUsableSlot}-{r.LastUsableSlot} W={W} acc={accSec/60:F0}m demandWin={demandInWindow/60:F0}m reserve={reserve}slots");
+
+                        PaintChunks(matrix, r,
+                            s => !matrix.MoonDown[s] && r.UsableSlot[s] && matrix.SlotAssignment[s] < 0
+                                 && s >= r.FirstUsableSlot && s <= r.LastUsableSlot,
+                            SlotWorkType.NonLaPreferred, reserve * 300.0);
+                    }
+                    TraceSnapshot(matrix, "After Pass 3a (window-exclusive pre-claim)");
                 }
 
                 PaintPassFairShare(matrix, sorted,
@@ -1087,6 +1171,21 @@ namespace AstroPM.NINA.Plugin.Models {
         }
 
         private static void PruneSlivers(ScheduleMatrix matrix) {
+            // A single adjacent target (just before or just after the run) that can image
+            // EVERY slot of the run — so folding the run into it leaves no idle slots.
+            bool NeighborCoversRun(int start, int len, int self) {
+                int beforeT = start - 1 >= 0 ? matrix.SlotAssignment[start - 1] : -1;
+                int afterT = start + len < matrix.SlotAssignment.Length ? matrix.SlotAssignment[start + len] : -1;
+                foreach (int t in new[] { beforeT, afterT }) {
+                    if (t < 0 || t == self) continue;
+                    bool all = true;
+                    for (int s = start; s < start + len; s++)
+                        if (!matrix.CanImage[t][s]) { all = false; break; }
+                    if (all) return true;
+                }
+                return false;
+            }
+
             for (int r = 0; r < matrix.Rows.Count; r++) {
                 var runs = new List<(int Start, int Length)>();
                 int runStart = -1;
@@ -1122,7 +1221,16 @@ namespace AstroPM.NINA.Plugin.Models {
                         }
                         if (!separated) { adjacentToGoodRun = true; break; }
                     }
-                    if (!adjacentToGoodRun) continue;
+                    if (!adjacentToGoodRun) {
+                        // A separated sub-min run is normally KEPT as an independent block
+                        // (e.g. a real moon-up session worth its own visit). Exception: a
+                        // TINY scrap — a fair-share leftover too short to justify its own
+                        // slew — folds into a neighbor that can cover the whole scrap. The
+                        // target keeps its full (>= MinChunk) run elsewhere, so it loses no
+                        // minimum; this just removes a wasteful 2-slew micro-visit.
+                        int foldMax = Math.Max(2, minChunk / 4);
+                        if (run.Length > foldMax || !NeighborCoversRun(run.Start, run.Length, r)) continue;
+                    }
 
                     bool canAbsorb = false;
                     int before = run.Start - 1;
@@ -1185,7 +1293,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 int slotsToAssign = Math.Min(run.Length, (int)Math.Ceiling(workBudget / 300.0));
 
                 if (slotsToAssign < row.MinChunkSlots && run.Length >= row.MinChunkSlots
-                    && maxWorkSec >= row.MinChunkSec)
+                    && maxWorkSec >= row.MinChunkSec && workBudget >= row.MinChunkSec)
                     slotsToAssign = row.MinChunkSlots;
 
                 for (int i = 0; i < slotsToAssign && i < run.Length; i++) {
