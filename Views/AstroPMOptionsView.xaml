@@ -813,12 +813,6 @@
                     <TextBlock FontSize="14" FontWeight="SemiBold"
                                Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4">
                         <Run Text="Simulator"/>
-                        <Run Text="  "/>
-                        <InlineUIContainer BaselineAlignment="Center">
-                            <Border Background="#0078D4" CornerRadius="8" Padding="8,1,8,2">
-                                <TextBlock Text="BETA" FontSize="10" FontWeight="Bold" Foreground="White"/>
-                            </Border>
-                        </InlineUIContainer>
                     </TextBlock>
                     <!-- How It Works (styled to match the desktop app) -->
                     <Border Background="#16212B" BorderBrush="#234152" BorderThickness="1" CornerRadius="4"

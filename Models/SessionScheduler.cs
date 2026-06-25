@@ -38,6 +38,10 @@ namespace AstroPM.NINA.Plugin.Models {
 
     public class SimLogEntry {
         public string Command { get; set; } = "";
+        // Friendlier label for the log's Command column. "Slew" is really NINA's
+        // Slew, Center & Rotate instruction (rotate only when a rotator is present).
+        // Internal Command keeps the short key so all engine/grouping logic is unaffected.
+        public string CommandDisplay => Command == "Slew" ? "Slew, Center, & Rotate" : Command;
         public string Time { get; set; } = "";
         public string Target { get; set; } = "";
         public string Panel { get; set; } = "";

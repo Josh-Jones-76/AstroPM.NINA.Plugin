@@ -26,7 +26,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         // drives the engine's usable-slot check and the card constraint rows.
         private HorizonProfile _customHorizon;
 
-        private DateTime _selectedDate = DateTime.Now.Hour < 7 ? DateTime.Today.AddDays(-1) : DateTime.Today;
+        private DateTime _selectedDate = Tonight();
+
+        // "Tonight" = today's evening, or the previous calendar day if it's still the small hours
+        // (before 7am) so the simulator stays on last night's session until well after dawn.
+        private static DateTime Tonight() => DateTime.Now.Hour < 7 ? DateTime.Today.AddDays(-1) : DateTime.Today;
         private string _selectedLocation;
         private string _selectedTelescope;
         private string _selectedStatus;
@@ -169,7 +173,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             SimulateCommand = new RelayCommand(async _ => await RunSimulationAsync(), _ => !IsSimulating);
             DatePrevCommand = new RelayCommand(async _ => { SelectedDate = SelectedDate.AddDays(-1); await RunSimulationAsync(); }, _ => !IsSimulating);
             DateNextCommand = new RelayCommand(async _ => { SelectedDate = SelectedDate.AddDays(1); await RunSimulationAsync(); }, _ => !IsSimulating);
-            DateTodayCommand = new RelayCommand(async _ => { SelectedDate = DateTime.Now.Hour < 7 ? DateTime.Today.AddDays(-1) : DateTime.Today; await RunSimulationAsync(); }, _ => !IsSimulating);
+            DateTodayCommand = new RelayCommand(async _ => { SelectedDate = Tonight(); await RunSimulationAsync(); }, _ => !IsSimulating);
 
             RefreshCacheStatus();
         }
@@ -808,6 +812,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             if (disp != null && !disp.CheckAccess()) disp.Invoke(ReloadSettings);
             else ReloadSettings();
         }
+
+        /// <summary>Reset the simulated date back to "tonight". The view model persists for the whole
+        /// NINA session (the Options page is cached), so without this the date would stick wherever the
+        /// user last left it; called when the panel becomes visible so a fresh open always starts tonight.</summary>
+        public void ResetDateToTonight() => SelectedDate = Tonight();
 
         /// <summary>Re-read settings from disk into the bound controls (without re-saving) and refresh the
         /// lock state. Call when the panel becomes visible so cloud changes applied in Options show here.</summary>

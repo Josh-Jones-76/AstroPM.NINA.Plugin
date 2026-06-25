@@ -28,8 +28,9 @@ namespace AstroPM.NINA.Plugin.Views {
             SimChart.ScrubberMoved += OnChartScrubberMoved;
             SimChart.NowCrossedInstruction += OnNowCrossedInstruction;
 
-            // Pick up cloud settings applied in Options (and the current lock state) each time shown.
-            IsVisibleChanged += (_, e) => { if (e.NewValue is true) _vm?.ReloadSettings(); };
+            // Pick up cloud settings applied in Options (and the current lock state) each time shown,
+            // and always start a fresh open on "tonight" rather than whatever date was last viewed.
+            IsVisibleChanged += (_, e) => { if (e.NewValue is true) { _vm?.ResetDateToTonight(); _vm?.ReloadSettings(); } };
         }
 
         private void OnChartDataReady() {
