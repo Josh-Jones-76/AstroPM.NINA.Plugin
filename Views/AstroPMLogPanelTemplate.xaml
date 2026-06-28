@@ -46,11 +46,11 @@
                         </Setter>
                         <Style.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+                                <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
                                 <Setter Property="Foreground" Value="{DynamicResource ButtonForegroundBrush}"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+                                <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
                             </Trigger>
                         </Style.Triggers>
                     </Style>

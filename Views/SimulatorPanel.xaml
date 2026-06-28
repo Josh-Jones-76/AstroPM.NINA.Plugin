@@ -17,8 +17,8 @@
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="2">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              Margin="12,6" />
+                            <TextBlock Text="{TemplateBinding Content}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource ButtonForegroundBrush}" Margin="12,6" />
                         </Border>
                     </ControlTemplate>
                 </Setter.Value>
@@ -45,7 +45,7 @@
         <!-- ═══ Step 1: Simulator Strategy & Settings ═══ -->
         <TextBlock Text="Step 1.  Simulator Strategy &amp; Settings" Style="{StaticResource StepHeading}"/>
 
-        <Border Background="#1A1A1A" BorderBrush="#333333" BorderThickness="1"
+        <Border Background="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                 CornerRadius="4" Padding="16,12" Margin="0,0,0,8">
             <Grid>
             <StackPanel>
@@ -53,46 +53,46 @@
                           ItemsSource="{Binding StrategyOptions}"
                           DisplayMemberPath="Value" SelectedValuePath="Key"
                           SelectedValue="{Binding Strategy, Mode=TwoWay}"/>
-                <TextBlock Text="{Binding StrategyDescription}" FontSize="11" Foreground="#888888"
+                <TextBlock Text="{Binding StrategyDescription}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                            TextWrapping="Wrap"/>
 
                 <!-- Execution playback: Time-Aware (skip ahead after delays) vs Sequential (in order) -->
-                <TextBlock Text="Execution Playback" FontSize="11" Foreground="#AAAAAA"
+                <TextBlock Text="Execution Playback" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                            Margin="0,12,0,4"/>
                 <ComboBox Width="320" HorizontalAlignment="Left" Margin="0,0,0,6"
                           ItemsSource="{Binding PlaybackOptions}"
                           DisplayMemberPath="Value" SelectedValuePath="Key"
                           SelectedValue="{Binding Playback, Mode=TwoWay}"/>
-                <TextBlock Text="{Binding PlaybackDescription}" FontSize="11" Foreground="#888888"
+                <TextBlock Text="{Binding PlaybackDescription}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                            TextWrapping="Wrap"/>
 
-                <Border Height="1" Background="#333333" Margin="0,10,0,10"/>
+                <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,10,0,10"/>
 
                 <WrapPanel VerticalAlignment="Center">
                     <!-- Bonus images -->
-                    <TextBlock Text="Bonus Images" FontSize="11" Foreground="#AAAAAA"
+                    <TextBlock Text="Bonus Images" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <CheckBox IsChecked="{Binding BonusImagesEnabled, Mode=TwoWay}"
                               VerticalAlignment="Center"
                               ToolTip="Continue capturing exposures past requested amount if no other targets are available"/>
 
-                    <Border Width="1" Background="#333333" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
+                    <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
 
                     <!-- Mosaic panel preference -->
-                    <TextBlock Text="Mosaic Panels Independently" FontSize="11" Foreground="#AAAAAA"
+                    <TextBlock Text="Mosaic Panels Independently" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <CheckBox IsChecked="{Binding MosaicPanelPreference, Mode=TwoWay}"
                               VerticalAlignment="Center"
                               ToolTip="Treat each mosaic panel as a separate target so each gets its own time block"/>
 
-                    <Border Width="1" Background="#333333" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
+                    <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
 
                     <!-- Dither settings -->
-                    <TextBlock Text="Dither" FontSize="11" Foreground="#AAAAAA"
+                    <TextBlock Text="Dither" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <CheckBox IsChecked="{Binding DitherEnabled, Mode=TwoWay}"
                               VerticalAlignment="Center"/>
-                    <TextBlock Text="every" FontSize="11" Foreground="#888888"
+                    <TextBlock Text="every" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="8,0,4,0"/>
                     <ComboBox Width="45" SelectedItem="{Binding DitherEvery, Mode=TwoWay}"
                               IsEnabled="{Binding DitherEnabled}" VerticalAlignment="Center">
@@ -104,24 +104,24 @@
                             <sys:Int32 xmlns:sys="clr-namespace:System;assembly=mscorlib">5</sys:Int32>
                         </ComboBox.Items>
                     </ComboBox>
-                    <TextBlock Text="subs" FontSize="11" Foreground="#888888"
+                    <TextBlock Text="subs" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="4,0,0,0"/>
 
-                    <Border Width="1" Background="#333333" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
+                    <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
 
                     <!-- Filter switch settings -->
-                    <TextBlock Text="Filter switch" FontSize="11" Foreground="#AAAAAA"
+                    <TextBlock Text="Filter switch" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <CheckBox IsChecked="{Binding FilterSwitchEnabled, Mode=TwoWay}"
                               VerticalAlignment="Center"/>
-                    <TextBlock Text="every" FontSize="11" Foreground="#888888"
+                    <TextBlock Text="every" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="8,0,4,0"/>
                     <TextBox Width="40" Text="{Binding FilterSwitchCount, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              IsEnabled="{Binding FilterSwitchEnabled}" VerticalAlignment="Center"
                              TextAlignment="Center"/>
-                    <TextBlock Text="subs" FontSize="11" Foreground="#888888"
+                    <TextBlock Text="subs" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="4,0,0,0"/>
-                    <TextBlock Text="tolerance" FontSize="11" Foreground="#888888"
+                    <TextBlock Text="tolerance" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="14,0,4,0"/>
                     <ComboBox Width="60" VerticalAlignment="Center"
                               IsEnabled="{Binding FilterSwitchEnabled}"
@@ -133,11 +133,11 @@
                 </WrapPanel>
 
                 <!-- Sort Chain — drag-to-reorder priority -->
-                <Border Height="1" Background="#333333" Margin="0,10,0,10"/>
+                <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,10,0,10"/>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="SCHEDULING PRIORITY" FontSize="10" FontWeight="SemiBold"
                                Foreground="#007ACC" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <TextBlock Text="drag to reorder" FontSize="10" Foreground="#666666"
+                    <TextBlock Text="drag to reorder" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,12,0"/>
                     <ItemsControl ItemsSource="{Binding SortChainItems}">
                         <ItemsControl.ItemsPanel>
@@ -147,7 +147,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="#252525" BorderBrush="#444444" BorderThickness="1"
+                                <Border Background="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                                         CornerRadius="10" Padding="10,4" Margin="3,0"
                                         Cursor="Hand" AllowDrop="True"
                                         MouseMove="SortChip_MouseMove"
@@ -157,7 +157,7 @@
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding Index}" FontSize="10" Foreground="#4FC3F7"
                                                    FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                        <TextBlock Text="{Binding Label}" FontSize="11" Foreground="#CCCCCC"
+                                        <TextBlock Text="{Binding Label}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                                    VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Border>
@@ -166,37 +166,37 @@
                     </ItemsControl>
                 </StackPanel>
                 <TextBlock Text="Scheduling priority affects how targets are ordered when multiple compete for the same time window."
-                           FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                           FontSize="10" Foreground="{DynamicResource PrimaryBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
             </StackPanel>
 
-            <!-- Cloud-controlled overlay: settings are read-only unless Offline/Vacation mode -->
-            <Border CornerRadius="4" Background="#73141414"
+            <!-- Cloud-controlled: dim (but still show) the settings behind a translucent scrim, with an opaque card on top -->
+            <Border CornerRadius="4" Background="{DynamicResource BackgroundBrush}" Opacity="0.5"
+                    Visibility="{Binding SettingsLocked, Converter={StaticResource BoolToVis}}"/>
+            <Border VerticalAlignment="Center" HorizontalAlignment="Center" Width="460"
+                    Background="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="18,14"
                     Visibility="{Binding SettingsLocked, Converter={StaticResource BoolToVis}}">
-                <Border VerticalAlignment="Center" HorizontalAlignment="Center" Width="460"
-                        Background="#16212B" BorderBrush="#234152" BorderThickness="1"
-                        CornerRadius="6" Padding="18,14">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Path Grid.Column="0" Width="20" Height="20" Stretch="Uniform" VerticalAlignment="Top"
-                              Margin="0,1,12,0" Fill="#5599DD"
-                              Data="M12,17A2,2 0 0,0 14,15A2,2 0 0,0 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10A2,2 0 0,1 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z"/>
-                        <StackPanel Grid.Column="1">
-                            <TextBlock Text="Controlled by Astro PM" FontSize="13" FontWeight="SemiBold"
-                                       Foreground="#DCE6F0" Margin="0,0,0,4"/>
-                            <TextBlock TextWrapping="Wrap" FontSize="11.5" LineHeight="17" Foreground="#C2CBD4"
-                                       Text="All strategy and settings come from Astro PM — adjust them in the desktop app's simulator and they sync to this rig automatically. Turn on Offline / Vacation Mode (above) if you need to edit them locally."/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Path Grid.Column="0" Width="20" Height="20" Stretch="Uniform" VerticalAlignment="Top"
+                          Margin="0,1,12,0" Fill="#5599DD"
+                          Data="M12,17A2,2 0 0,0 14,15A2,2 0 0,0 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10A2,2 0 0,1 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z"/>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Controlled by Astro PM" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11.5" LineHeight="17" Foreground="{DynamicResource PrimaryBrush}"
+                                   Text="All strategy and settings come from Astro PM — adjust them in the desktop app's simulator and they sync to this rig automatically. Turn on Offline / Vacation Mode (above) if you need to edit them locally."/>
+                    </StackPanel>
+                </Grid>
             </Border>
             </Grid>
         </Border>
 
         <!-- ═══ Run bar: Date + Simulate + stats + cloud/schedule status (above Step 2) ═══ -->
-        <Border Background="#172433" BorderBrush="#333333" BorderThickness="1"
+        <Border Background="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                 CornerRadius="4" Padding="12,8" Margin="0,2,0,8">
             <StackPanel>
                 <Grid>
@@ -248,7 +248,7 @@
         <StackPanel Orientation="Horizontal"
                     Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="Step 2.  Nightly Targets" Style="{StaticResource StepHeading}"/>
-            <TextBlock Text="{Binding PriorityHint}" FontSize="11" Foreground="#666666"
+            <TextBlock Text="{Binding PriorityHint}" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                        VerticalAlignment="Center" Margin="6,0,0,4"/>
         </StackPanel>
 
@@ -263,7 +263,7 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Background="#1A1A1A" BorderBrush="#333333" BorderThickness="1"
+                        <Border Background="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                                 CornerRadius="4" Padding="10,14,10,14" Margin="0,0,8,8" Width="420">
                             <StackPanel>
                                 <!-- Target name + color dot + priority badge -->
@@ -271,7 +271,7 @@
                                     <Ellipse Width="10" Height="10" Fill="{Binding ColorBrush}"
                                              VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
-                                               Foreground="#DCDCDC"/>
+                                               Foreground="{DynamicResource PrimaryBrush}"/>
                                     <Border Background="#007ACC" CornerRadius="8" Padding="6,1"
                                             Margin="8,0,0,0" VerticalAlignment="Center"
                                             Visibility="{Binding PriorityBadgeVisibility}">
@@ -293,26 +293,26 @@
                                         <RowDefinition/>
                                     </Grid.RowDefinitions>
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Allocated:" FontSize="11"
-                                               Foreground="#888888" Margin="0,0,8,2"/>
+                                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,8,2"/>
                                     <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding AllocatedTime}" FontSize="11"
-                                               Foreground="#CCCCCC"/>
+                                               Foreground="{DynamicResource PrimaryBrush}"/>
                                     <TextBlock Grid.Row="1" Grid.Column="0" Text="Window:" FontSize="11"
-                                               Foreground="#888888" Margin="0,0,8,2"/>
+                                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,8,2"/>
                                     <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Window}" FontSize="11"
-                                               Foreground="#CCCCCC"/>
+                                               Foreground="{DynamicResource PrimaryBrush}"/>
                                     <TextBlock Grid.Row="2" Grid.Column="0" Text="Altitude:" FontSize="11"
-                                               Foreground="#888888" Margin="0,0,8,2"/>
+                                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,8,2"/>
                                     <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AltitudeRange}" FontSize="11"
-                                               Foreground="#CCCCCC"/>
+                                               Foreground="{DynamicResource PrimaryBrush}"/>
                                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Moon sep:" FontSize="11"
-                                               Foreground="#888888" Margin="0,0,8,2"/>
+                                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,8,2"/>
                                     <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding MoonSeparation}" FontSize="11"
-                                               Foreground="#CCCCCC"/>
+                                               Foreground="{DynamicResource PrimaryBrush}"/>
                                 </Grid>
 
                                 <!-- Remaining exposures header -->
                                 <TextBlock Text="REMAINING EXPOSURES" FontSize="9" FontWeight="SemiBold"
-                                           Foreground="#888888" Margin="0,4,0,4" Opacity="0.6"/>
+                                           Foreground="{DynamicResource PrimaryBrush}" Margin="0,4,0,4" Opacity="0.6"/>
 
                                 <!-- Panel tabs (mosaic projects only) -->
                                 <ItemsControl ItemsSource="{Binding PanelNames}" Visibility="{Binding IsMultiPanel}"
@@ -355,19 +355,19 @@
                                                                HorizontalAlignment="Center"/>
                                                 </Border>
                                                 <TextBlock Grid.Column="2" Text="{Binding ExposureDetail}" FontSize="10"
-                                                           Foreground="#AAAAAA" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                                           Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
                                             </Grid>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
                                 <!-- LA definition -->
-                                <TextBlock Text="LA = Lunar Avoidance" FontSize="9" Foreground="#666666"
+                                <TextBlock Text="LA = Lunar Avoidance" FontSize="9" Foreground="{DynamicResource PrimaryBrush}"
                                            FontStyle="Italic" Margin="0,4,0,0"
                                            Visibility="{Binding LaDefinitionVisibility}"/>
 
                                 <!-- Constraint checks -->
-                                <Border BorderBrush="#333333" BorderThickness="0,1,0,0" Margin="0,8,0,0" Padding="0,6,0,0">
+                                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,8,0,0" Padding="0,6,0,0">
                                     <ItemsControl ItemsSource="{Binding ConstraintChecks}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
@@ -376,7 +376,7 @@
                                                                Foreground="{Binding IconColor}"
                                                                VerticalAlignment="Center" Width="16"/>
                                                     <TextBlock Text="{Binding Label}" FontSize="10"
-                                                               Foreground="#888888" VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"
                                                                Width="80"/>
                                                     <TextBlock Text="{Binding Detail}" FontSize="10"
                                                                Foreground="{Binding DetailColor}"
@@ -403,7 +403,7 @@
         </Grid>
 
         <!-- ═══ Current Instruction ═══ -->
-        <Border Background="#1A1A1A" BorderBrush="#333333" BorderThickness="1"
+        <Border Background="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                 CornerRadius="4" Padding="12,8" Margin="0,0,0,8"
                 Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}">
             <Grid>
@@ -423,72 +423,72 @@
                 <WrapPanel Grid.Column="1" VerticalAlignment="Center">
                     <!-- Target -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
-                        <TextBlock Text="TARGET" FontSize="9" FontWeight="SemiBold" Foreground="#666666"
+                        <TextBlock Text="TARGET" FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="{Binding CurrentInstructionTarget}" FontSize="12" FontWeight="SemiBold"
-                                   Foreground="#DCDCDC" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Panel -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
-                        <TextBlock Text="PANEL" FontSize="9" FontWeight="SemiBold" Foreground="#666666"
+                        <TextBlock Text="PANEL" FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="{Binding CurrentInstructionPanel}" FontSize="11"
-                                   Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Sub -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
-                        <TextBlock Text="SUB" FontSize="9" FontWeight="SemiBold" Foreground="#666666"
+                        <TextBlock Text="SUB" FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="{Binding CurrentInstructionSub}" FontSize="11"
-                                   Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Filter -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
-                        <TextBlock Text="FILTER" FontSize="9" FontWeight="SemiBold" Foreground="#666666"
+                        <TextBlock Text="FILTER" FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="{Binding CurrentInstructionFilter}" FontSize="11"
-                                   Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Exposure -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
-                        <TextBlock Text="EXP" FontSize="9" FontWeight="SemiBold" Foreground="#666666"
+                        <TextBlock Text="EXP" FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="{Binding CurrentInstructionExposure}" FontSize="11"
-                                   Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Gain/Offset/Bin -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
                         <TextBlock Text="{Binding CurrentInstructionGainOffset}" FontSize="11"
-                                   Foreground="#888888" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- RA -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
-                        <TextBlock Text="RA" FontSize="9" FontWeight="SemiBold" Foreground="#666666"
+                        <TextBlock Text="RA" FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="{Binding CurrentInstructionRA}" FontSize="11"
-                                   Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- DEC -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
-                        <TextBlock Text="DEC" FontSize="9" FontWeight="SemiBold" Foreground="#666666"
+                        <TextBlock Text="DEC" FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="{Binding CurrentInstructionDEC}" FontSize="11"
-                                   Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Rotation -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                        <TextBlock Text="ROT" FontSize="9" FontWeight="SemiBold" Foreground="#666666"
+                        <TextBlock Text="ROT" FontSize="9" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock Text="{Binding CurrentInstructionRotation}" FontSize="11"
-                                   Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </WrapPanel>
             </Grid>
@@ -501,7 +501,7 @@
         <TextBlock Text="Simulation Log" Style="{StaticResource StepHeading}"
                    Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}"/>
 
-        <Border Background="#1A1A1A" BorderBrush="#333333" BorderThickness="1"
+        <Border Background="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                 CornerRadius="4" Padding="8" Margin="0,0,0,8"
                 Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}">
             <Grid>
@@ -521,7 +521,7 @@
                           ItemsSource="{Binding LogEntries}"
                           SelectedItem="{Binding SelectedLogEntry, Mode=TwoWay}"
                           Background="Transparent" BorderThickness="0"
-                          Foreground="#CCCCCC" FontSize="11" FontFamily="Consolas"
+                          Foreground="{DynamicResource PrimaryBrush}" FontSize="11" FontFamily="Consolas"
                           SelectionChanged="SimLogList_SelectionChanged">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">

@@ -12,9 +12,9 @@
     <DataTemplate DataType="{x:Type local:TargetInstructionSet}">
         <nina:SequenceBlockView>
             <nina:SequenceBlockView.SequenceItemContent>
-                <StackPanel Orientation="Vertical" Margin="0,2" Background="{DynamicResource TertiaryBackgroundBrush}">
+                <StackPanel Orientation="Vertical" Margin="0,2" Background="{DynamicResource BackgroundBrush}">
                     <!-- Live status -->
-                    <Border Background="{DynamicResource SecondaryBackgroundBrush}" CornerRadius="3" Padding="8,5" Margin="0,2,0,4">
+                    <Border Background="{DynamicResource BackgroundBrush}" CornerRadius="3" Padding="8,5" Margin="0,2,0,4">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Setter Property="Visibility" Value="Collapsed"/>
@@ -38,9 +38,9 @@
                                 <Border Background="{DynamicResource NotificationWarningBrush}" CornerRadius="2" Padding="6,2" Margin="0,0,10,0">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="Status:" FontSize="10" FontWeight="Normal"
-                                                   Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center" Margin="0,0,4,0" Opacity="0.7"/>
+                                                   Foreground="{DynamicResource NotificationWarningTextBrush}" VerticalAlignment="Center" Margin="0,0,4,0" Opacity="0.7"/>
                                         <TextBlock Text="{Binding LiveCommand}" FontSize="11" FontWeight="Bold"
-                                                   Foreground="{DynamicResource PrimaryBrush}" TextAlignment="Center"/>
+                                                   Foreground="{DynamicResource NotificationWarningTextBrush}" TextAlignment="Center"/>
                                     </StackPanel>
                                 </Border>
                                 <!-- Target -->
@@ -126,7 +126,7 @@
                                             <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsCurrent}" Value="True">
-                                                    <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+                                                    <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -145,7 +145,7 @@
                                         <!-- Current indicator -->
                                         <TextBlock Grid.Column="0" Text="&#9654;" FontSize="8"
                                                    VerticalAlignment="Center" Margin="0,0,4,0"
-                                                   Foreground="{DynamicResource ButtonForegroundBrush}">
+                                                   Foreground="{DynamicResource PrimaryBrush}">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Visibility" Value="Hidden"/>
@@ -170,7 +170,7 @@
                                                         <Setter Property="FontWeight" Value="Normal"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding IsCurrent}" Value="True">
-                                                                <Setter Property="Foreground" Value="{DynamicResource ButtonForegroundBrush}"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}"/>
                                                                 <Setter Property="FontWeight" Value="SemiBold"/>
                                                             </DataTrigger>
                                                         </Style.Triggers>
@@ -274,11 +274,11 @@
                                 </Setter>
                                 <Style.Triggers>
                                     <Trigger Property="IsSelected" Value="True">
-                                        <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource ButtonForegroundBrush}"/>
+                                        <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}"/>
                                     </Trigger>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+                                        <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
                                     </Trigger>
                                 </Style.Triggers>
                             </Style>

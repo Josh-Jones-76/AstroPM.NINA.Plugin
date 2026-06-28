@@ -23,8 +23,8 @@
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="2">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              Margin="24,10" />
+                            <TextBlock Text="{TemplateBinding Content}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource ButtonForegroundBrush}" Margin="24,10" />
                         </Border>
                     </ControlTemplate>
                 </Setter.Value>
@@ -42,9 +42,36 @@
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="2">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              Margin="12,6" />
+                            <TextBlock Text="{TemplateBinding Content}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource ButtonForegroundBrush}" Margin="12,6" />
                         </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Tab headers: readable in every NINA theme (selected = button colors, unselected = page text) -->
+        <Style TargetType="TabItem">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBd" Background="Transparent"
+                                CornerRadius="3,3,0,0" Padding="12,6" Margin="0,0,2,0">
+                            <TextBlock x:Name="TabTxt" Text="{TemplateBinding Header}"
+                                       FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource PrimaryBrush}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBd" Property="Background" Value="{DynamicResource ButtonBackgroundSelectedBrush}"/>
+                                <Setter TargetName="TabTxt" Property="Foreground" Value="{DynamicResource ButtonForegroundBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBd" Property="Background" Value="{DynamicResource ButtonBackgroundBrush}"/>
+                                <Setter TargetName="TabTxt" Property="Foreground" Value="{DynamicResource ButtonForegroundBrush}"/>
+                                <Setter TargetName="TabTxt" Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -58,7 +85,7 @@
             <!-- ════════════════════════════════════════════════ -->
             <!--  About Astro PM (Tabbed)                        -->
             <!-- ════════════════════════════════════════════════ -->
-            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            <Border Background="{DynamicResource BackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                     CornerRadius="4" Padding="0" Margin="0,0,0,12">
                 <StackPanel>
@@ -459,8 +486,8 @@
                                                             BorderBrush="{TemplateBinding BorderBrush}"
                                                             BorderThickness="{TemplateBinding BorderThickness}"
                                                             CornerRadius="2">
-                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                          Margin="16,8" />
+                                                        <TextBlock Text="{TemplateBinding Content}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                   Foreground="{TemplateBinding Foreground}" Margin="16,8" />
                                                     </Border>
                                                 </ControlTemplate>
                                             </Setter.Value>
@@ -479,7 +506,7 @@
             <!-- ════════════════════════════════════════════════ -->
             <!--  Connection                                     -->
             <!-- ════════════════════════════════════════════════ -->
-            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            <Border Background="{DynamicResource BackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                     CornerRadius="4" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
@@ -523,8 +550,8 @@
                                                         BorderBrush="{TemplateBinding BorderBrush}"
                                                         BorderThickness="{TemplateBinding BorderThickness}"
                                                         CornerRadius="2">
-                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                      Margin="16,8" />
+                                                    <TextBlock Text="{TemplateBinding Content}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               Foreground="{TemplateBinding Foreground}" Margin="16,8" />
                                                 </Border>
                                             </ControlTemplate>
                                         </Setter.Value>
@@ -594,7 +621,7 @@
             <!-- ════════════════════════════════════════════════ -->
             <!--  Astro PM Settings                              -->
             <!-- ════════════════════════════════════════════════ -->
-            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            <Border Background="{DynamicResource BackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                     CornerRadius="4" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
@@ -640,7 +667,7 @@
             <!-- ════════════════════════════════════════════════ -->
             <!--  Targets List                                   -->
             <!-- ════════════════════════════════════════════════ -->
-            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            <Border Background="{DynamicResource BackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                     CornerRadius="4" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
@@ -703,7 +730,7 @@
                               Background="{DynamicResource BackgroundBrush}"
                               Foreground="{DynamicResource PrimaryBrush}"
                               RowBackground="{DynamicResource BackgroundBrush}"
-                              AlternatingRowBackground="{DynamicResource SecondaryBackgroundBrush}"
+                              AlternatingRowBackground="{DynamicResource BackgroundBrush}"
                               CanUserReorderColumns="False"
                               CanUserResizeRows="False"
                               MinHeight="120"
@@ -712,7 +739,7 @@
 
                         <DataGrid.ColumnHeaderStyle>
                             <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}" />
+                                <Setter Property="Background" Value="{DynamicResource BackgroundBrush}" />
                                 <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
                                 <Setter Property="Padding" Value="8,6" />
                                 <Setter Property="FontSize" Value="11" />
@@ -806,7 +833,7 @@
             <!-- ════════════════════════════════════════════════════ -->
             <!--  Simulator                                          -->
             <!-- ════════════════════════════════════════════════════ -->
-            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            <Border Background="{DynamicResource BackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                     CornerRadius="4" Padding="16" Margin="0,0,0,12">
                 <StackPanel>
@@ -815,20 +842,68 @@
                         <Run Text="Simulator"/>
                     </TextBlock>
                     <!-- How It Works (styled to match the desktop app) -->
-                    <Border Background="#16212B" BorderBrush="#234152" BorderThickness="1" CornerRadius="4"
+                    <Border Background="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
                             Padding="14,11" Margin="0,0,0,12">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Top" Margin="0,1,10,0"
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Path Grid.Column="0" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Top" Margin="0,1,10,0"
                                   Fill="#5599DD"
                                   Data="M12,2A10,10 0 1,0 22,12 10,10 0 0,0 12,2M11,7H13V9H11V7M11,11H13V17H11V11Z"/>
-                            <StackPanel MaxWidth="940">
+                            <StackPanel Grid.Column="1" MaxWidth="940" HorizontalAlignment="Left">
                                 <TextBlock Text="How It Works" FontSize="13" FontWeight="SemiBold"
                                            Foreground="#007ACC" Margin="0,0,0,5"/>
-                                <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="#AEB8C2" LineHeight="17">
-                                    <Run Text="This page mirrors the plan you set up in the "/><Run Text="Astro PM desktop app" FontWeight="SemiBold" Foreground="#DCE6F0"/><Run Text=". There, pick this "/><Run Text="imaging system" FontWeight="SemiBold" Foreground="#DCE6F0"/><Run Text=" and configure its simulation strategy, scheduling priority, and capture settings. Astro PM saves them automatically and "/><Run Text="syncs the plan to the cloud" FontWeight="SemiBold" Foreground="#DCE6F0"/><Run Text=". Each night, this plugin pulls the plan down and runs the strategy, schedule, and targets below exactly as shown — so there's no need to configure scheduling in NINA; it simply gets your targets and settings each time the instruction set runs or when you simulate here."/>
+                                <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource PrimaryBrush}" LineHeight="17">
+                                    <Run Text="This page mirrors the plan you set up in the "/><Run Text="Astro PM desktop app" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"/><Run Text=". There, pick this "/><Run Text="imaging system" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"/><Run Text=" and configure its simulation strategy, scheduling priority, and capture settings. Astro PM saves them automatically and "/><Run Text="syncs the plan to the cloud" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"/><Run Text=". Each night, this plugin pulls the plan down and runs the strategy, schedule, and targets below exactly as shown — so there's no need to configure scheduling in NINA; it simply gets your targets and settings each time the instruction set runs or when you simulate here."/>
                                 </TextBlock>
                             </StackPanel>
-                        </StackPanel>
+                            <Button Grid.Column="2" VerticalAlignment="Center" Margin="16,0,0,0" Cursor="Hand"
+                                    Click="OpenSampleSequences"
+                                    ToolTip="Open astro-pm.com to download ready-made NINA sample sequences">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background" Value="#2C5A9E"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="FontSize" Value="11.5"/>
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                        <Setter Property="Height" Value="32"/>
+                                        <Setter Property="Padding" Value="14,0"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                                            CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                            <Path Data="M9,16V10H5L12,3L19,10H15V16H9M5,20V18H19V20H5Z"
+                                                                  Fill="White" Width="13" Height="13" Stretch="Uniform"
+                                                                  VerticalAlignment="Center" Margin="0,0,7,0"
+                                                                  RenderTransformOrigin="0.5,0.5">
+                                                                <Path.RenderTransform>
+                                                                    <RotateTransform Angle="180"/>
+                                                                </Path.RenderTransform>
+                                                            </Path>
+                                                            <TextBlock Text="Download NINA Sample Sequences" VerticalAlignment="Center" Foreground="White"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="Bd" Property="Background" Value="#3A6DB8"/>
+                                                        </Trigger>
+                                                        <Trigger Property="IsPressed" Value="True">
+                                                            <Setter TargetName="Bd" Property="Background" Value="#244C86"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </Grid>
                     </Border>
                     <views:SimulatorPanel x:Name="SimulatorPanelControl" />
                 </StackPanel>

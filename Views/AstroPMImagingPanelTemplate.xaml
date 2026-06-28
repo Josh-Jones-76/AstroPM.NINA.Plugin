@@ -13,7 +13,7 @@
             </Grid.RowDefinitions>
 
             <!-- Status bar -->
-            <Border Grid.Row="0" Background="{DynamicResource SecondaryBackgroundBrush}"
+            <Border Grid.Row="0" Background="{DynamicResource BackgroundBrush}"
                     CornerRadius="3" Padding="8,5" Margin="0,0,0,4">
                 <Border.Style>
                     <Style TargetType="Border">

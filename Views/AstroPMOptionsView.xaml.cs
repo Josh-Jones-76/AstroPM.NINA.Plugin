@@ -45,6 +45,15 @@ namespace AstroPM.NINA.Plugin.Views
             catch { }
         }
 
+        private void OpenSampleSequences(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("https://astro-pm.com/nina-sync/#templates") { UseShellExecute = true });
+            }
+            catch { }
+        }
+
         private void Hyperlink_RequestNavigate(object sender, RequestNavigateEventArgs e)
         {
             try
