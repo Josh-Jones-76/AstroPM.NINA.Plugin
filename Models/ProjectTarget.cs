@@ -188,14 +188,20 @@ namespace AstroPM.NINA.Plugin.Models {
         [JsonProperty("avoid_lunar")]
         public bool AvoidLunar { get; set; }
 
+        /// <summary>When false, this filter line is disabled and the engine disregards it entirely
+        /// (matches the desktop). Defaults true so plans pushed before this field stay active.</summary>
+        [JsonProperty("enabled")]
+        public bool Enabled { get; set; } = true;
+
         [JsonProperty("moon_avoidance_profile")]
         public MoonAvoidanceProfileData MoonAvoidanceProfile { get; set; }
 
         [JsonIgnore]
         public bool HasMoonAvoidance => AvoidLunar || MoonAvoidanceProfile != null;
 
+        // Disabled filters report zero remaining work → excluded from every "has work" check + pick.
         [JsonIgnore]
-        public int Remaining => Math.Max(0, PlannedCount - AcceptedCount);
+        public int Remaining => Enabled ? Math.Max(0, PlannedCount - AcceptedCount) : 0;
     }
 
     public class MoonAvoidanceProfileData {

@@ -316,7 +316,7 @@ namespace AstroPM.NINA.Plugin.Models {
                         // V4: per-tier work for this panel
                         var panelTierSec = new double[tiers.Length];
                         foreach (var es in panel.ExposureSets) {
-                            var remaining = Math.Max(0, es.PlannedCount - es.AcceptedCount) * es.ExposureLengthSec;
+                            var remaining = es.Remaining * es.ExposureLengthSec;
                             if (es.HasMoonAvoidance) panelLaSec += remaining;
                             else panelNonLaSec += remaining;
                             if (esToTier.TryGetValue(es, out var tierIdx))
@@ -346,7 +346,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     // V4: per-tier work totals
                     var tierSec = new double[tiers.Length];
                     foreach (var es in allEs) {
-                        var remaining = Math.Max(0, es.PlannedCount - es.AcceptedCount) * es.ExposureLengthSec;
+                        var remaining = es.Remaining * es.ExposureLengthSec;
                         if (esToTier.TryGetValue(es, out var tierIdx))
                             tierSec[tierIdx] += remaining;
                     }
@@ -429,6 +429,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     // Guard against degenerate data: a 0-length exposure would never
                     // advance the clock (infinite walk) and can never fit a runway.
                     if (es.ExposureLengthSec <= 0) continue;
+                    if (!es.Enabled) continue; // disabled filter line — never schedule it (even bonus fill)
                     int rem = state.RemainingForEs(targetIdx, pi, ei, es);
                     if (rem <= 0 && !includeCompleted) continue;
                     if (es.HasMoonAvoidance && !IsExposureSetMoonSafe(es, slot, moonSepDeg, projectConstraints)) continue;
@@ -556,7 +557,7 @@ namespace AstroPM.NINA.Plugin.Models {
             for (int ci = 0; ci < panelCandidates.Count; ci++)
                 if (!defOrder.ContainsKey(panelCandidates[ci].Es))
                     defOrder[panelCandidates[ci].Es] = ci;
-            int StartRemaining(ExposureSetData es) => Math.Max(0, es.PlannedCount - es.AcceptedCount);
+            int StartRemaining(ExposureSetData es) => es.Remaining;
 
             double RestrictivenessFor(ExposureSetData es) {
                 if (es.MoonAvoidanceProfile != null)

@@ -40,6 +40,10 @@ namespace AstroPM.NINA.Plugin.Models {
         public double ProgressPercent { get; set; }
         public bool IsLunarAvoid { get; set; }
         public ExposureSetData SourceExposureSet { get; set; }
+        // Read-only mirror of the synced ExposureSet.Enabled — shows the same ON/OFF pill as the
+        // desktop card (the plugin never toggles; the desktop owns the state, the engine just skips disabled).
+        public bool Enabled { get; set; } = true;
+        public double RowOpacity => Enabled ? 1.0 : 0.45;
     }
 
     public class ConstraintCheckModel {

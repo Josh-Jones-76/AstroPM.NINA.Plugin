@@ -968,6 +968,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                             ProgressPercent = pct,
                             IsLunarAvoid = es.HasMoonAvoidance,
                             SourceExposureSet = es,
+                            Enabled = es.Enabled,
                         });
                     }
 
@@ -1152,6 +1153,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                             ProgressPercent = pill.ProgressPercent,
                             IsLunarAvoid = pill.IsLunarAvoid,
                             SourceExposureSet = pill.SourceExposureSet,
+                            Enabled = pill.Enabled,
                             StatusIcon = esMoonSafe ? "✓" : "✗",
                             StatusColor = esMoonSafe ? PassBrush : FailBrush,
                         };

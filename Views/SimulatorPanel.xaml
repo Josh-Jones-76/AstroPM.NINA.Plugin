@@ -344,18 +344,49 @@
                                                     <ColumnDefinition Width="14"/>
                                                     <ColumnDefinition Width="42"/>
                                                     <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock Grid.Column="0" Text="{Binding StatusIcon}" FontSize="10"
                                                            FontWeight="Bold" Foreground="{Binding StatusColor}"
-                                                           VerticalAlignment="Center"/>
+                                                           Opacity="{Binding RowOpacity}" VerticalAlignment="Center"/>
                                                 <Border Grid.Column="1" Background="{Binding ChipColor}" CornerRadius="3"
-                                                        Padding="4,2" MinWidth="36" HorizontalAlignment="Left">
+                                                        Padding="4,2" MinWidth="36" HorizontalAlignment="Left"
+                                                        Opacity="{Binding RowOpacity}">
                                                     <TextBlock Text="{Binding FilterLabel}" FontSize="9"
                                                                Foreground="White" FontWeight="SemiBold"
                                                                HorizontalAlignment="Center"/>
                                                 </Border>
                                                 <TextBlock Grid.Column="2" Text="{Binding ExposureDetail}" FontSize="10"
-                                                           Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                                           Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"
+                                                           Opacity="{Binding RowOpacity}"/>
+                                                <!-- Read-only ON/OFF state (informational; the desktop owns the toggle) -->
+                                                <Border Grid.Column="3" CornerRadius="3" Padding="6,1" MinWidth="28"
+                                                        VerticalAlignment="Center" Margin="6,0,0,0">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="#333333"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Enabled}" Value="True">
+                                                                    <Setter Property="Background" Value="#234A2B"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock FontSize="8" FontWeight="SemiBold" HorizontalAlignment="Center">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Text" Value="OFF"/>
+                                                                <Setter Property="Foreground" Value="#999999"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Enabled}" Value="True">
+                                                                        <Setter Property="Text" Value="ON"/>
+                                                                        <Setter Property="Foreground" Value="#9DD9A0"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Border>
                                             </Grid>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>

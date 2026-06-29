@@ -76,6 +76,7 @@ namespace AstroPM.NINA.Plugin.Models {
             var profileGroups = new Dictionary<string, (TierInfo Tier, List<ExposureSetData> Sets)>();
 
             foreach (var es in exposureSets) {
+                if (!es.Enabled) continue; // disabled filter line — excluded from tier classification
                 if (!es.HasMoonAvoidance) {
                     esMap[es] = 0;
                     continue;
