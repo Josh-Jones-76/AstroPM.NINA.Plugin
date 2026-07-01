@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AstroPM NINA scheduling engine — decision tree</title>
+<style>
+  :root{
+    --bg:#15171a; --panel:#1d2024; --panel2:#232730; --ink:#e8e9ec; --muted:#a3a7b0;
+    --line:#33383f; --accent:#7f77dd; --teal:#1d9e75; --amber:#ef9f27; --coral:#d85a30;
+    --blue:#378add; --pink:#d4537e; --red:#e24b4a; --green:#97c459;
+    --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+    --sans:system-ui,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f6f5f1; --panel:#ffffff; --panel2:#f1efe8; --ink:#1c1d20; --muted:#5f5e5a; --line:#dcdad2; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 22px 96px}
+  h1{font-size:25px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 26px;font-size:14px}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 28px;padding:14px 16px;background:var(--panel);border:1px solid var(--line);border-radius:12px;font-size:13px}
+  .legend span{display:inline-flex;align-items:center;gap:7px;color:var(--muted)}
+  .chip{width:13px;height:13px;border-radius:3px;flex:0 0 auto}
+  .phase{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:0 0 16px;overflow:hidden}
+  .phase>summary{list-style:none;cursor:pointer;padding:16px 18px;display:flex;align-items:center;gap:13px;user-select:none}
+  .phase>summary::-webkit-details-marker{display:none}
+  .pnum{font-family:var(--mono);font-size:12px;color:#fff;background:var(--accent);border-radius:6px;padding:3px 8px;flex:0 0 auto}
+  .ptitle{font-size:17px;font-weight:600}
+  .pfn{font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:auto;flex:0 0 auto}
+  .pbody{padding:4px 20px 20px;border-top:1px dashed var(--line)}
+  .lead{color:var(--muted);font-size:13.5px;margin:12px 0 14px}
+  .tree{list-style:none;margin:0;padding:0}
+  .tree ul{list-style:none;margin:4px 0 4px 0;padding:0 0 0 22px;border-left:2px solid var(--line)}
+  .node{position:relative;padding:7px 0 7px 2px}
+  .node>.k{display:inline-block;font-weight:600}
+  .node .d{color:var(--muted);font-size:13.5px}
+  .tag{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:5px;margin-right:8px;vertical-align:1px;white-space:nowrap}
+  .t-dec{background:rgba(239,159,39,.16);color:var(--amber);border:1px solid rgba(239,159,39,.4)}
+  .t-act{background:rgba(29,158,117,.16);color:var(--teal);border:1px solid rgba(29,158,117,.4)}
+  .t-loop{background:rgba(55,138,221,.16);color:var(--blue);border:1px solid rgba(55,138,221,.4)}
+  .t-skip{background:rgba(226,75,74,.16);color:var(--red);border:1px solid rgba(226,75,74,.4)}
+  .t-out{background:rgba(212,83,126,.16);color:var(--pink);border:1px solid rgba(212,83,126,.4)}
+  .t-branch{background:rgba(127,119,221,.16);color:var(--accent);border:1px solid rgba(127,119,221,.45)}
+  code{font-family:var(--mono);font-size:.86em;background:var(--panel2);padding:1px 5px;border-radius:4px}
+  .ctrl{display:flex;gap:10px;margin:0 0 22px}
+  .ctrl button{font-family:var(--sans);font-size:13px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 13px;cursor:pointer}
+  .ctrl button:hover{border-color:var(--accent)}
+  .pipe{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 30px;font-size:12.5px}
+  .pipe .b{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-family:var(--mono)}
+  .pipe .ar{color:var(--muted)}
+  .note{background:var(--panel2);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:9px 13px;margin:8px 0;font-size:13px;color:var(--muted)}
+  .foot{color:var(--muted);font-size:12.5px;margin-top:30px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AstroPM scheduling engine — full decision tree</h1>
+  <p class="sub">NINA plugin · <code>Models/ScheduleEngine.cs</code> + <code>Models/SessionScheduler.cs</code> · the same pipeline drives the in-app simulator and the live <code>TargetInstructionSet</code> execution.</p>
+
+  <div class="legend">
+    <span><i class="chip" style="background:var(--accent)"></i>branch / strategy split</span>
+    <span><i class="chip" style="background:var(--amber)"></i>decision</span>
+    <span><i class="chip" style="background:var(--teal)"></i>action</span>
+    <span><i class="chip" style="background:var(--blue)"></i>loop</span>
+    <span><i class="chip" style="background:var(--red)"></i>skip / drop</span>
+    <span><i class="chip" style="background:var(--pink)"></i>emit / output</span>
+  </div>
+
+  <div class="pipe">
+    <span class="b">1 · BuildTimeSlots</span><span class="ar">→</span>
+    <span class="b">2 · BuildTargetProfiles</span><span class="ar">→</span>
+    <span class="b">3 · BuildMatrix</span><span class="ar">→</span>
+    <span class="b">4 · ComputeOverlap</span><span class="ar">→</span>
+    <span class="b">5 · OrganizeMoonBlocks</span><span class="ar">→</span>
+    <span class="b">6 · Paint (strategy)</span><span class="ar">→</span>
+    <span class="b">7 · WalkToLog / PickExposureSet</span><span class="ar">→</span>
+    <span class="b">8 · Validate</span>
+  </div>
+
+  <div class="ctrl">
+    <button onclick="document.querySelectorAll('.phase').forEach(d=>d.open=true)">Expand all</button>
+    <button onclick="document.querySelectorAll('.phase').forEach(d=>d.open=false)">Collapse all</button>
+  </div>
+
+  <!-- PHASE 1 -->
+  <details class="phase" open>
+    <summary><span class="pnum">1</span><span class="ptitle">Build the night's time grid</span><span class="pfn">SessionScheduler.BuildTimeSlots</span></summary>
+    <div class="pbody">
+      <p class="lead">Establish the dark window and slice it into 5-minute slots. Each slot caches sun altitude, moon altitude, and moon illumination — every later decision reads from this grid.</p>
+      <ul class="tree">
+        <li class="node"><span class="tag t-loop">scan</span><span class="k">Step from local 16:00 in 5-min steps ×216 (18 h)</span>
+          <ul>
+            <li class="node"><span class="tag t-dec">civil dusk?</span><span class="d">sun crosses below −6° → record <code>civilDusk</code></span></li>
+            <li class="node"><span class="tag t-dec">civil dawn?</span><span class="d">after dusk, sun crosses back above −6° → record <code>civilDawn</code></span></li>
+          </ul>
+        </li>
+        <li class="node"><span class="tag t-dec">found dusk?</span><span class="d">yes → window start = <code>civilDusk − 1 h</code>; no → fallback local 18:00</span></li>
+        <li class="node"><span class="tag t-dec">found dawn?</span><span class="d">yes → window end = <code>civilDawn + 1 h</code>; no → fallback start + 12 h</span></li>
+        <li class="node"><span class="tag t-act">align</span><span class="d">snap start/end down to the 5-min grid</span></li>
+        <li class="node"><span class="tag t-loop">build slots</span><span class="k">one <code>TimeSlot</code> per 5 min</span>
+          <ul><li class="node"><span class="d">cache <code>SunAltDeg</code>, <code>MoonAltDeg</code>, <code>MoonIllumPct</code> at slot start</span></li></ul>
+        </li>
+      </ul>
+    </div>
+  </details>
+
+  <!-- PHASE 2 -->
+  <details class="phase" open>
+    <summary><span class="pnum">2</span><span class="ptitle">Profile each target</span><span class="pfn">SessionScheduler.BuildTargetProfiles</span></summary>
+    <div class="pbody">
+      <p class="lead">For every target, decide which slots it can image, how moon-safe each slot is, classify its exposure sets into restrictiveness tiers, and total the remaining work. Targets that can't reach their minimum get dropped here.</p>
+      <ul class="tree">
+        <li class="node"><span class="tag t-loop">per target → per slot</span><span class="k">compute geometry &amp; usability</span>
+          <ul>
+            <li class="node"><span class="d">compute target altitude &amp; moon separation at slot</span></li>
+            <li class="node"><span class="tag t-dec">slot dark?</span><span class="d"><code>SunAlt &lt; SunAltitudeThreshold</code></span></li>
+            <li class="node"><span class="tag t-dec">above min altitude?</span><span class="d"><code>alt ≥ MinTargetAltitude</code></span>
+              <ul><li class="node"><span class="tag t-dec">custom .hrz loaded?</span><span class="d">also require <code>alt ≥ horizon(azimuth)</code></span></li></ul>
+            </li>
+            <li class="node"><span class="tag t-act">SlotUsable</span><span class="d">= dark <strong>AND</strong> above horizon</span></li>
+            <li class="node"><span class="tag t-branch">moon-OK ladder</span><span class="d">(project-level, for the V3-compat <code>SlotMoonOk</code>)</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">avoidance off?</span><span class="d">→ moon-ok</span></li>
+                <li class="node"><span class="tag t-dec">moonAlt ≤ MaxMoonAltitude?</span><span class="d">→ moon-ok (moon too low to matter)</span></li>
+                <li class="node"><span class="tag t-dec">moonIllum ≤ MaxIllumination?</span><span class="d">→ moon-ok (moon too dim)</span></li>
+                <li class="node"><span class="tag t-dec">moonSep ≥ requiredSep?</span><span class="d"><code>RequiredMoonSeparation</code> with width/relax falloff → ok / not-ok</span></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li class="node"><span class="tag t-dec">longest usable run &lt; MinTimeOnTarget?</span><span class="tag t-skip">drop target</span><span class="d"><code>continue</code> — never appears in the schedule this night</span></li>
+        <li class="node"><span class="tag t-branch">tier classification</span><span class="k">TierClassifier.ClassifyExposureSets</span>
+          <ul>
+            <li class="node"><span class="tag t-act">Tier 0 = "No LA"</span><span class="d">exposure sets with no moon avoidance — always safe</span></li>
+            <li class="node"><span class="tag t-dec">ES has a named profile?</span><span class="d">group by profile name; restrictiveness = <code>sep × (1 + 100/(maxIllum+1))</code></span></li>
+            <li class="node"><span class="tag t-dec">ES is a "No Moon" profile?</span><span class="d">restrictiveness = ∞, <code>RequiresMoonDown = true</code></span></li>
+            <li class="node"><span class="tag t-dec">AvoidLunar but no profile?</span><span class="d">→ "Project Default" tier from project constraints</span></li>
+            <li class="node"><span class="tag t-act">sort tiers</span><span class="d">least → most restrictive, assign tier indices 1..N</span></li>
+          </ul>
+        </li>
+        <li class="node"><span class="tag t-loop">per tier → per slot</span><span class="k">build <code>TierSlotSafe[t][s]</code></span>
+          <ul>
+            <li class="node"><span class="tag t-dec">tier 0?</span><span class="d">all slots safe</span></li>
+            <li class="node"><span class="tag t-dec">RequiresMoonDown?</span><span class="d">safe only when <code>moonAlt ≤ 0</code></span></li>
+            <li class="node"><span class="d">else evaluate <code>IsExposureSetMoonSafe</code> with a representative ES of the tier</span></li>
+          </ul>
+        </li>
+        <li class="node"><span class="tag t-branch">mosaic preference on &amp; &gt;1 panel?</span>
+          <ul>
+            <li class="node"><span class="tag t-out">yes</span><span class="d">emit one <code>TargetProfile</code> per panel, each with its own per-tier work totals</span></li>
+            <li class="node"><span class="tag t-out">no</span><span class="d">emit one profile for the whole target</span></li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </details>
+
+  <!-- PHASE 3 -->
+  <details class="phase" open>
+    <summary><span class="pnum">3</span><span class="ptitle">Build the schedule matrix</span><span class="pfn">ScheduleEngine.BuildMatrix</span></summary>
+    <div class="pbody">
+      <p class="lead">Fold profiles + slots into the <code>row × slot</code> matrices the painter walks: who can image where, how moon-safe each cell is per tier, and per-target window metrics.</p>
+      <ul class="tree">
+        <li class="node"><span class="tag t-act">MoonDown[s]</span><span class="d">= <code>moonAlt ≤ 0</code> (a night-wide flag)</span></li>
+        <li class="node"><span class="tag t-loop">per row → per slot</span>
+          <ul>
+            <li class="node"><span class="tag t-act">CanImage[r][s]</span><span class="d">= profile <code>SlotUsable</code> (altitude/dark only)</span></li>
+            <li class="node"><span class="tag t-act">MoonSafe[r][s]</span><span class="d">= MoonDown OR profile <code>SlotMoonOk</code></span></li>
+            <li class="node"><span class="tag t-act">UsableSlot[r][s]</span><span class="d">tier-aware: true only if <em>some tier with work</em> can image here (moon-down safe for all)</span></li>
+            <li class="node"><span class="d">track FirstUsable/LastUsable, MoonSafeSlots, MoonDownSlots, PeakAltitude</span></li>
+          </ul>
+        </li>
+        <li class="node"><span class="tag t-branch">MinChunk sizing</span>
+          <ul>
+            <li class="node"><span class="d">base = <code>MinTimeOnTargetHrs × 3600</code></span></li>
+            <li class="node"><span class="tag t-dec">total remaining &lt; one min block?</span><span class="d"><strong>end-of-target completion:</strong> shrink MinChunk to the work that's actually left so the final frames survive the pre-filter</span></li>
+          </ul>
+        </li>
+        <li class="node"><span class="tag t-act">IsConstrained</span><span class="d">= <code>usableSlots×300 &lt; MinChunk×2</code> (tight window flag for sorting)</span></li>
+        <li class="node"><span class="tag t-act">matrix window</span><span class="d">FirstUsableSlot / LastUsableSlot / FirstDarkSlot / LastDarkSlot</span></li>
+      </ul>
+    </div>
+  </details>
+
+  <!-- PHASE 4 -->
+  <details class="phase" open>
+    <summary><span class="pnum">4</span><span class="ptitle">Overlap analysis</span><span class="pfn">ScheduleEngine.ComputeOverlap</span></summary>
+    <div class="pbody">
+      <p class="lead">For each slot, count how many live targets could use it. Contention drives the exclusive-window reservation in the painter.</p>
+      <ul class="tree">
+        <li class="node"><span class="tag t-loop">per slot</span><span class="k">collect candidate rows</span>
+          <ul>
+            <li class="node"><span class="tag t-dec">row pre-filtered?</span><span class="d">skip</span></li>
+            <li class="node"><span class="tag t-dec">CanImage &amp; has work?</span><span class="d">add to candidate list</span></li>
+            <li class="node"><span class="tag t-act">Contention</span><span class="d">= candidate count; <code>IsExclusive</code> when exactly 1</span></li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </details>
+
+  <!-- PHASE 5 -->
+  <details class="phase" open>
+    <summary><span class="pnum">5</span><span class="ptitle">Organize moon blocks</span><span class="pfn">ScheduleEngine.OrganizeMoonBlocks</span></summary>
+    <div class="pbody">
+      <p class="lead">Pre-tag each unassigned slot with the tier of work it should host, so the painter spends scarce dark/low-moon time on the pickiest filters first.</p>
+      <ul class="tree">
+        <li class="node"><span class="tag t-branch">slot is moon-down?</span>
+          <ul>
+            <li class="node"><span class="tag t-out">moon-down</span><span class="d">pick the <strong>most restrictive</strong> tier with work (No-Moon = ∞ wins)</span></li>
+            <li class="node"><span class="tag t-branch">moon-up → rising or setting?</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">moon rising</span><span class="d">use <strong>relaxed</strong> tier first — save restrictive filters for later when they can't image</span></li>
+                <li class="node"><span class="tag t-dec">moon setting</span><span class="d">use <strong>restrictive</strong> first — conditions improving, relaxed can wait</span></li>
+                <li class="node"><span class="d">no safe tier → fall back to tier 0 (No LA)</span></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </details>
+
+  <!-- PHASE 6 -->
+  <details class="phase" open>
+    <summary><span class="pnum">6</span><span class="ptitle">Paint the slots — strategy split</span><span class="pfn">PaintSlots · PaintSlotsGreedy</span></summary>
+    <div class="pbody">
+      <p class="lead">The big allocation step: assign every imageable slot to a target. The chosen <code>ImagingStrategy</code> picks one of two painters.</p>
+      <ul class="tree">
+        <li class="node"><span class="tag t-branch">strategy?</span>
+          <ul>
+            <li class="node"><span class="tag t-dec">ManualPriority</span><span class="d">→ <code>PaintSlotsGreedy</code> (walk user priority order, give each target all it can use)</span></li>
+            <li class="node"><span class="tag t-dec">SharedTime (default)</span><span class="d">→ <code>PaintSlots</code> (multi-pass fair-share)</span></li>
+          </ul>
+        </li>
+      </ul>
+
+      <div class="note">Both painters share the same shape: pre-filter → exclusive reserve → fill moon-down then moon-up → enforce minimums → prune slivers → bonus gap-fill → defragment → prune. They differ only in <em>how</em> the middle fill prioritises targets.</div>
+
+      <details class="phase" style="margin-top:14px" open>
+        <summary><span class="pnum" style="background:var(--teal)">6A</span><span class="ptitle">SharedTime · multi-pass fair share</span><span class="pfn">PaintSlots</span></summary>
+        <div class="pbody">
+          <ul class="tree">
+            <li class="node"><span class="tag t-dec">pre-filter</span><span class="d">accessible work &lt; MinChunk? → zero out work, mark <code>PreFiltered</code></span></li>
+            <li class="node"><span class="tag t-act">Pass 0</span><span class="d">exclusive windows — sole candidate slot is reserved immediately</span></li>
+            <li class="node"><span class="tag t-act">Pass 0b</span><span class="d">extend a sub-minimum exclusive anchor outward until it reaches MinChunk</span></li>
+            <li class="node"><span class="tag t-branch">Pass 1 — moon-down LA</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">split candidates</span><span class="d"><strong>exclusive</strong> (no moon-safe moon-up slots) vs <strong>flexible</strong> (can fall back to moon-up)</span></li>
+                <li class="node"><span class="tag t-act">fair-share exclusive first</span><span class="d">moon-restricted targets get first claim on dark time</span></li>
+                <li class="node"><span class="tag t-act">then fair-share flexible</span><span class="d">on remaining moon-down slots</span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-act">Pass 2</span><span class="d">moon-down remaining — fair-share the rest of the dark window</span></li>
+            <li class="node"><span class="tag t-branch">Pass 3 — moon-up</span>
+              <ul>
+                <li class="node"><span class="tag t-act">Pass 3a</span><span class="d"><strong>window pre-claim:</strong> a setting-soon target reserves its proportional share <em>inside its own window</em> before the fungible pool opens (fixes early-setting starvation)</span></li>
+                <li class="node"><span class="tag t-branch">fair-share allocator</span><span class="d">over moon-up slots, three branches:</span>
+                  <ul>
+                    <li class="node"><span class="tag t-dec">demand ≤ supply</span><span class="d">everyone gets their full demand</span></li>
+                    <li class="node"><span class="tag t-dec">minimums ≤ supply</span><span class="d">give each its minimum, split excess proportionally to leftover demand</span></li>
+                    <li class="node"><span class="tag t-dec">minimums &gt; supply (SCARCE)</span><span class="d">greedily seat targets that fit their minimum; others get nothing this pass</span></li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-act">EnforceMinimumAllocations</span><span class="d">see 6C</span></li>
+            <li class="node"><span class="tag t-act">PruneSlivers</span><span class="d">see 6C</span></li>
+            <li class="node"><span class="tag t-dec">bonus enabled?</span><span class="d">Pass 4 — extend neighbouring blocks into idle slots (forward then backward)</span></li>
+            <li class="node"><span class="tag t-act">DefragmentSlots</span><span class="d">merge <code>A-B-A</code> into <code>A-A-B</code> to cut slews (only if both targets stay tier-usable)</span></li>
+            <li class="node"><span class="tag t-act">PruneSlivers + absorb</span><span class="d">final cleanup; fold leftover idle slots into adjacent imageable targets</span></li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="phase" style="margin-top:12px">
+        <summary><span class="pnum" style="background:var(--coral)">6B</span><span class="ptitle">ManualPriority · greedy</span><span class="pfn">PaintSlotsGreedy</span></summary>
+        <div class="pbody">
+          <ul class="tree">
+            <li class="node"><span class="tag t-dec">pre-filter</span><span class="d">same accessible-work &lt; MinChunk drop</span></li>
+            <li class="node"><span class="tag t-act">Pass 0</span><span class="d">reserve exclusive (contention == 1) windows</span></li>
+            <li class="node"><span class="tag t-loop">walk priority order</span><span class="k">each target takes all it can use</span>
+              <ul>
+                <li class="node"><span class="tag t-act">Phase A</span><span class="d">moon-down slots — most restrictive tier first</span></li>
+                <li class="node"><span class="tag t-act">Phase B</span><span class="d">moon-up slots — first tier that is safe at the slot, else tier 0</span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-act">tail</span><span class="d">EnforceMinimum → Prune → bonus gap-fill → Defragment → Prune → absorb (identical to 6A)</span></li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="phase" style="margin-top:12px">
+        <summary><span class="pnum" style="background:var(--blue)">6C</span><span class="ptitle">Shared painter sub-routines</span><span class="pfn">EnforceMinimum · PruneSlivers · PaintChunks · DecrementWork</span></summary>
+        <div class="pbody">
+          <ul class="tree">
+            <li class="node"><span class="tag t-branch">EnforceMinimumAllocations</span><span class="d">per under-allocated target with ≥1 slot:</span>
+              <ul>
+                <li class="node"><span class="tag t-act">extend</span><span class="d">grow the block into adjacent free imageable slots (after, then before)</span></li>
+                <li class="node"><span class="tag t-act">borrow</span><span class="d">still short → take edge slots from neighbours who stay above their own minimum</span></li>
+                <li class="node"><span class="tag t-skip">clear</span><span class="d">still below minimum → release all of this target's slots (better idle than sub-min)</span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-branch">PruneSlivers</span><span class="d">per target with a good (≥MinChunk) run plus shorter runs:</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">sliver adjacent to a good run?</span><span class="d">absorb into the neighbour</span></li>
+                <li class="node"><span class="tag t-dec">separated independent block?</span><span class="d">keep it (it's a real second visit) — unless it's a tiny scrap a neighbour fully covers</span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-branch">PaintChunks</span><span class="d">lay budgeted work into contiguous runs:</span>
+              <ul>
+                <li class="node"><span class="d">prefer runs adjacent to the target's own slots, then longest</span></li>
+                <li class="node"><span class="tag t-dec">fresh run &lt; MinChunk &amp; target already has its block?</span><span class="d">skip (no sliver visits requiring a slew)</span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-branch">DecrementWork</span><span class="d">debit hours by hint:</span>
+              <ul>
+                <li class="node"><span class="d"><code>LaPreferred</code> → spend LA first; <code>NonLaPreferred</code> → spend non-LA first; <code>Any</code> → proportional</span></li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </details>
+    </div>
+  </details>
+
+  <!-- PHASE 7 -->
+  <details class="phase" open>
+    <summary><span class="pnum">7</span><span class="ptitle">Walk the painted matrix into a log</span><span class="pfn">WalkToLog → PickExposureSet</span></summary>
+    <div class="pbody">
+      <p class="lead">The execution simulation. Walk slot-by-slot through the painted assignments; inside each target block, run an exposure loop that advances a real clock. <code>PickExposureSet</code> is the per-exposure brain that chooses panel + filter.</p>
+      <ul class="tree">
+        <li class="node"><span class="tag t-act">emit Session start</span></li>
+        <li class="node"><span class="tag t-loop">per assigned slot</span>
+          <ul>
+            <li class="node"><span class="tag t-dec">slot unassigned?</span><span class="d">start an idle timer; emit <code>Wait</code> if the gap ≥ 5 min</span></li>
+            <li class="node"><span class="tag t-branch">new target?</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">probe PickExposureSet — any work right now?</span>
+                  <ul>
+                    <li class="node"><span class="tag t-act">no work</span><span class="d">scan forward for the first viable slot; reassign only the leading dead slots to a fallback target that <em>can</em> image now</span></li>
+                  </ul>
+                </li>
+                <li class="node"><span class="tag t-out">emit Slew, Center &amp; Rotate</span><span class="d">reset filter cycle, dither counter, panel timers</span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-loop">exposure loop — while clock &lt; slot end &amp; night end</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">clock crossed into a slot owned by another target?</span><span class="d">break out of the block</span></li>
+                <li class="node"><span class="tag t-dec">multi-panel &amp; too little time left to rotate?</span><span class="d">panel-lock to the current panel</span></li>
+                <li class="node"><span class="tag t-branch">PickExposureSet</span><span class="d">choose ES (see 7A)</span></li>
+                <li class="node"><span class="tag t-dec">no pick &amp; bonus enabled?</span>
+                  <ul>
+                    <li class="node"><span class="d">reuse last ES if still moon-safe, else re-pick allowing completed sets</span></li>
+                    <li class="node"><span class="tag t-dec">still nothing?</span><span class="d">break</span></li>
+                  </ul>
+                </li>
+                <li class="node"><span class="tag t-dec">exposure would run past night end?</span><span class="d"><strong>end-of-night grace:</strong> allow exactly one final sub to overrun, then stop</span></li>
+                <li class="node"><span class="tag t-dec">panel changed?</span><span class="tag t-out">emit Slew→panel</span></li>
+                <li class="node"><span class="tag t-dec">filter changed?</span><span class="tag t-out">emit Filter</span></li>
+                <li class="node"><span class="tag t-out">emit Image / Bonus</span><span class="d">Bonus when the ES has no remaining planned subs; advance clock; record exposure</span></li>
+                <li class="node"><span class="tag t-dec">dither enabled &amp; subs-since ≥ ditherEvery?</span><span class="tag t-out">emit Dither</span></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li class="node"><span class="tag t-out">emit darkness begin/end &amp; Session end</span><span class="d">totals: minutes, subs, target count</span></li>
+      </ul>
+
+      <details class="phase" style="margin-top:14px" open>
+        <summary><span class="pnum" style="background:var(--amber)">7A</span><span class="ptitle">PickExposureSet — filter &amp; panel decision tree</span><span class="pfn">SessionScheduler.PickExposureSet</span></summary>
+        <div class="pbody">
+          <ul class="tree">
+            <li class="node"><span class="tag t-loop">build candidate set</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">panel allowed?</span><span class="d">honor panel-lock / mosaic restriction</span></li>
+                <li class="node"><span class="tag t-dec">exposure length &gt; 0 &amp; remaining &gt; 0?</span><span class="d">(unless <code>includeCompleted</code>)</span></li>
+                <li class="node"><span class="tag t-dec">LA filter &amp; not moon-safe here?</span><span class="tag t-skip">reject</span><span class="d"><code>IsExposureSetMoonSafe</code></span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-dec">no candidates?</span><span class="tag t-out">return null</span></li>
+            <li class="node"><span class="tag t-branch">mosaic panel rotation</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">active panel has no LA work but another panel does (moon down)?</span><span class="d"><code>forceOffCurrentPanel</code></span></li>
+                <li class="node"><span class="tag t-dec">time on active panel ≥ MinTimeOnTarget?</span><span class="d"><code>shouldRotatePanel</code></span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-branch">candidate-pool selection</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">moon down &amp; LA work available?</span><span class="d">keep LA candidates; honour current/next panel</span></li>
+                <li class="node"><span class="tag t-dec">moon up but some LA still safe?</span><span class="d">prefer non-LA on the active panel; rotate when due</span></li>
+                <li class="node"><span class="tag t-dec">active panel set?</span><span class="d">stay on it unless rotating</span></li>
+                <li class="node"><span class="d">else → all candidates</span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-dec">moon-down &amp; any "No Moon" profile filter present?</span><span class="d"><strong>exclusivity:</strong> those filters take the dark time alone until exhausted</span></li>
+            <li class="node"><span class="tag t-branch">urgency sort</span>
+              <ul>
+                <li class="node"><span class="tag t-act">primary: headroom</span><span class="d">least remaining moon-safe seconds first (closing windows win)</span></li>
+                <li class="node"><span class="tag t-dec">tiebreak: hill direction</span><span class="d">moon down/rising → most restrictive first; moon up/setting → least restrictive first</span></li>
+                <li class="node"><span class="tag t-act">then: most start-of-night remaining work</span><span class="d">keeps R/G/B balanced; def-order as final tiebreak</span></li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-branch">filter-switch cycling</span><span class="d">(when enabled)</span>
+              <ul>
+                <li class="node"><span class="tag t-dec">under switch count &amp; same filter still has work?</span><span class="d">continue current filter</span></li>
+                <li class="node"><span class="tag t-dec">at switch count — does any other filter fit its tolerance runway?</span>
+                  <ul>
+                    <li class="node"><span class="tag t-dec">no</span><span class="d">stay on current filter (nothing else fits)</span></li>
+                    <li class="node"><span class="tag t-act">yes</span><span class="d">advance to next filter in the tier loop that passes the runway check (wrap around)</span>
+                      <ul>
+                        <li class="node"><span class="tag t-dec">time-critical guard</span><span class="d">current window closes sooner AND lending would cost it work → hold current, but keep rotating within the equally-urgent group</span></li>
+                      </ul>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+            <li class="node"><span class="tag t-out">return chosen ES</span><span class="d">+ panel label, panel index, ES index</span></li>
+          </ul>
+        </div>
+      </details>
+    </div>
+  </details>
+
+  <!-- PHASE 8 -->
+  <details class="phase" open>
+    <summary><span class="pnum">8</span><span class="ptitle">Validate the schedule</span><span class="pfn">ScheduleEngine.Validate</span></summary>
+    <div class="pbody">
+      <p class="lead">Post-walk sanity checks that surface warnings/errors in the simulator panel.</p>
+      <ul class="tree">
+        <li class="node"><span class="tag t-dec">IDLE-GAP</span><span class="d">≥10 min idle while an imageable target was available (error)</span></li>
+        <li class="node"><span class="tag t-dec">LA-UNSAFE</span><span class="d">an LA filter imaged moon-up at an unsafe separation (error)</span></li>
+        <li class="node"><span class="tag t-dec">TOTAL-MIN</span><span class="d">target got time but below its minimum block (warn)</span></li>
+        <li class="node"><span class="tag t-dec">NO-ALLOC</span><span class="d">target has work + usable time but got 0 subs (warn)</span></li>
+        <li class="node"><span class="tag t-dec">LA-MISS</span><span class="d">target has LA work + moon-down slots but no moon-down allocation (warn)</span></li>
+        <li class="node"><span class="tag t-dec">FILTER-STUCK</span><span class="d">30+ consecutive identical subs (warn)</span></li>
+      </ul>
+    </div>
+  </details>
+
+  <p class="foot">Generated from a read of <code>ScheduleEngine.cs</code> (2,184 lines) and <code>SessionScheduler.cs</code> (815 lines). The simulator (<code>SimulatorViewModel</code>) and live execution (<code>TargetInstructionSet</code>) call this exact pipeline, so the simulated log is faithful to what NINA runs.</p>
+</div>
+</body>
+</html>
