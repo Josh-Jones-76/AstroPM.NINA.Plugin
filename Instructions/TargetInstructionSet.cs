@@ -832,10 +832,13 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             Action<string, TargetBlock> updateSimple = (cmd, b) => UpdateLiveStatus(cmd, b);
 
-            // Slew retries are spaced widely so a passing cloud band (which defeats
-            // plate solving with "not enough stars") can clear before we give up on the block.
-            const int maxSlewRetries = 5;
-            const int slewRetryDelaySec = 600;
+            // Escalating backoff between center attempts. The first few retries fire quickly to
+            // shrug off transient blips (dome not yet synced, guider not settled, a momentary
+            // slew glitch); the later ones widen out for a passing cloud band that starves the
+            // plate solve of stars ("not enough stars"), which needs minutes to clear. Capped at
+            // 5 min. The array length + 1 is the total attempt count.
+            int[] slewRetryDelaysSec = { 15, 15, 30, 120, 300 };
+            int maxSlewRetries = slewRetryDelaysSec.Length + 1; // 6 attempts
             bool slewSucceeded = false;
 
             for (int attempt = 1; attempt <= maxSlewRetries; attempt++) {
@@ -854,17 +857,19 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         $"AstroPM | Slew failed for {block.TargetName} (attempt {attempt}/{maxSlewRetries}): {ex.Message}");
 
                     if (attempt < maxSlewRetries) {
+                        int delaySec = slewRetryDelaysSec[attempt - 1];
                         // Don't bother waiting if the retry would land past the block's window
-                        if (DateTime.UtcNow.AddSeconds(slewRetryDelaySec) >= block.UtcEnd) {
+                        if (DateTime.UtcNow.AddSeconds(delaySec) >= block.UtcEnd) {
                             global::NINA.Core.Utility.Logger.Warning(
                                 $"AstroPM | Block window for {block.TargetName} ends before next retry — giving up early");
                             break;
                         }
+                        string delayLabel = delaySec >= 60 ? $"{delaySec / 60.0:0.#} min" : $"{delaySec}s";
                         UpdateLiveStatus("Slew Error", block);
                         progress?.Report(new ApplicationStatus {
-                            Status = $"Astro PM: Slew failed — retrying in {slewRetryDelaySec / 60} min ({attempt}/{maxSlewRetries})..."
+                            Status = $"Astro PM: Slew failed — retrying in {delayLabel} ({attempt}/{maxSlewRetries})..."
                         });
-                        await Task.Delay(TimeSpan.FromSeconds(slewRetryDelaySec), token);
+                        await Task.Delay(TimeSpan.FromSeconds(delaySec), token);
                     }
                 }
             }
@@ -999,6 +1004,16 @@ namespace AstroPM.NINA.Plugin.Instructions {
                             RecordOfflineCapture(block, entry.Panel, filterName, exposureSec, gain, offset, binX, binY);
                     });
 
+                // Anchor the exposure item's Parent to us (the IDeepSkyObjectContainer that holds the
+                // scheduled Target). NINA's SequenceContainer.RunTriggers resolves a trigger's context
+                // as `nextItem?.Parent ?? previousItem?.Parent ?? this`, and MeridianFlipTrigger.Execute
+                // pulls its flip + post-flip recenter coordinates from RetrieveContextCoordinates(context).
+                // Without this, nextItem.Parent is null so context falls through to the PARENT container,
+                // whose upward walk never descends into us — the flip then logs "No target information
+                // available for flip" and falls back to live telescope coordinates (only correct by luck).
+                // Pointing nextItem.Parent at us makes the flip and recenter use the real target RA/Dec.
+                exposureItem.AttachNewParent(this);
+
                 // Switch filter before triggers so NINA's AutofocusAfterFilterChange
                 // sees the new filter on the physical wheel when it evaluates.
                 await exposureItem.SwitchFilterAsync(progress, token);
@@ -1097,19 +1112,46 @@ namespace AstroPM.NINA.Plugin.Instructions {
             target.InputCoordinates = inputCoords;
             target.PositionAngle = block.RotationDeg;
 
+            // The InputTarget ctor seeds a DeepSkyObject with EMPTY (0,0) coordinates. Consumers
+            // that read Target.DeepSkyObject (framing, some third-party triggers/instructions, UI)
+            // would otherwise see the wrong position — keep it in sync with InputCoordinates.
+            if (target.DeepSkyObject != null) {
+                target.DeepSkyObject.Name = block.TargetName;
+                target.DeepSkyObject.Coordinates = inputCoords.Coordinates;
+            }
+            target.Expanded = true;
+
             Target = target;
 
-            // Inject target into parent CenterAfterDriftTrigger.
-            // AttachNewParent makes the trigger re-discover us as the IDeepSkyObjectContainer
-            // via AfterParentChanged, then we also set Coordinates explicitly as a belt-and-suspenders.
+            // Push the new target into the parent triggers/instruction blocks that consume it.
+            var injector = new CoordinatesInjector(target);
             var container = Parent as SequenceContainer;
             while (container != null) {
                 foreach (var trigger in container.GetTriggersSnapshot()) {
                     if (trigger is CenterAfterDriftTrigger driftTrigger) {
+                        // AttachNewParent makes the trigger re-discover us as the IDeepSkyObjectContainer
+                        // via AfterParentChanged; we also set Coordinates explicitly as belt-and-suspenders.
+                        // Clone so the trigger can't mutate our target's coordinates, and
+                        // SequenceBlockInitialize resets its drift baseline for the new target (else it
+                        // carries the previous target's plate-solve reference into this block).
                         driftTrigger.AttachNewParent(this);
-                        driftTrigger.Coordinates = target.InputCoordinates;
+                        driftTrigger.Coordinates = target.InputCoordinates.Clone();
                         driftTrigger.Inherited = true;
+                        driftTrigger.SequenceBlockInitialize();
                     }
+
+                    // Users may drop coordinate-aware instructions (Center, Center & Rotate, Slew to
+                    // RA/Dec — native or via Sequencer Powerups) into our custom "Before/After Each
+                    // Exposure" and "Before/After Target" blocks. Those don't inherit from a static DSO
+                    // container, so inject the live target coordinates into their instruction lists.
+                    ISequenceContainer runner = null;
+                    switch (trigger) {
+                        case AstroPMBeforeExposureTrigger t: runner = t.TriggerRunner; break;
+                        case AstroPMAfterExposureTrigger t: runner = t.TriggerRunner; break;
+                        case AstroPMBeforeTargetTrigger t: runner = t.TriggerRunner; break;
+                        case AstroPMAfterTargetTrigger t: runner = t.TriggerRunner; break;
+                    }
+                    if (runner != null) injector.Inject(runner);
                 }
                 container = container.Parent as SequenceContainer;
             }

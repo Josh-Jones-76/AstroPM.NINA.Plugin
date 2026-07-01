@@ -11,8 +11,8 @@ using NINA.Profile.Interfaces;
 [assembly: AssemblyCompany("Astro PM")]
 [assembly: AssemblyProduct("AstroPM.NINA.Plugin")]
 [assembly: AssemblyCopyright("Copyright (c) Astro PM 2026")]
-[assembly: AssemblyVersion("1.3.3.0")]
-[assembly: AssemblyFileVersion("1.3.3.0")]
+[assembly: AssemblyVersion("1.3.3.4")]
+[assembly: AssemblyFileVersion("1.3.3.4")]
 [assembly: System.Runtime.InteropServices.Guid("C8F1A2B3-D4E5-6F78-9A0B-1C2D3E4F5A6B")]
 [assembly: System.Runtime.InteropServices.ComVisible(false)]
 
