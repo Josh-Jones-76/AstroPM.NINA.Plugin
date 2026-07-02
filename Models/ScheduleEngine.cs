@@ -512,24 +512,11 @@ namespace AstroPM.NINA.Plugin.Models {
                 }
             }
 
-            // Pass 0: Reserve exclusive windows (only one target can image)
-            for (int s = 0; s < matrix.Slots.Count; s++) {
-                if (matrix.SlotOverlap[s] == null || matrix.SlotOverlap[s].Contention != 1) continue;
-                int ri = matrix.SlotOverlap[s].CandidateRows[0];
-                var row = matrix.Rows[ri];
-                if (row.PreFiltered || row.TotalWorkSec <= 0) continue;
-
-                matrix.SlotAssignment[s] = ri;
-                int tier = matrix.MoonDown[s]
-                    ? row.MostRestrictiveTierWithWork()
-                    : row.LeastRestrictiveSafeTierWithWork(matrix.TierSafe[ri], s);
-                if (tier < 0) tier = 0;
-                matrix.SlotAllocTier[s] = tier;
-                matrix.SlotWorkHint[s] = tier == 0 ? SlotWorkType.NonLaPreferred
-                    : matrix.MoonDown[s] ? SlotWorkType.LaPreferred : SlotWorkType.Any;
-                DecrementWork(row, 300.0, matrix.SlotWorkHint[s]);
-            }
-            TraceSnapshot(matrix, "After Pass 0 (exclusive)");
+            // No exclusive-window pre-claim here (unlike SharedTime's Pass 0): an
+            // exclusive slot can only ever go to its one candidate anyway, and
+            // pre-claiming it consumes that target's budget in late slots when
+            // earlier shared slots may be free — delaying its start for no gain.
+            // Strict priority order + earliest-first painting covers it naturally.
 
             // Greedy allocation: walk priority order, give each target as much as it can use
             foreach (int orderIdx in priorityOrder) {
@@ -552,7 +539,7 @@ namespace AstroPM.NINA.Plugin.Models {
                         matrix.SlotAllocTier[s] = t;
                         var hint = t > 0 ? SlotWorkType.LaPreferred : SlotWorkType.Any;
                         matrix.SlotWorkHint[s] = hint;
-                        DecrementWork(row, 300.0, hint);
+                        row.TierWorkSec[t] = Math.Max(0, row.TierWorkSec[t] - 300.0);
                         budget -= 300.0;
                     }
                 }
@@ -577,7 +564,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     matrix.SlotAllocTier[s] = bestTier;
                     var hint2 = bestTier > 0 ? SlotWorkType.NonLaPreferred : SlotWorkType.Any;
                     matrix.SlotWorkHint[s] = hint2;
-                    DecrementWork(row, 300.0, hint2);
+                    row.TierWorkSec[bestTier] = Math.Max(0, row.TierWorkSec[bestTier] - 300.0);
                 }
             }
             TraceSnapshot(matrix, "After greedy allocation");
