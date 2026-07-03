@@ -753,6 +753,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             var order = Enumerable.Range(0, _profiles.Count)
                 .OrderBy(i => _profiles[i].Target.Priority == 0 ? int.MaxValue : _profiles[i].Target.Priority)
                 .ThenBy(i => _profiles[i].Target.ProjectName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(i => _profiles[i].PanelIndex ?? -1) // mosaic panels: explicit P1→P2 order
                 .ThenBy(i => i)
                 .ToList();
             var matrix = ScheduleEngine.BuildMatrix(_slots, _profiles, order);
