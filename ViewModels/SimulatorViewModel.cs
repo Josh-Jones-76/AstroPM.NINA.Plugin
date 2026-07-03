@@ -378,6 +378,14 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             set { _statusText = value; OnPropertyChanged(); }
         }
 
+        // Amber banner above the results: settings-sync / location-mismatch warnings.
+        private string _warningBanner;
+        public string WarningBanner {
+            get => _warningBanner;
+            set { _warningBanner = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasWarning)); }
+        }
+        public bool HasWarning => !string.IsNullOrEmpty(_warningBanner);
+
         public bool HasResults {
             get => _hasResults;
             set { _hasResults = value; OnPropertyChanged(); }
@@ -614,8 +622,10 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             // Pull the latest cloud settings for this rig first so the preview reflects current
             // desktop-app changes (strategy, dither, etc.). Mutates `settings`, saves, and raises
             // ExternallyChanged → ReloadSettings, so the bound controls + this run use fresh values.
+            WarningBanner = null;
             if (!settings.OfflineMode) {
-                await ImagingSystemSettingsService.ApplySelectedFromCloudAsync(settings, _apiService);
+                WarningBanner = await ImagingSystemSettingsService.ApplySelectedFromCloudAsync(
+                    settings, _apiService, _latitude, _longitude);
             }
 
             // Offline/Vacation Mode: never touch the network — drive the sim straight from the cache.
@@ -738,8 +748,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
             // Priority order from Project.Priority (1 = highest, 0 = unset → last),
             // synced from the Astro PM cloud. Drives the Manual Priority strategy.
+            // Ties break by project name to match the desktop app — the cloud list is
+            // updated_at-ordered, so a positional tie-break would reorder on every re-push.
             var order = Enumerable.Range(0, _profiles.Count)
                 .OrderBy(i => _profiles[i].Target.Priority == 0 ? int.MaxValue : _profiles[i].Target.Priority)
+                .ThenBy(i => _profiles[i].Target.ProjectName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(i => i)
                 .ToList();
             var matrix = ScheduleEngine.BuildMatrix(_slots, _profiles, order);
@@ -871,6 +884,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             if (_strategy == ImagingStrategy.ManualPriority) {
                 orderedIndices = Enumerable.Range(0, _profiles.Count)
                     .OrderBy(i => _profiles[i].Target.Priority == 0 ? int.MaxValue : _profiles[i].Target.Priority)
+                    .ThenBy(i => _profiles[i].Target.ProjectName, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(i => i)
                     .ToList();
                 for (int rank = 0; rank < orderedIndices.Count; rank++)

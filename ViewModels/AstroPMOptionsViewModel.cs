@@ -417,6 +417,12 @@ namespace AstroPM.NINA.Plugin.ViewModels
                 OnPropertyChanged(nameof(SelectedImagingSystem));
                 ApplyImagingSystem(saved);
             }
+            else if (AvailableImagingSystems.Count > 0)
+            {
+                // No (or stale) selection — default to the first rig instead of sitting empty,
+                // which would silently leave this NINA on local settings and stale filters.
+                SelectedImagingSystem = AvailableImagingSystems[0];
+            }
         }
 
         /// <summary>Drive the read-only Location/Telescope/Camera from the selected imaging system.</summary>
@@ -462,6 +468,15 @@ namespace AstroPM.NINA.Plugin.ViewModels
                 _allTargets.Select(t => t.TelescopeName).Where(s => !string.IsNullOrEmpty(s)).Distinct().OrderBy(s => s));
             AvailableCameras = new ObservableCollection<string>(
                 _allTargets.Select(t => t.CameraName).Where(s => !string.IsNullOrEmpty(s)).Distinct().OrderBy(s => s));
+
+            // No (or stale) status selection — default to "Active" when present (else the
+            // first status) rather than sitting empty. Setter triggers ApplyFilters + save.
+            if ((string.IsNullOrEmpty(StatusFilter) || !AvailableStatuses.Contains(StatusFilter))
+                && AvailableStatuses.Count > 0)
+            {
+                StatusFilter = AvailableStatuses.FirstOrDefault(s =>
+                    string.Equals(s, "Active", StringComparison.OrdinalIgnoreCase)) ?? AvailableStatuses[0];
+            }
         }
 
         private void ApplyFilters()

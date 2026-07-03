@@ -244,6 +244,23 @@
             </StackPanel>
         </Border>
 
+        <!-- ═══ Warning banner: settings not synced from desktop / NINA-profile location mismatch ═══ -->
+        <Border Background="#2EF59E0B" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="4"
+                Padding="12,9" Margin="0,0,0,8"
+                Visibility="{Binding HasWarning, Converter={StaticResource BoolToVis}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Path Grid.Column="0" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Top"
+                      Margin="0,1,10,0" Fill="#F59E0B"
+                      Data="M13,14H11V9H13M13,18H11V16H13M1,21H23L12,2L1,21Z"/>
+                <TextBlock Grid.Column="1" Text="{Binding WarningBanner}" TextWrapping="Wrap"
+                           FontSize="12" LineHeight="17" Foreground="{DynamicResource PrimaryBrush}"/>
+            </Grid>
+        </Border>
+
         <!-- ═══ Step 2: Nightly Targets ═══ -->
         <StackPanel Orientation="Horizontal"
                     Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}">

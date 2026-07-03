@@ -576,7 +576,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 var apiService = new AstroPMApiService();
                 // Pull the selected rig's latest settings (strategy/dither/etc. + site/telescope/camera)
                 // before fetching/filtering so the schedule reflects current desktop-app changes.
-                await ImagingSystemSettingsService.ApplySelectedFromCloudAsync(settings, apiService, token);
+                // Warnings (settings not applied / NINA-profile location mismatch) are logged inside.
+                var astroLoc = _profileService.ActiveProfile.AstrometrySettings;
+                await ImagingSystemSettingsService.ApplySelectedFromCloudAsync(
+                    settings, apiService, astroLoc.Latitude, astroLoc.Longitude, token);
                 try {
                     var response = await apiService.ListTargetsAsync(settings.SyncToken, "Active", token);
                     if (response.Success && response.Targets != null) {
@@ -685,8 +688,11 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             // Priority order from Project.Priority (1 = highest, 0 = unset → last),
             // synced from the Astro PM cloud. Drives the Manual Priority strategy.
+            // Ties break by project name to match the desktop app — the cloud list is
+            // updated_at-ordered, so a positional tie-break would reorder on every re-push.
             var order = Enumerable.Range(0, profiles.Count)
                 .OrderBy(i => profiles[i].Target.Priority == 0 ? int.MaxValue : profiles[i].Target.Priority)
+                .ThenBy(i => profiles[i].Target.ProjectName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(i => i)
                 .ToList();
             var matrix = ScheduleEngine.BuildMatrix(slots, profiles, order);
