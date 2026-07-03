@@ -472,7 +472,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
         // Uniform with the AstroPM desktop simulator's Step 2 hint
         public string PriorityHint => _strategy == ImagingStrategy.ManualPriority
-            ? "—  ordered by each project's Priority setting (1 = highest)"
+            ? "—  order by dragging projects inside the Astro PM app (top = highest priority)"
             : "";
 
         public bool BonusImagesEnabled {
