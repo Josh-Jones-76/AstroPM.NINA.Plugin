@@ -356,7 +356,7 @@ namespace AstroPM.NINA.Plugin.Views {
                         double panelW = nextX - cx;
                         if (panelW > 22) {
                             var pLabel = new TextBlock {
-                                Text = group.Panels[pi].Name, FontSize = 9,
+                                Text = CompactPanelName(group.Panels[pi].Name), FontSize = 9,
                                 Foreground = panelLabelBrush, IsHitTestVisible = false,
                             };
                             Canvas.SetLeft(pLabel, cx + 3);
@@ -365,16 +365,43 @@ namespace AstroPM.NINA.Plugin.Views {
                         }
                     }
                 } else if (blockW > 30) {
+                    // "Gamma Cygni Nebula Panel 2" → name line + "P2" below, matching the
+                    // desktop app's simulator chart labeling.
+                    var (baseName, panelSuffix) = SplitPanelSuffix(group.TargetName);
                     var label = new TextBlock {
-                        Text = group.TargetName, FontSize = blockW > 100 ? 11 : 9,
+                        Text = baseName, FontSize = blockW > 100 ? 11 : 9,
                         Foreground = labelBrush, TextTrimming = TextTrimming.CharacterEllipsis,
                         MaxWidth = blockW - 6, IsHitTestVisible = false,
                     };
                     Canvas.SetLeft(label, x0 + 3);
                     Canvas.SetTop(label, 4);
                     TimelineCanvas.Children.Add(label);
+
+                    if (panelSuffix != null) {
+                        var pLabel = new TextBlock {
+                            Text = panelSuffix, FontSize = 9,
+                            Foreground = panelLabelBrush, IsHitTestVisible = false,
+                        };
+                        Canvas.SetLeft(pLabel, x0 + 3);
+                        Canvas.SetTop(pLabel, 20);
+                        TimelineCanvas.Children.Add(pLabel);
+                    }
                 }
             }
+        }
+
+        /// <summary>Splits a trailing " Panel N" from a target name → (base name, "PN"), or (name, null).</summary>
+        private static (string Name, string Suffix) SplitPanelSuffix(string name) {
+            var m = System.Text.RegularExpressions.Regex.Match(name ?? "", @"^(.*\S)\s+Panel\s+(\d+)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return m.Success ? (m.Groups[1].Value, "P" + m.Groups[2].Value) : (name, null);
+        }
+
+        /// <summary>"Panel 2" → "P2"; anything else passes through.</summary>
+        private static string CompactPanelName(string name) {
+            var m = System.Text.RegularExpressions.Regex.Match(name ?? "", @"^Panel\s+(\d+)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return m.Success ? "P" + m.Groups[1].Value : name;
         }
 
         private void DrawFilterBar(double w, TimeZoneInfo tz) {
