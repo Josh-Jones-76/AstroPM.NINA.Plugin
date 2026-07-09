@@ -509,10 +509,22 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // Reset all live status from any previous run
             ResetLiveStatus();
 
+            // A session whose end time is already in the past is left over from a
+            // previous night — the in-memory state survives sequence stop/restart,
+            // so without this reset a re-run instantly reports "session complete"
+            // instead of building tonight's schedule.
+            if (_scheduleBuilt && _sessionEndUtc != DateTime.MinValue && DateTime.UtcNow >= _sessionEndUtc) {
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Stale session from previous night (ended {_sessionEndUtc:MMM d HH:mm} UTC) — resetting to rebuild");
+                ResetForNewNight();
+            }
+
             // Only rebuild the schedule if we don't have an active session.
             // After a block completes, the loop calls Execute() again — we must NOT
             // rebuild because DateTime.Today flips after midnight, which would
             // reschedule remaining blocks for tomorrow night instead of continuing tonight.
+            // (A session still in progress has _sessionEndUtc in the future, so the
+            // stale-session reset above never fires mid-night.)
             bool needsBuild = !_scheduleBuilt
                 || _blocks == null || _blocks.Count == 0;
 

@@ -34,6 +34,58 @@ namespace AstroPM.NINA.Plugin.Services
 
         private const string ApiUrl = "https://astro-pm.com/api/project_sync.php";
         private const string ImagingSystemsApiUrl = "https://astro-pm.com/api/imaging_systems_sync.php";
+        private const string NinaControlApiUrl = "https://astro-pm.com/api/nina_control.php";
+
+        /// <summary>
+        /// Fetch the remote play/pause state for one imaging system (the "Astro PM
+        /// Remote Play/Pause" trigger polls this).
+        /// </summary>
+        public async Task<ApiNinaControlResponse> GetNinaControlAsync(string syncToken, string systemName, CancellationToken ct = default)
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["sync_token"] = syncToken,
+                ["action"] = "get",
+                ["system_name"] = systemName
+            };
+            var json = JsonConvert.SerializeObject(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(NinaControlApiUrl, content, ct).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            var trimmed = body?.TrimStart();
+            if (string.IsNullOrEmpty(trimmed) || !trimmed.StartsWith("{"))
+            {
+                return new ApiNinaControlResponse
+                {
+                    Success = false,
+                    Message = $"HTTP {(int)response.StatusCode}: Server returned non-JSON response."
+                };
+            }
+            return JsonConvert.DeserializeObject<ApiNinaControlResponse>(body);
+        }
+
+        /// <summary>
+        /// Report back what the trigger is actually doing (paused|playing) so the phone
+        /// can show "confirmed by <machine>". Best-effort; failures are non-fatal.
+        /// </summary>
+        public async Task<bool> AckNinaControlAsync(string syncToken, string systemName, string ackState, string ackBy, CancellationToken ct = default)
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["sync_token"] = syncToken,
+                ["action"] = "ack",
+                ["system_name"] = systemName,
+                ["ack_state"] = ackState,
+                ["ack_by"] = ackBy
+            };
+            var json = JsonConvert.SerializeObject(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(NinaControlApiUrl, content, ct).ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
 
         /// <summary>
         /// List the imaging systems (rigs) for the sync token, including their site/telescope/camera
