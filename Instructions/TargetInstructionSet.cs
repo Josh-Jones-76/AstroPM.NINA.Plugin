@@ -75,6 +75,55 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
     }
 
+    /// <summary>One (filter, rotation) combination captured tonight — the unit the Flat Handling
+    /// box iterates over so flats are only taken for what was actually shot.</summary>
+    public class FlatSpec {
+        /// <summary>The target (incl. panel suffix) the lights were shot under — the container's
+        /// Target is set to this while the combo's flats run, so NINA's $$TARGETNAME$$ file-pattern
+        /// token drops the flats into the same folder tree as the lights.</summary>
+        public string TargetName { get; set; } = "";
+        public string FilterName { get; set; } = "";
+        /// <summary>Sky position angle the lights were taken at.</summary>
+        public double RotationDeg { get; set; }
+        /// <summary>Rotator mechanical position at capture time — what MoveMechanical must
+        /// reproduce for flats, since sky angles are meaningless once the scope is parked.</summary>
+        public float? MechanicalRotation { get; set; }
+        // Full exposure spec of the lights — NINA's trained-flat table is keyed by
+        // filter + gain + binning, so these are part of the combo identity and get
+        // pushed into any Trained Flat Exposure instruction before each pass.
+        public int Gain { get; set; }
+        public int Offset { get; set; }
+        public int BinX { get; set; } = 1;
+        public int BinY { get; set; } = 1;
+    }
+
+    /// <summary>Persists tonight's captured (filter, rotation) combos so a NINA restart
+    /// mid-night doesn't lose them before flats run at session end.</summary>
+    internal class FlatSpecStore {
+        public string NightDate { get; set; } = "";
+        public List<FlatSpec> Specs { get; set; } = new List<FlatSpec>();
+        public DateTime? FlatsCompletedUtc { get; set; }
+
+        private static string FilePath => System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "NINA", "Plugins", "AstroPM.NINA.Plugin", "flat_specs.json");
+
+        public static FlatSpecStore Load() {
+            try {
+                if (System.IO.File.Exists(FilePath))
+                    return JsonConvert.DeserializeObject<FlatSpecStore>(System.IO.File.ReadAllText(FilePath)) ?? new FlatSpecStore();
+            } catch { }
+            return new FlatSpecStore();
+        }
+
+        public void Save() {
+            try {
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(FilePath));
+                System.IO.File.WriteAllText(FilePath, JsonConvert.SerializeObject(this, Formatting.Indented));
+            } catch { }
+        }
+    }
+
     [ExportMetadata("Name", "Astro PM Instructions")]
     [ExportMetadata("Description", "Executes the Astro PM nightly imaging schedule — slew, filter, expose, dither per the simulation plan")]
     [ExportMetadata("Icon", "ParallelSVG")]
@@ -99,6 +148,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
         private readonly IDomeFollower _domeFollower;
         private readonly IPlateSolverFactory _plateSolverFactory;
         private readonly IWindowServiceFactory _windowServiceFactory;
+        private readonly IFlatDeviceMediator _flatDeviceMediator;
 
         private readonly INighttimeCalculator _nighttimeCalculator;
 
@@ -126,6 +176,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
         // Persisted across interruptions
         private int _currentBlockIndex;
 
+        // ── Flat Handling ──
+        // (filter, rotation) combos captured tonight; the Flat Handling box iterates these
+        // at session complete. Guarded by lock(_flatSpecs) — captures record from the
+        // execution loop while the UI reads the summary.
+        private readonly List<FlatSpec> _flatSpecs = new List<FlatSpec>();
+        private string _nightDate = "";
+        private bool _flatsDone;
+
         // Test mode: skip wait + viability check for current block
         private volatile bool _skipWait;
         // Skip current block and move to next
@@ -146,7 +204,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
             IDomeFollower domeFollower,
             IPlateSolverFactory plateSolverFactory,
             IWindowServiceFactory windowServiceFactory,
-            INighttimeCalculator nighttimeCalculator) : base(new SequentialStrategy()) {
+            INighttimeCalculator nighttimeCalculator,
+            IFlatDeviceMediator flatDeviceMediator) : base(new SequentialStrategy()) {
             _profileService = profileService;
             _telescopeMediator = telescopeMediator;
             _filterWheelMediator = filterWheelMediator;
@@ -161,8 +220,13 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _plateSolverFactory = plateSolverFactory;
             _windowServiceFactory = windowServiceFactory;
             _nighttimeCalculator = nighttimeCalculator;
+            _flatDeviceMediator = flatDeviceMediator;
 
             NighttimeData = nighttimeCalculator.Calculate();
+
+            // Cloud-applied settings (Options refresh / schedule build) flip FlatsEnabled in
+            // settings.json — re-read it so the sequencer header checkbox tracks the change.
+            AstroPMSettings.ExternallyChanged += () => RaisePropertyChanged(nameof(FlatsEnabled));
 
             // Initialize Target so other plugins (e.g. SequencerPlus) don't get a null
             // when they walk the tree looking for IDeepSkyObjectContainer before we execute.
@@ -175,6 +239,77 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // Add a placeholder so NINA never sees an empty container (which it would skip).
             // Our Execute() override handles all real work — this just prevents the skip.
             Add(new AstroPMPlaceholderItem());
+
+            FlatsRunner = new SequentialContainer();
+            FlatsRunner.AttachNewParent(this);
+            FlatsSetupRunner = new SequentialContainer();
+            FlatsSetupRunner.AttachNewParent(this);
+            FlatsTeardownRunner = new SequentialContainer();
+            FlatsTeardownRunner.AttachNewParent(this);
+
+            // Seed a ready-to-go Trained Flat Exposure (20 subs) in the per-combo box so a
+            // fresh drop from the palette works out of the box. Saved sequences replace
+            // FlatsRunner wholesale on deserialize, so this never duplicates into old saves.
+            // Filter/gain/binning are overwritten per combo at runtime by ApplyComboToTrainedFlats.
+            try {
+                var seeded = new global::NINA.Sequencer.SequenceItem.FlatDevice.TrainedFlatExposure(
+                    profileService, cameraMediator, imagingMediator, imageSaveMediator,
+                    imageHistoryVM, filterWheelMediator, flatDeviceMediator);
+                // Direct construction bypasses NINA's factory, which normally stamps the
+                // export metadata onto the instance — without these the item renders with
+                // no label and the fallback "!" icon in the sequencer.
+                seeded.Name = global::NINA.Core.Locale.Loc.Instance["Lbl_SequenceItem_FlatDevice_TrainedFlatExposure_Name"];
+                seeded.Description = global::NINA.Core.Locale.Loc.Instance["Lbl_SequenceItem_FlatDevice_TrainedFlatExposure_Description"];
+                seeded.Category = global::NINA.Core.Locale.Loc.Instance["Lbl_SequenceCategory_FlatDevice"];
+                if (System.Windows.Application.Current?.Resources["FlatWizardSVG"] is System.Windows.Media.GeometryGroup flatIcon)
+                    seeded.Icon = flatIcon;
+                var iterations = seeded.GetIterations();
+                if (iterations != null) iterations.Iterations = 20;
+                FlatsRunner.Add(seeded);
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Warning(
+                    $"AstroPM | Could not seed default Trained Flat Exposure: {ex.Message}");
+            }
+        }
+
+        // ── Flat Handling: user-droppable instruction box ──
+        // Runs once per (filter, rotation) combination captured tonight, at session complete.
+        // Same serialization pattern as NINA's SequenceTrigger.TriggerRunner.
+
+        /// <summary>Proxies the plugin-wide setting (settings.json) rather than serializing with the
+        /// sequence: the desktop app's "Enable Flats Sequence" simulator checkbox pushes this value
+        /// through the imaging-system cloud sync, and the plugin's own Simulator panel mirrors it —
+        /// this checkbox in the sequencer is a third view of the same switch.</summary>
+        public bool FlatsEnabled {
+            get => AstroPMSettings.Load().FlatsEnabled;
+            set {
+                var s = AstroPMSettings.Load();
+                if (s.FlatsEnabled != value) {
+                    s.FlatsEnabled = value;
+                    s.Save();
+                    AstroPMSettings.NotifyExternallyChanged(); // refresh Simulator panel mirror
+                }
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>Runs once, before the per-combo loop — park mount, close flat panel, light on.</summary>
+        [JsonProperty]
+        public SequentialContainer FlatsSetupRunner { get; protected set; }
+
+        /// <summary>Runs once per (filter, rotation) combo with wheel + rotator pre-set.</summary>
+        [JsonProperty]
+        public SequentialContainer FlatsRunner { get; protected set; }
+
+        /// <summary>Runs once, after all combos — light off, open panel, etc.</summary>
+        [JsonProperty]
+        public SequentialContainer FlatsTeardownRunner { get; protected set; }
+
+        private string _flatsSummary = "No exposures captured yet tonight.";
+        /// <summary>UI line under the Flat Handling header: tonight's captured rotation → filter combos.</summary>
+        public string FlatsSummary {
+            get => _flatsSummary;
+            private set { _flatsSummary = value; RaisePropertyChanged(); }
         }
 
         // ── Serialization hygiene ──
@@ -197,6 +332,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
         private void OnDeserializedScrubFossils(StreamingContext context) {
             ScrubPlaceholders();
             EnsurePlaceholder();
+            // Older saved sequences predate the Flat Handling box — the property is absent
+            // from their JSON, so the deserializer leaves the ctor-created (or null) runner.
+            if (FlatsRunner == null) FlatsRunner = new SequentialContainer();
+            FlatsRunner.AttachNewParent(this);
+            if (FlatsSetupRunner == null) FlatsSetupRunner = new SequentialContainer();
+            FlatsSetupRunner.AttachNewParent(this);
+            if (FlatsTeardownRunner == null) FlatsTeardownRunner = new SequentialContainer();
+            FlatsTeardownRunner.AttachNewParent(this);
         }
 
         private void ScrubPlaceholders() {
@@ -217,8 +360,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
             cloneMe._guiderMediator, cloneMe._rotatorMediator,
             cloneMe._domeMediator, cloneMe._domeFollower,
             cloneMe._plateSolverFactory, cloneMe._windowServiceFactory,
-            cloneMe._nighttimeCalculator) {
+            cloneMe._nighttimeCalculator, cloneMe._flatDeviceMediator) {
             CopyMetaData(cloneMe);
+            FlatsRunner = (SequentialContainer)cloneMe.FlatsRunner.Clone();
+            FlatsRunner.AttachNewParent(this);
+            FlatsSetupRunner = (SequentialContainer)cloneMe.FlatsSetupRunner.Clone();
+            FlatsSetupRunner.AttachNewParent(this);
+            FlatsTeardownRunner = (SequentialContainer)cloneMe.FlatsTeardownRunner.Clone();
+            FlatsTeardownRunner.AttachNewParent(this);
         }
 
         public List<SimLogEntry> LastLog => _lastLog;
@@ -302,7 +451,20 @@ namespace AstroPM.NINA.Plugin.Instructions {
             BlockSummaries = null;
             HasBlockInfo = false;
             ResetLiveStatus();
-            global::NINA.Core.Utility.Logger.Info("AstroPM | Manual reset — schedule cleared, will re-fetch on next run");
+            // Manual reset means a truly clean slate — flat tracking included. Clear the
+            // in-memory night state AND the on-disk recovery store, or the next build's
+            // SyncFlatTrackingForNight would just recover tonight's combos/done-flag back.
+            lock (_flatSpecs) _flatSpecs.Clear();
+            _flatsDone = false;
+            _nightDate = "";
+            new FlatSpecStore().Save();
+            UpdateFlatsSummary();
+            // Also clear the checkmarks/progress the last flats pass left on the drop-zone
+            // instructions — including nested loop counters (see ResetRunnerProgress).
+            ResetRunnerProgress(FlatsSetupRunner);
+            ResetRunnerProgress(FlatsRunner);
+            ResetRunnerProgress(FlatsTeardownRunner);
+            global::NINA.Core.Utility.Logger.Info("AstroPM | Manual reset — schedule and flat tracking cleared, will re-fetch on next run");
             Notification.ShowInformation("Astro PM: Schedule reset. Start the sequence to fetch new targets.");
         });
 
@@ -480,15 +642,62 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public bool HasBlocksRemaining {
             get {
                 if (!_scheduleBuilt) return true;
-                if (_blocks == null || _blocks.Count == 0) return false;
-                var now = DateTime.UtcNow;
-                if (now >= _sessionEndUtc) return false;
-                for (int i = _currentBlockIndex; i < _blocks.Count; i++) {
-                    if (_blocks[i].UtcEnd > now) return true;
-                }
-                return false;
+                // A stale schedule from a previous night must keep the loop condition
+                // TRUE: NINA evaluates conditions BEFORE running a container's items,
+                // so returning false here skips the instruction set entirely and the
+                // stale-session reset in Execute() never gets the chance to rebuild.
+                if (IsStaleSession) return true;
+                if (!BlocksExhausted) return true;
+                // Hold the container alive until the Flat Handling pass finishes. The parent
+                // loop conditions key off this property, and NINA's condition watchdog CANCELS
+                // the running instruction the moment it flips false — which without this guard
+                // is the exact moment the flats need to run (field-tested 7/10: the daily loop
+                // reset + watchdog cancel killed the flats pass at session end).
+                return FlatsPending;
             }
         }
+
+        /// <summary>True when every scheduled block (and the session window) is over — the
+        /// pre-flats notion of "night finished" that triggers the Flat Handling pass.</summary>
+        private bool BlocksExhausted {
+            get {
+                if (_blocks == null || _blocks.Count == 0) return true;
+                var now = DateTime.UtcNow;
+                if (now >= _sessionEndUtc) return true;
+                for (int i = _currentBlockIndex; i < _blocks.Count; i++) {
+                    if (_blocks[i].UtcEnd > now) return false;
+                }
+                return true;
+            }
+        }
+
+        /// <summary>True when the Flat Handling pass still has work to do tonight: enabled, has
+        /// instructions, has recorded combos, and hasn't completed yet.</summary>
+        private bool FlatsPending {
+            get {
+                if (_flatsDone || !FlatsEnabled) return false;
+                bool hasInstructions = (FlatsSetupRunner?.GetItemsSnapshot().Count > 0)
+                    || (FlatsRunner?.GetItemsSnapshot().Count > 0)
+                    || (FlatsTeardownRunner?.GetItemsSnapshot().Count > 0);
+                if (!hasInstructions) return false;
+                lock (_flatSpecs) return _flatSpecs.Count > 0;
+            }
+        }
+
+        /// <summary>True when the built schedule is left over from a finished night. A
+        /// session goes stale StaleAfterHours after its end time: long enough that the
+        /// dawn wind-down (watchdog condition checks, flats, the daily loop's dawn tasks)
+        /// still sees it as tonight's and the nightly loop exits cleanly, short enough
+        /// that a sequence started any time later that day — morning included — resets
+        /// and rebuilds for the coming night instead of being skipped.</summary>
+        public bool IsStaleSession {
+            get {
+                if (!_scheduleBuilt || _sessionEndUtc == DateTime.MinValue) return false;
+                return DateTime.UtcNow >= _sessionEndUtc.AddHours(StaleAfterHours);
+            }
+        }
+
+        private const double StaleAfterHours = 2;
 
         public void ResetForNewNight() {
             _scheduleBuilt = false;
@@ -509,11 +718,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // Reset all live status from any previous run
             ResetLiveStatus();
 
-            // A session whose end time is already in the past is left over from a
-            // previous night — the in-memory state survives sequence stop/restart,
-            // so without this reset a re-run instantly reports "session complete"
+            // A schedule left over from a finished night (per IsStaleSession) must be
+            // discarded — the in-memory state survives sequence stop/restart, so
+            // without this reset a re-run instantly reports "session complete"
             // instead of building tonight's schedule.
-            if (_scheduleBuilt && _sessionEndUtc != DateTime.MinValue && DateTime.UtcNow >= _sessionEndUtc) {
+            // FlatsPending exception: right at session end the flats pass hasn't run yet
+            // (and a stop/restart during flats re-enters here) — resetting would nuke the
+            // blocks and rebuild mid-flats. Skip the reset until flats complete.
+            if (IsStaleSession && !FlatsPending) {
                 global::NINA.Core.Utility.Logger.Info(
                     $"AstroPM | Stale session from previous night (ended {_sessionEndUtc:MMM d HH:mm} UTC) — resetting to rebuild");
                 ResetForNewNight();
@@ -534,7 +746,21 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     global::NINA.Core.Utility.Logger.Info($"AstroPM | Execute: building schedule ({reason})");
                     await BuildSchedule(progress, token);
                     _scheduleBuilt = true;
-                    if (_blocks == null || _blocks.Count == 0) return;
+                    if (_blocks == null || _blocks.Count == 0) {
+                        // A rebuild after a mid-flats crash can legitimately yield zero blocks
+                        // (the night is over) while recovered combos still await flats — run
+                        // them now rather than stranding them behind the early return.
+                        if (FlatsPending) await RunFlatsIfNeeded(progress, token);
+
+                        // An empty build must still stamp a session end: HasBlocksRemaining
+                        // reads this state as complete, and without a timestamp IsStaleSession
+                        // could never flip it stale — every later sequence start would skip
+                        // the instruction set until NINA restarts.
+                        _sessionEndUtc = DateTime.UtcNow;
+                        global::NINA.Core.Utility.Logger.Info(
+                            $"AstroPM | Schedule build produced no blocks — eligible to rebuild after {StaleAfterHours}h");
+                        return;
+                    }
                 } else {
                     global::NINA.Core.Utility.Logger.Info(
                         $"AstroPM | Execute: continuing active session — block {_currentBlockIndex + 1}/{_blocks.Count}, session ends {_sessionEndUtc:HH:mm} UTC");
@@ -542,11 +768,22 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
                 await ExecuteNextBlock(progress, token);
 
-                // After the block finishes, show "Session Complete" if no blocks remain
-                if (!HasBlocksRemaining) {
+                // After the block finishes, run flats + show "Session Complete" if no blocks
+                // remain. Trigger off BlocksExhausted, NOT HasBlocksRemaining — the latter
+                // deliberately stays true while flats are pending (see HasBlocksRemaining).
+                if (BlocksExhausted) {
+                    global::NINA.Core.Utility.Logger.Info("AstroPM | All blocks finished — session complete");
+
+                    // Flat Handling: run the user's dropped-in flat instructions once per
+                    // (filter, rotation) combination captured tonight. Runs here — inside the
+                    // nightly loop at session complete — so multi-night setups get flats every
+                    // night, not just when the outer sequence ends. The parent loop conditions
+                    // stay true (FlatsPending) until this finishes, so the condition watchdog
+                    // can't cancel us mid-flats.
+                    await RunFlatsIfNeeded(progress, token);
+
                     LiveCommand = "Session Complete";
                     HasLiveStatus = true;
-                    global::NINA.Core.Utility.Logger.Info("AstroPM | All blocks finished — session complete");
                 }
             } catch (OperationCanceledException) {
                 // Sequence was stopped — reset status displays
@@ -670,11 +907,15 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
 
             var tz = TimeZoneInfo.Local;
-            // An observing night spans two calendar dates (evening → dawn).
-            // Before dawn (~6 AM) we're still in last night's session → use yesterday.
-            // After dawn we want tonight's schedule → use today.
+            // An observing night spans two calendar dates (evening → dawn). Nights are
+            // identified noon-to-noon (same convention as IsStaleSession and the desktop
+            // app): any rebuild before local noon — a post-midnight continuation OR a
+            // post-dawn crash recovery — keys to the night just run, so flats tracking
+            // recovers instead of resetting under it. Dawn is always before noon, so a
+            // hard-coded dawn hour is unnecessary. After noon we schedule tonight.
             var localNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-            var date = localNow.Hour < 6 ? DateTime.Today.AddDays(-1) : DateTime.Today;
+            var date = localNow.Hour < 12 ? DateTime.Today.AddDays(-1) : DateTime.Today;
+            SyncFlatTrackingForNight(date);
             global::NINA.Core.Utility.Logger.Info(
                 $"AstroPM | BuildSchedule: date={date:yyyy-MM-dd} (local={localNow:HH:mm}), lat={latDeg:F4}, lon={lonDeg:F4}, tz={tz.Id}, targets={targets.Count}");
             var slots = SessionScheduler.BuildTimeSlots(date, latDeg, lonDeg, tz);
@@ -1019,6 +1260,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     () => {
                         filterImageCount[filterName] = filterSub;
                         OnCaptured();
+                        RecordFlatSpec(block, filterName, gain, offset, binX, binY);
                         if (offlineMode)
                             RecordOfflineCapture(block, entry.Panel, filterName, exposureSec, gain, offset, binX, binY);
                     });
@@ -1241,6 +1483,345 @@ namespace AstroPM.NINA.Plugin.Instructions {
             } catch (Exception ex) {
                 global::NINA.Core.Utility.Logger.Warning($"AstroPM | Offline capture tracking failed: {ex.Message}");
             }
+        }
+
+        // ── Flat Handling ──
+
+        /// <summary>Called from BuildSchedule with the observing-night date. On a new night the
+        /// combo list resets; on a same-night rebuild (manual reset, NINA restart) recorded combos
+        /// are kept / recovered from disk so end-of-night flats still cover the whole night.</summary>
+        private void SyncFlatTrackingForNight(DateTime nightDate) {
+            var key = nightDate.ToString("yyyy-MM-dd");
+            if (_nightDate == key) return; // same-night rebuild — keep recorded combos
+            _nightDate = key;
+            lock (_flatSpecs) {
+                _flatSpecs.Clear();
+                var store = FlatSpecStore.Load();
+                if (store.NightDate == key) {
+                    // NINA restarted mid-night — recover combos captured before the restart
+                    _flatSpecs.AddRange(store.Specs);
+                    _flatsDone = store.FlatsCompletedUtc.HasValue;
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | Flats: recovered {store.Specs.Count} filter/rotation combos for night {key}" +
+                        (_flatsDone ? " (flats already completed tonight)" : ""));
+                } else {
+                    _flatsDone = false;
+                }
+            }
+            // A new observing night: clear the checkmarks/progress last night's pass left
+            // on the drop-zone instructions — including nested loop counters, which would
+            // otherwise make Trained Flat Exposure skip itself tonight (20/20 from last night).
+            ResetRunnerProgress(FlatsSetupRunner);
+            ResetRunnerProgress(FlatsRunner);
+            ResetRunnerProgress(FlatsTeardownRunner);
+            UpdateFlatsSummary();
+        }
+
+        /// <summary>Record the full spec of a successful LIGHT capture. Deduped by filter + sky PA +
+        /// gain + offset + binning (all part of the trained-flat identity); the rotator's mechanical
+        /// position is stored because that's what flats must reproduce once the scope is parked and
+        /// sky angles no longer mean anything.</summary>
+        private void RecordFlatSpec(TargetBlock block, string filterName, int gain, int offset, int binX, int binY) {
+            try {
+                float? mech = null;
+                var rotInfo = _rotatorMediator.GetInfo();
+                if (rotInfo?.Connected == true) mech = rotInfo.MechanicalPosition;
+
+                bool added = false;
+                List<FlatSpec> snapshot = null;
+                lock (_flatSpecs) {
+                    bool exists = _flatSpecs.Any(s =>
+                        string.Equals(s.TargetName, block.TargetName, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(s.FilterName, filterName, StringComparison.OrdinalIgnoreCase) &&
+                        Math.Abs(s.RotationDeg - block.RotationDeg) < 0.05 &&
+                        s.Gain == gain && s.Offset == offset && s.BinX == binX && s.BinY == binY);
+                    if (!exists) {
+                        _flatSpecs.Add(new FlatSpec {
+                            TargetName = block.TargetName,
+                            FilterName = filterName,
+                            RotationDeg = block.RotationDeg,
+                            MechanicalRotation = mech,
+                            Gain = gain,
+                            Offset = offset,
+                            BinX = binX,
+                            BinY = binY,
+                        });
+                        snapshot = _flatSpecs.ToList();
+                        added = true;
+                    }
+                }
+                if (added) {
+                    // A new combo after flats already ran means fresh lights without flats —
+                    // re-arm the pass so the next session complete covers them. The store save
+                    // below writes FlatsCompletedUtc = null, so disk and memory agree.
+                    if (_flatsDone) {
+                        _flatsDone = false;
+                        global::NINA.Core.Utility.Logger.Info(
+                            "AstroPM | Flats: new combo captured after flats completed — re-arming flat handling for tonight");
+                    }
+                    new FlatSpecStore { NightDate = _nightDate, Specs = snapshot }.Save();
+                    UpdateFlatsSummary();
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | Flats: recorded combo {block.TargetName} {filterName} G{gain} O{offset} {binX}×{binY} @ PA {block.RotationDeg:F1}°" +
+                        (mech.HasValue ? $" (rotator mech {mech.Value:F1}°)" : " (no rotator)"));
+                }
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Warning($"AstroPM | Flats combo tracking failed: {ex.Message}");
+            }
+        }
+
+        private void UpdateFlatsSummary() {
+            List<FlatSpec> specs;
+            lock (_flatSpecs) specs = _flatSpecs.ToList();
+            if (specs.Count == 0) {
+                FlatsSummary = "No exposures captured yet tonight.";
+                return;
+            }
+            var parts = specs
+                .GroupBy(s => new { s.TargetName, Rot = Math.Round(s.RotationDeg, 1) })
+                .OrderBy(g => g.Key.TargetName, StringComparer.OrdinalIgnoreCase)
+                .Select(g => {
+                    // Only spell out gain/bin when the same filter was shot with two
+                    // different camera specs at this target+rotation — otherwise keep it short.
+                    var labels = g.Select(s => {
+                        bool dup = g.Count(o => string.Equals(o.FilterName, s.FilterName, StringComparison.OrdinalIgnoreCase)) > 1;
+                        return dup ? $"{s.FilterName} (G{s.Gain} {s.BinX}×{s.BinY})" : s.FilterName;
+                    });
+                    return $"{g.Key.TargetName} @ {g.Key.Rot:F1}°: {string.Join(", ", labels)}";
+                });
+            FlatsSummary = $"Tonight: {string.Join("  ·  ", parts)}";
+        }
+
+        /// <summary>At session complete: for each rotation used tonight, move the rotator to its
+        /// recorded mechanical position, then for each filter used at that rotation, switch the
+        /// wheel and run the Flat Handling instructions once. _flatsDone is only set after a full
+        /// successful pass, so a cancel/restart retries flats rather than silently skipping them.</summary>
+        private async Task RunFlatsIfNeeded(IProgress<ApplicationStatus> progress, CancellationToken token) {
+            if (_flatsDone) return;
+            if (!FlatsEnabled) {
+                global::NINA.Core.Utility.Logger.Info("AstroPM | Flats: disabled — skipping flat handling");
+                return;
+            }
+            bool hasSetup = FlatsSetupRunner?.GetItemsSnapshot().Count > 0;
+            bool hasPerCombo = FlatsRunner?.GetItemsSnapshot().Count > 0;
+            bool hasTeardown = FlatsTeardownRunner?.GetItemsSnapshot().Count > 0;
+            if (!hasSetup && !hasPerCombo && !hasTeardown) return;
+
+            List<FlatSpec> specs;
+            lock (_flatSpecs) specs = _flatSpecs.ToList();
+            if (specs.Count == 0) {
+                global::NINA.Core.Utility.Logger.Info("AstroPM | Flats: no captures recorded tonight — nothing to take flats for");
+                _flatsDone = true;
+                return;
+            }
+
+            bool useRotator = _rotatorMediator.GetInfo()?.Connected == true;
+            global::NINA.Core.Utility.Logger.Info(
+                $"AstroPM | Flats: starting — {specs.Count} filter/rotation combos, rotator {(useRotator ? "connected" : "not connected")}");
+
+            // ── Before Flats: one-time setup (park mount, close flat panel, light on…) ──
+            if (hasSetup) {
+                LiveCommand = "Flats Setup";
+                LiveTarget = "Flat Handling";
+                HasLiveStatus = true;
+                progress?.Report(new ApplicationStatus { Status = "Astro PM: Flats — running setup instructions..." });
+                try {
+                    global::NINA.Core.Utility.Logger.Info("AstroPM | Flats: running Before Flats instructions");
+                    FlatsSetupRunner.AttachNewParent(this);
+                    ResetRunnerProgress(FlatsSetupRunner);
+                    await FlatsSetupRunner.Run(progress, token);
+                } catch (OperationCanceledException) {
+                    throw;
+                } catch (Exception ex) {
+                    global::NINA.Core.Utility.Logger.Error(
+                        $"AstroPM | Flats: Before Flats instructions failed: {ex.Message} — continuing with flats");
+                }
+            }
+
+            FlatsRunner.AttachNewParent(this);
+
+            // Group by rotation so the rotator moves once per angle, preserving capture order
+            // within each group (= the filter order used at night).
+            var rotationGroups = hasPerCombo
+                ? specs.GroupBy(s => Math.Round(s.RotationDeg, 1)).OrderBy(g => g.Key).ToList()
+                : new List<IGrouping<double, FlatSpec>>();
+
+            foreach (var group in rotationGroups) {
+                token.ThrowIfCancellationRequested();
+
+                var mech = group.Select(s => s.MechanicalRotation).FirstOrDefault(m => m.HasValue);
+                if (useRotator && mech.HasValue) {
+                    progress?.Report(new ApplicationStatus { Status = $"Astro PM: Rotating to {mech.Value:F1}° (mech) for flats..." });
+                    LiveCommand = "Taking Flats";
+                    LiveTarget = "Flat Handling";
+                    LiveRotation = $"{group.Key:F1}°";
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | Flats: rotator → mechanical {mech.Value:F1}° (PA {group.Key:F1}°)");
+                    await _rotatorMediator.MoveMechanical(mech.Value, token);
+                }
+
+                // Within a rotation, run each target's combos under that target's name so NINA's
+                // $$TARGETNAME$$ file-pattern token files the flats with the target's lights.
+                foreach (var targetGroup in group.GroupBy(s => s.TargetName ?? "", StringComparer.OrdinalIgnoreCase)) {
+                    if (!string.IsNullOrEmpty(targetGroup.Key)) SetFlatsTarget(targetGroup.Key);
+
+                foreach (var spec in targetGroup) {
+                    token.ThrowIfCancellationRequested();
+
+                    LiveCommand = "Taking Flats";
+                    LiveTarget = string.IsNullOrEmpty(spec.TargetName) ? "Flat Handling" : spec.TargetName;
+                    LiveFilter = spec.FilterName;
+                    LiveRotation = $"{group.Key:F1}°";
+                    LiveGainOffset = $"Gain {spec.Gain} · Offset {spec.Offset} · Bin {spec.BinX}×{spec.BinY}";
+                    HasLiveStatus = true;
+                    progress?.Report(new ApplicationStatus {
+                        Status = $"Astro PM: Flats — {spec.FilterName} G{spec.Gain} {spec.BinX}×{spec.BinY} @ {group.Key:F1}°..."
+                    });
+
+                    var filter = ResolveNinaFilter(spec.FilterName);
+                    if (filter != null) {
+                        await _filterWheelMediator.ChangeFilter(filter, token);
+                    } else {
+                        global::NINA.Core.Utility.Logger.Warning(
+                            $"AstroPM | Flats: filter '{spec.FilterName}' not found in NINA filter wheel — running instructions anyway");
+                    }
+
+                    // Push this combo's filter + camera spec into any Trained Flat Exposure in the
+                    // box, so the trained-table lookup (keyed by filter+gain+binning) always matches
+                    // the lights — no reliance on the user configuring each instruction correctly.
+                    ApplyComboToTrainedFlats(FlatsRunner, spec, filter);
+
+                    try {
+                        global::NINA.Core.Utility.Logger.Info(
+                            $"AstroPM | Flats: running instructions for {spec.TargetName} {spec.FilterName} G{spec.Gain} O{spec.Offset} {spec.BinX}×{spec.BinY} @ {group.Key:F1}°");
+                        // Reset child status to CREATED before each pass — we call Run() directly,
+                        // which bypasses the framework's per-run reset (same as the trigger sets).
+                        // Must be the deep variant: Trained Flat Exposure's nested loop counter
+                        // survives a plain ResetProgress and it skips itself at 20/20.
+                        ResetRunnerProgress(FlatsRunner);
+                        await FlatsRunner.Run(progress, token);
+                    } catch (OperationCanceledException) {
+                        throw;
+                    } catch (Exception ex) {
+                        global::NINA.Core.Utility.Logger.Error(
+                            $"AstroPM | Flats: instructions failed for {spec.TargetName} {spec.FilterName} @ {group.Key:F1}°: {ex.Message} — continuing with next combo");
+                    }
+                }
+                }
+            }
+
+            // ── After Flats: one-time teardown (light off, open panel…) ──
+            if (hasTeardown) {
+                LiveCommand = "Flats Teardown";
+                LiveTarget = "Flat Handling";
+                LiveFilter = "";
+                progress?.Report(new ApplicationStatus { Status = "Astro PM: Flats — running teardown instructions..." });
+                try {
+                    global::NINA.Core.Utility.Logger.Info("AstroPM | Flats: running After Flats instructions");
+                    FlatsTeardownRunner.AttachNewParent(this);
+                    ResetRunnerProgress(FlatsTeardownRunner);
+                    await FlatsTeardownRunner.Run(progress, token);
+                } catch (OperationCanceledException) {
+                    throw;
+                } catch (Exception ex) {
+                    global::NINA.Core.Utility.Logger.Error(
+                        $"AstroPM | Flats: After Flats instructions failed: {ex.Message}");
+                }
+            }
+
+            _flatsDone = true;
+            new FlatSpecStore { NightDate = _nightDate, Specs = specs, FlatsCompletedUtc = DateTime.UtcNow }.Save();
+            LiveCommand = "Session Complete";
+            LiveTarget = "";
+            LiveFilter = "";
+            LiveRotation = "";
+            global::NINA.Core.Utility.Logger.Info($"AstroPM | Flats: complete — {specs.Count} combos processed");
+            Notification.ShowSuccess($"Astro PM: Flat handling complete — {specs.Count} filter/rotation combos");
+        }
+
+        /// <summary>ResetProgress alone only resets item STATUSES — loop-bearing instructions
+        /// (e.g. Trained Flat Exposure's internal iteration loop) also keep a CompletedIterations
+        /// counter on a nested container's CONDITION, which survives ResetProgress and makes the
+        /// instruction skip itself on the next pass ("progress is already complete (20/20)" —
+        /// field impact: night 2's flats in the same NINA session silently skip). Reset
+        /// conditions recursively too.</summary>
+        private static void ResetRunnerProgress(SequenceContainer runner) {
+            if (runner == null) return;
+            runner.ResetProgress();
+            ResetConditionsRecursive(runner);
+        }
+
+        private static void ResetConditionsRecursive(ISequenceContainer container) {
+            if (container is SequenceContainer sc && sc.Conditions != null) {
+                foreach (var cond in sc.Conditions.ToList()) cond.ResetProgress();
+            }
+            foreach (var item in container.GetItemsSnapshot()) {
+                if (item is ISequenceContainer child) ResetConditionsRecursive(child);
+            }
+        }
+
+        /// <summary>Point the container's Target at the combo's originating target while its flats
+        /// run. NINA's image saver walks the parent chain to this IDeepSkyObjectContainer, so the
+        /// $$TARGETNAME$$ file-pattern token resolves to the same name the lights were saved under —
+        /// flats land in the target's folder tree (under FLAT via $$IMAGETYPE$$). Coordinates are
+        /// left empty: flats are taken parked/covered, so pointing metadata is meaningless.</summary>
+        private void SetFlatsTarget(string targetName) {
+            var astro = _profileService.ActiveProfile.AstrometrySettings;
+            var target = new InputTarget(
+                Angle.ByDegree(astro.Latitude),
+                Angle.ByDegree(astro.Longitude),
+                astro.Horizon);
+            target.TargetName = targetName;
+            if (target.DeepSkyObject != null) target.DeepSkyObject.Name = targetName;
+            Target = target;
+            global::NINA.Core.Utility.Logger.Info($"AstroPM | Flats: saving under target '{targetName}'");
+        }
+
+        /// <summary>Recursively writes the combo's filter + camera spec into every Trained Flat
+        /// Exposure in the box, so its trained-table lookup (filter+gain+binning) matches the
+        /// lights exactly regardless of how the instruction was configured.</summary>
+        private void ApplyComboToTrainedFlats(ISequenceContainer container, FlatSpec spec, FilterInfo filter) {
+            foreach (var item in container.GetItemsSnapshot()) {
+                if (item is global::NINA.Sequencer.SequenceItem.FlatDevice.TrainedFlatExposure tfe) {
+                    try {
+                        var switchFilter = tfe.GetSwitchFilterItem();
+                        if (switchFilter != null && filter != null) switchFilter.Filter = filter;
+                        var exposure = tfe.GetExposureItem();
+                        if (exposure != null) {
+                            exposure.Gain = spec.Gain;
+                            exposure.Offset = spec.Offset;
+                            exposure.Binning = new BinningMode((short)spec.BinX, (short)spec.BinY);
+                        }
+                        // NINA's TrainedFlatExposure.Execute dereferences the trained-table row
+                        // without a null check, so a combo the user never trained dies as a bare
+                        // NullReferenceException. Pre-check the same lookup and say what's missing.
+                        var trained = _profileService.ActiveProfile.FlatDeviceSettings.GetTrainedFlatExposureSetting(
+                            filter?.Position, new BinningMode((short)spec.BinX, (short)spec.BinY), spec.Gain, spec.Offset);
+                        if (trained == null) {
+                            var comboDesc = $"{filter?.Name ?? spec.FilterName} {spec.BinX}×{spec.BinY} G{spec.Gain} O{spec.Offset}";
+                            global::NINA.Core.Utility.Logger.Warning(
+                                $"AstroPM | Flats: no trained flat entry for {comboDesc} — add it in NINA Equipment > Flat Panel (the Trained Flat Exposure for this combo will fail)");
+                            Notification.ShowWarning($"Astro PM: No trained flat for {comboDesc} — train it in Equipment > Flat Panel");
+                        }
+                        global::NINA.Core.Utility.Logger.Info(
+                            $"AstroPM | Flats: Trained Flat Exposure set to {filter?.Name ?? spec.FilterName} G{spec.Gain} O{spec.Offset} {spec.BinX}×{spec.BinY}");
+                    } catch (Exception ex) {
+                        global::NINA.Core.Utility.Logger.Warning(
+                            $"AstroPM | Flats: could not apply combo to Trained Flat Exposure: {ex.Message}");
+                    }
+                } else if (item is ISequenceContainer sub) {
+                    ApplyComboToTrainedFlats(sub, spec, filter);
+                }
+            }
+        }
+
+        /// <summary>Same three-tier filter matching as the exposure item: exact, then either
+        /// name is a prefix of the other (handles "Ha" vs "Ha 3nm" style mismatches).</summary>
+        private FilterInfo ResolveNinaFilter(string filterName) {
+            var ninaFilters = _profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters;
+            return ninaFilters?.FirstOrDefault(f => string.Equals(f.Name, filterName, StringComparison.OrdinalIgnoreCase))
+                ?? ninaFilters?.FirstOrDefault(f => f.Name != null && f.Name.StartsWith(filterName, StringComparison.OrdinalIgnoreCase))
+                ?? ninaFilters?.FirstOrDefault(f => f.Name != null && filterName.StartsWith(f.Name, StringComparison.OrdinalIgnoreCase));
         }
 
         private static (string Filter, double ExposureSec, int Gain, int Offset, int BinX, int BinY, int ReadoutMode) ParseExposureEntry(SimLogEntry entry) {

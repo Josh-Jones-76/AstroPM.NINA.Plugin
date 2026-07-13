@@ -58,6 +58,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private ObservableCollection<SortChipItem> _sortChainItems = new ObservableCollection<SortChipItem>();
         private ImagingStrategy _strategy = ImagingStrategy.SharedTime;
         private double _filterSwitchTolerance = 0.5;
+        private bool _flatsEnabled;
         private string _strategyDescription = "";
         private PlaybackMode _playback = PlaybackMode.TimeAware;
 
@@ -156,6 +157,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _filterSwitchEnabled = settings.FilterSwitchEnabled;
             _filterSwitchCount = settings.FilterSwitchCount;
             _filterSwitchTolerance = settings.FilterSwitchTolerance;
+            _flatsEnabled = settings.FlatsEnabled;
             _bonusImagesEnabled = settings.BonusEnabled;
             _mosaicPanelPreference = settings.MosaicPanelPreference;
             _sortChain = ParseSortChain(settings.SortChain);
@@ -419,6 +421,13 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         public double FilterSwitchTolerance {
             get => _filterSwitchTolerance;
             set { _filterSwitchTolerance = value; OnPropertyChanged(); SaveSimSettings(); }
+        }
+
+        /// <summary>Execution-only pass-through: enables the Flat Handling section of the
+        /// Astro PM Instructions container. Mirrors the desktop simulator's checkbox.</summary>
+        public bool FlatsEnabled {
+            get => _flatsEnabled;
+            set { _flatsEnabled = value; OnPropertyChanged(); SaveSimSettings(); }
         }
 
         public List<KeyValuePair<ImagingStrategy, string>> StrategyOptions { get; } =
@@ -841,6 +850,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _filterSwitchEnabled = settings.FilterSwitchEnabled; OnPropertyChanged(nameof(FilterSwitchEnabled));
             _filterSwitchCount = settings.FilterSwitchCount; OnPropertyChanged(nameof(FilterSwitchCount));
             _filterSwitchTolerance = settings.FilterSwitchTolerance; OnPropertyChanged(nameof(FilterSwitchTolerance));
+            _flatsEnabled = settings.FlatsEnabled; OnPropertyChanged(nameof(FlatsEnabled));
             _bonusImagesEnabled = settings.BonusEnabled; OnPropertyChanged(nameof(BonusImagesEnabled));
             _mosaicPanelPreference = settings.MosaicPanelPreference; OnPropertyChanged(nameof(MosaicPanelPreference));
             _sortChain = ParseSortChain(settings.SortChain); RefreshSortChainItems();
@@ -861,6 +871,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.FilterSwitchEnabled = _filterSwitchEnabled;
             settings.FilterSwitchCount = _filterSwitchCount;
             settings.FilterSwitchTolerance = _filterSwitchTolerance;
+            settings.FlatsEnabled = _flatsEnabled;
             settings.BonusEnabled = _bonusImagesEnabled;
             settings.MosaicPanelPreference = _mosaicPanelPreference;
             settings.SortChain = string.Join(",", _sortChain);

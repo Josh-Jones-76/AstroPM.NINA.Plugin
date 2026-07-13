@@ -27,6 +27,7 @@ namespace AstroPM.NINA.Plugin
         private string _strategy = "SharedTime";
         private double _filterSwitchTolerance = 0.5;
         private string _playbackMode = "TimeAware";
+        private bool _flatsEnabled;
         private bool _offlineMode;
         private string _selectedImagingSystem = string.Empty;
 
@@ -164,6 +165,15 @@ namespace AstroPM.NINA.Plugin
         {
             get => _playbackMode;
             set { if (_playbackMode != value) { _playbackMode = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Enables the Flat Handling section of the Astro PM Instructions container
+        /// (end-of-session flats per filter+rotation used that night). Pushed from the desktop
+        /// app's simulator settings via the imaging-system cloud sync.</summary>
+        public bool FlatsEnabled
+        {
+            get => _flatsEnabled;
+            set { if (_flatsEnabled != value) { _flatsEnabled = value; OnPropertyChanged(); } }
         }
 
         // ── Persistence ──

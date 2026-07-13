@@ -27,43 +27,15 @@ namespace AstroPM.NINA.Plugin.Instructions {
             var cache = TargetCacheService.Load();
             if (cache == null) return true; // no cache yet — keep looping so RefreshCloudTargets can run
 
-            var hasRemaining = cache.Targets.Any(t =>
+            // Day-to-day looping only. This condition no longer resets the instruction set:
+            // the watchdog calls Check() continuously, and a reset here raced the gap between
+            // blocks (HasBlocksRemaining flickers false when work completes before session end),
+            // rebuilding mid-night — after midnight that builds the WRONG night. New-night
+            // resets are owned by TargetInstructionSet.Execute() via IsStaleSession, which also
+            // respects the pending-flats guard this path bypassed.
+            return cache.Targets.Any(t =>
                 t.Panels != null && t.Panels.Any(p =>
                     p.ExposureSets != null && p.ExposureSets.Any(es => es.Remaining > 0)));
-
-            if (hasRemaining) {
-                var tis = FindTargetInstructionSet();
-                // Only reset when tonight's session is truly over. The watchdog calls
-                // Check() continuously — resetting mid-session nukes _scheduleBuilt,
-                // which causes BuildSchedule to re-run after midnight using DateTime.Today
-                // (now tomorrow), losing any remaining blocks for tonight.
-                if (tis != null && !tis.HasBlocksRemaining) {
-                    tis.ResetForNewNight();
-                }
-            }
-
-            return hasRemaining;
-        }
-
-        private TargetInstructionSet FindTargetInstructionSet() {
-            var container = Parent;
-            while (container != null) {
-                var found = SearchContainer(container);
-                if (found != null) return found;
-                container = container.Parent;
-            }
-            return null;
-        }
-
-        private TargetInstructionSet SearchContainer(ISequenceContainer container) {
-            foreach (var item in container.GetItemsSnapshot()) {
-                if (item is TargetInstructionSet tis) return tis;
-                if (item is ISequenceContainer child) {
-                    var found = SearchContainer(child);
-                    if (found != null) return found;
-                }
-            }
-            return null;
         }
 
         public override object Clone() {

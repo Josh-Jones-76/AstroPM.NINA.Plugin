@@ -322,6 +322,76 @@
                         </ListView.View>
                         </ListView>
                     </Expander>
+
+                    <!-- Flat Handling (collapsible) -->
+                    <Expander IsExpanded="False" Margin="0,8,0,0" Background="Transparent" BorderThickness="0">
+                        <Expander.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Flat Handling" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
+                                <CheckBox Content="Enabled" IsChecked="{Binding FlatsEnabled}"
+                                          Margin="16,0,0,0" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
+                                          VerticalAlignment="Center"
+                                          ToolTip="When off, the flat instructions are skipped at session complete. Synced with 'Enable Flats Sequence' in the Astro PM desktop app and the plugin Simulator panel."/>
+                                <TextBlock Text="{Binding FlatsSummary}" FontSize="10"
+                                           Foreground="{DynamicResource PrimaryBrush}" Opacity="0.75"
+                                           VerticalAlignment="Center" Margin="16,0,0,0"/>
+                            </StackPanel>
+                        </Expander.Header>
+                        <StackPanel Margin="0,4,0,0">
+                    <TextBlock Text="Runs when the session completes. Setup and teardown run once; the middle box repeats once per target + filter + rotation combination captured tonight — the filter wheel, rotator, gain, offset, and binning are set automatically for each pass to match the lights, and flats are saved under each target's name."
+                               FontSize="10" FontStyle="Italic" TextWrapping="Wrap"
+                               Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,2"/>
+
+                    <!-- Before Flats — runs once -->
+                    <TextBlock Text="Before Flats  (runs once — e.g. park mount, close flat panel, light on)"
+                               FontSize="10" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7" Margin="0,2,0,2"/>
+                    <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding FlatsSetupRunner}">
+                            <ItemsControl MinHeight="35" ItemsSource="{Binding Items}" />
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontStyle="Italic"
+                                       Opacity="0.4" Text="Drag one-time setup instructions here..."
+                                       Visibility="{Binding Items.Count, Converter={StaticResource InverseZeroToVisibilityConverter}}" />
+                            <i:Interaction.Behaviors>
+                                <behaviors:DragOverBehavior DragAboveSize="0" DragBelowSize="0" />
+                                <behaviors:DropIntoBehavior AllowedDragDropTypesString="NINA.Sequencer.Container.ISequenceContainer;NINA.Sequencer.SequenceItem.ISequenceItem;NINA.Sequencer.TemplatedSequenceContainer" OnDropCommand="DropIntoCommand" />
+                            </i:Interaction.Behaviors>
+                        </Grid>
+                    </Border>
+
+                    <!-- Per filter + rotation -->
+                    <TextBlock Text="For Each Target + Filter + Rotation  (repeats per combination — e.g. Trained Flat Exposure or Auto Exposure Flat with amount set to 20)"
+                               FontSize="10" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7" Margin="0,6,0,2"/>
+                    <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding FlatsRunner}">
+                            <ItemsControl MinHeight="35" ItemsSource="{Binding Items}" />
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontStyle="Italic"
+                                       Opacity="0.4" Text="Drag flat instructions here..."
+                                       Visibility="{Binding Items.Count, Converter={StaticResource InverseZeroToVisibilityConverter}}" />
+                            <i:Interaction.Behaviors>
+                                <behaviors:DragOverBehavior DragAboveSize="0" DragBelowSize="0" />
+                                <behaviors:DropIntoBehavior AllowedDragDropTypesString="NINA.Sequencer.Container.ISequenceContainer;NINA.Sequencer.SequenceItem.ISequenceItem;NINA.Sequencer.TemplatedSequenceContainer" OnDropCommand="DropIntoCommand" />
+                            </i:Interaction.Behaviors>
+                        </Grid>
+                    </Border>
+
+                    <!-- After Flats — runs once -->
+                    <TextBlock Text="After Flats  (runs once — e.g. light off, open flat panel)"
+                               FontSize="10" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7" Margin="0,6,0,2"/>
+                    <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding FlatsTeardownRunner}">
+                            <ItemsControl MinHeight="35" ItemsSource="{Binding Items}" />
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontStyle="Italic"
+                                       Opacity="0.4" Text="Drag one-time teardown instructions here..."
+                                       Visibility="{Binding Items.Count, Converter={StaticResource InverseZeroToVisibilityConverter}}" />
+                            <i:Interaction.Behaviors>
+                                <behaviors:DragOverBehavior DragAboveSize="0" DragBelowSize="0" />
+                                <behaviors:DropIntoBehavior AllowedDragDropTypesString="NINA.Sequencer.Container.ISequenceContainer;NINA.Sequencer.SequenceItem.ISequenceItem;NINA.Sequencer.TemplatedSequenceContainer" OnDropCommand="DropIntoCommand" />
+                            </i:Interaction.Behaviors>
+                        </Grid>
+                    </Border>
+                        </StackPanel>
+                    </Expander>
                 </StackPanel>
             </nina:SequenceBlockView.SequenceItemContent>
         </nina:SequenceBlockView>

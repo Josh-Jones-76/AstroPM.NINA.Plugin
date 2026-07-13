@@ -130,6 +130,15 @@
                               SelectedValue="{Binding FilterSwitchTolerance, Mode=TwoWay}"
                               ToolTip="A filter switch may only start a filter that can fit at least this percentage of the switch count in its remaining runway (target time or moon-safety window)"/>
 
+                    <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
+
+                    <!-- Flats sequence (execution-only pass-through) -->
+                    <TextBlock Text="Enable Flats Sequence" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <CheckBox IsChecked="{Binding FlatsEnabled, Mode=TwoWay}"
+                              VerticalAlignment="Center"
+                              ToolTip="At session complete, run the Flat Handling instructions in the Astro PM Instructions block — flats for exactly the filters, rotations, and camera settings used that night. Mirrors the desktop app's simulator setting."/>
+
                 </WrapPanel>
 
                 <!-- Sort Chain — drag-to-reorder priority -->
