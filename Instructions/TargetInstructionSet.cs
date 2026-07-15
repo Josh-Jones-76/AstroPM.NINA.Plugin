@@ -246,30 +246,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
             FlatsSetupRunner.AttachNewParent(this);
             FlatsTeardownRunner = new SequentialContainer();
             FlatsTeardownRunner.AttachNewParent(this);
-
-            // Seed a ready-to-go Trained Flat Exposure (20 subs) in the per-combo box so a
-            // fresh drop from the palette works out of the box. Saved sequences replace
-            // FlatsRunner wholesale on deserialize, so this never duplicates into old saves.
-            // Filter/gain/binning are overwritten per combo at runtime by ApplyComboToTrainedFlats.
-            try {
-                var seeded = new global::NINA.Sequencer.SequenceItem.FlatDevice.TrainedFlatExposure(
-                    profileService, cameraMediator, imagingMediator, imageSaveMediator,
-                    imageHistoryVM, filterWheelMediator, flatDeviceMediator);
-                // Direct construction bypasses NINA's factory, which normally stamps the
-                // export metadata onto the instance — without these the item renders with
-                // no label and the fallback "!" icon in the sequencer.
-                seeded.Name = global::NINA.Core.Locale.Loc.Instance["Lbl_SequenceItem_FlatDevice_TrainedFlatExposure_Name"];
-                seeded.Description = global::NINA.Core.Locale.Loc.Instance["Lbl_SequenceItem_FlatDevice_TrainedFlatExposure_Description"];
-                seeded.Category = global::NINA.Core.Locale.Loc.Instance["Lbl_SequenceCategory_FlatDevice"];
-                if (System.Windows.Application.Current?.Resources["FlatWizardSVG"] is System.Windows.Media.GeometryGroup flatIcon)
-                    seeded.Icon = flatIcon;
-                var iterations = seeded.GetIterations();
-                if (iterations != null) iterations.Iterations = 20;
-                FlatsRunner.Add(seeded);
-            } catch (Exception ex) {
-                global::NINA.Core.Utility.Logger.Warning(
-                    $"AstroPM | Could not seed default Trained Flat Exposure: {ex.Message}");
-            }
         }
 
         // ── Flat Handling: user-droppable instruction box ──
@@ -1094,11 +1070,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             // Escalating backoff between center attempts. The first few retries fire quickly to
             // shrug off transient blips (dome not yet synced, guider not settled, a momentary
-            // slew glitch); the later ones widen out for a passing cloud band that starves the
-            // plate solve of stars ("not enough stars"), which needs minutes to clear. Capped at
-            // 5 min. The array length + 1 is the total attempt count.
-            int[] slewRetryDelaysSec = { 15, 15, 30, 120, 300 };
-            int maxSlewRetries = slewRetryDelaysSec.Length + 1; // 6 attempts
+            // slew glitch); the later ones widen out for conditions that need tens of minutes to
+            // clear — a cloud band starving the plate solve of stars ("not enough stars"), or a
+            // mount left parked by a safety recovery that the user unparks after seeing the
+            // failure notification. Capped at 10 min per wait, ~34 min total; the block-end guard
+            // below abandons the ladder early once the window can't fit another retry, so long
+            // tails never overrun short blocks. The array length + 1 is the total attempt count.
+            int[] slewRetryDelaysSec = { 15, 15, 30, 60, 120, 300, 300, 600, 600 };
+            int maxSlewRetries = slewRetryDelaysSec.Length + 1; // 10 attempts
             bool slewSucceeded = false;
 
             for (int attempt = 1; attempt <= maxSlewRetries; attempt++) {
@@ -1686,9 +1665,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
                             $"AstroPM | Flats: filter '{spec.FilterName}' not found in NINA filter wheel — running instructions anyway");
                     }
 
-                    // Push this combo's filter + camera spec into any Trained Flat Exposure in the
-                    // box, so the trained-table lookup (keyed by filter+gain+binning) always matches
-                    // the lights — no reliance on the user configuring each instruction correctly.
+                    // Push this combo's filter + camera spec into every NINA flat instruction in
+                    // the box (trained, auto-exposure, auto-brightness, sky), so each pass always
+                    // matches the lights — no reliance on the user configuring each instruction.
                     ApplyComboToTrainedFlats(FlatsRunner, spec, filter);
 
                     try {
@@ -1777,22 +1756,47 @@ namespace AstroPM.NINA.Plugin.Instructions {
             global::NINA.Core.Utility.Logger.Info($"AstroPM | Flats: saving under target '{targetName}'");
         }
 
-        /// <summary>Recursively writes the combo's filter + camera spec into every Trained Flat
-        /// Exposure in the box, so its trained-table lookup (filter+gain+binning) matches the
-        /// lights exactly regardless of how the instruction was configured.</summary>
+        /// <summary>Recursively writes the combo's filter + camera spec into every NINA flat
+        /// instruction in the box — Trained Flat/Dark Flat Exposure, Auto Exposure Flat, Auto
+        /// Brightness Flat, and Sky Flat all expose the same embedded Switch Filter + Take
+        /// Exposure items — so each shoots the combo that matches the lights exactly regardless
+        /// of how the instruction was configured. Trained types additionally get their table
+        /// lookup pre-checked so a missing row warns instead of dying in NINA's Execute.</summary>
         private void ApplyComboToTrainedFlats(ISequenceContainer container, FlatSpec spec, FilterInfo filter) {
             foreach (var item in container.GetItemsSnapshot()) {
-                if (item is global::NINA.Sequencer.SequenceItem.FlatDevice.TrainedFlatExposure tfe) {
-                    try {
-                        var switchFilter = tfe.GetSwitchFilterItem();
-                        if (switchFilter != null && filter != null) switchFilter.Filter = filter;
-                        var exposure = tfe.GetExposureItem();
-                        if (exposure != null) {
-                            exposure.Gain = spec.Gain;
-                            exposure.Offset = spec.Offset;
-                            exposure.Binning = new BinningMode((short)spec.BinX, (short)spec.BinY);
-                        }
-                        // NINA's TrainedFlatExposure.Execute dereferences the trained-table row
+                global::NINA.Sequencer.SequenceItem.FilterWheel.SwitchFilter switchFilter;
+                global::NINA.Sequencer.SequenceItem.Imaging.TakeExposure exposure;
+                bool usesTrainedTable;
+                string kind;
+                switch (item) {
+                    case global::NINA.Sequencer.SequenceItem.FlatDevice.TrainedFlatExposure tfe:
+                        switchFilter = tfe.GetSwitchFilterItem(); exposure = tfe.GetExposureItem();
+                        usesTrainedTable = true; kind = "Trained Flat Exposure"; break;
+                    case global::NINA.Sequencer.SequenceItem.FlatDevice.TrainedDarkFlatExposure tdfe:
+                        switchFilter = tdfe.GetSwitchFilterItem(); exposure = tdfe.GetExposureItem();
+                        usesTrainedTable = true; kind = "Trained Dark Flat Exposure"; break;
+                    case global::NINA.Sequencer.SequenceItem.FlatDevice.AutoExposureFlat aef:
+                        switchFilter = aef.GetSwitchFilterItem(); exposure = aef.GetExposureItem();
+                        usesTrainedTable = false; kind = "Auto Exposure Flat"; break;
+                    case global::NINA.Sequencer.SequenceItem.FlatDevice.AutoBrightnessFlat abf:
+                        switchFilter = abf.GetSwitchFilterItem(); exposure = abf.GetExposureItem();
+                        usesTrainedTable = false; kind = "Auto Brightness Flat"; break;
+                    case global::NINA.Sequencer.SequenceItem.FlatDevice.SkyFlat sf:
+                        switchFilter = sf.GetSwitchFilterItem(); exposure = sf.GetExposureItem();
+                        usesTrainedTable = false; kind = "Sky Flat"; break;
+                    default:
+                        if (item is ISequenceContainer sub) ApplyComboToTrainedFlats(sub, spec, filter);
+                        continue;
+                }
+                try {
+                    if (switchFilter != null && filter != null) switchFilter.Filter = filter;
+                    if (exposure != null) {
+                        exposure.Gain = spec.Gain;
+                        exposure.Offset = spec.Offset;
+                        exposure.Binning = new BinningMode((short)spec.BinX, (short)spec.BinY);
+                    }
+                    if (usesTrainedTable) {
+                        // NINA's trained flat/dark-flat Execute dereferences the trained-table row
                         // without a null check, so a combo the user never trained dies as a bare
                         // NullReferenceException. Pre-check the same lookup and say what's missing.
                         var trained = _profileService.ActiveProfile.FlatDeviceSettings.GetTrainedFlatExposureSetting(
@@ -1800,17 +1804,15 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         if (trained == null) {
                             var comboDesc = $"{filter?.Name ?? spec.FilterName} {spec.BinX}×{spec.BinY} G{spec.Gain} O{spec.Offset}";
                             global::NINA.Core.Utility.Logger.Warning(
-                                $"AstroPM | Flats: no trained flat entry for {comboDesc} — add it in NINA Equipment > Flat Panel (the Trained Flat Exposure for this combo will fail)");
+                                $"AstroPM | Flats: no trained flat entry for {comboDesc} — add it in NINA Equipment > Flat Panel (the {kind} for this combo will fail)");
                             Notification.ShowWarning($"Astro PM: No trained flat for {comboDesc} — train it in Equipment > Flat Panel");
                         }
-                        global::NINA.Core.Utility.Logger.Info(
-                            $"AstroPM | Flats: Trained Flat Exposure set to {filter?.Name ?? spec.FilterName} G{spec.Gain} O{spec.Offset} {spec.BinX}×{spec.BinY}");
-                    } catch (Exception ex) {
-                        global::NINA.Core.Utility.Logger.Warning(
-                            $"AstroPM | Flats: could not apply combo to Trained Flat Exposure: {ex.Message}");
                     }
-                } else if (item is ISequenceContainer sub) {
-                    ApplyComboToTrainedFlats(sub, spec, filter);
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | Flats: {kind} set to {filter?.Name ?? spec.FilterName} G{spec.Gain} O{spec.Offset} {spec.BinX}×{spec.BinY}");
+                } catch (Exception ex) {
+                    global::NINA.Core.Utility.Logger.Warning(
+                        $"AstroPM | Flats: could not apply combo to {kind}: {ex.Message}");
                 }
             }
         }

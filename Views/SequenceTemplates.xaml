@@ -360,13 +360,14 @@
                     </Border>
 
                     <!-- Per filter + rotation -->
-                    <TextBlock Text="For Each Target + Filter + Rotation  (repeats per combination — e.g. Trained Flat Exposure or Auto Exposure Flat with amount set to 20)"
+                    <TextBlock Text="Loop For Each Target + Filter + Rotation  (repeats per combination captured tonight)"
                                FontSize="10" Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7" Margin="0,6,0,2"/>
                     <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                         <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding FlatsRunner}">
                             <ItemsControl MinHeight="35" ItemsSource="{Binding Items}" />
                             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontStyle="Italic"
-                                       Opacity="0.4" Text="Drag flat instructions here..."
+                                       Opacity="0.4" TextWrapping="Wrap" TextAlignment="Center" Margin="12,6"
+                                       Text="Drag a flat instruction here — Trained Flat Exposure, Auto Exposure Flat, Auto Brightness Flat, or Sky Flat. Set the Amount (number of flats) and leave Filter on (Current); the filter, gain, offset, and binning are applied automatically for each pass to match the lights."
                                        Visibility="{Binding Items.Count, Converter={StaticResource InverseZeroToVisibilityConverter}}" />
                             <i:Interaction.Behaviors>
                                 <behaviors:DragOverBehavior DragAboveSize="0" DragBelowSize="0" />
