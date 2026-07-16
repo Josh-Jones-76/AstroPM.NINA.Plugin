@@ -106,7 +106,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
     }
 
     [ExportMetadata("Name", "Before Target Change Instructions")]
-    [ExportMetadata("Description", "Runs contained instructions before AstroPM slews to a new target")]
+    [ExportMetadata("Description", "Runs contained instructions once AstroPM has slewed, centered and rotated on a new target, before guiding and imaging start")]
     [ExportMetadata("Icon", "SlewToRaDecSVG")]
     [ExportMetadata("Category", "Astro PM Tools")]
     [Export(typeof(ISequenceTrigger))]
@@ -145,10 +145,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
         internal async Task Fire(TargetBlock block, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (TriggerRunner.GetItemsSnapshot().Count == 0) return;
 
-            // Fire on every block — i.e. every time AstroPM slews to a target. No dedup by
-            // target name: a re-slew to the same object is still a new block and should run
-            // the contained instructions again.
-            Logger.Info($"AstroPM | Before Target trigger firing: {block.TargetName}");
+            // Fire on every block — i.e. every time AstroPM arrives on a target (after
+            // slew/center/rotate, before guiding). No dedup by target name: a re-slew to
+            // the same object is still a new block and should run the instructions again.
+            Logger.Info($"AstroPM | Before Target trigger firing (on target): {block.TargetName}");
             if (Parent != null) TriggerRunner.AttachNewParent(Parent);
             // Reset child status to CREATED before running. We call TriggerRunner.Run()
             // directly (not via NINA's SequenceTrigger.Run), which bypasses the framework's

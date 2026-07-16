@@ -545,7 +545,7 @@
         <nina:SequenceBlockView>
             <nina:SequenceBlockView.SequenceItemContent>
                 <StackPanel Orientation="Vertical" Margin="0,2">
-                    <TextBlock Text="Runs before AstroPM slews to each new target" FontSize="10" FontStyle="Italic"
+                    <TextBlock Text="Runs after slew/center/rotate on each new target, before guiding and imaging" FontSize="10" FontStyle="Italic"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
                     <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                         <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding TriggerRunner}">

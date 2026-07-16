@@ -1053,15 +1053,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
             global::NINA.Core.Utility.Logger.Info(
                 $"AstroPM | Starting block: {block.TargetName} until {block.UtcEnd:HH:mm} ({actionEntries.Count} scheduled actions)");
 
-            // ── Fire "Before Target" triggers ──
-            var parentForTargetTriggers = Parent as SequenceContainer;
-            if (parentForTargetTriggers != null) {
-                foreach (var trigger in parentForTargetTriggers.GetTriggersSnapshot()) {
-                    if (trigger is AstroPMBeforeTargetTrigger beforeTarget)
-                        await beforeTarget.Fire(block, progress, token);
-                }
-            }
-
             // ── Phase 1: Slew + center + guide (with retry/skip on failure) ──
             if (_blockSummaries != null && _currentBlockIndex < _blockSummaries.Count)
                 _blockSummaries[_currentBlockIndex].Status = "slewing...";
@@ -1121,6 +1112,21 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 FinishBlock(block, skipped: true);
                 _currentBlockIndex++;
                 return;
+            }
+
+            token.ThrowIfCancellationRequested();
+            if (_skipBlock) { FinishBlock(block, skipped: true); return; }
+
+            // ── Fire "Before Target" triggers ──
+            // Fires with the scope already slewed/centered/rotated on the new target, before
+            // guiding and imaging start — so dropped instructions (autofocus, settle waits,
+            // covers, etc.) run on-target rather than while still pointed at the old one.
+            var parentForTargetTriggers = Parent as SequenceContainer;
+            if (parentForTargetTriggers != null) {
+                foreach (var trigger in parentForTargetTriggers.GetTriggersSnapshot()) {
+                    if (trigger is AstroPMBeforeTargetTrigger beforeTarget)
+                        await beforeTarget.Fire(block, progress, token);
+                }
             }
 
             token.ThrowIfCancellationRequested();
