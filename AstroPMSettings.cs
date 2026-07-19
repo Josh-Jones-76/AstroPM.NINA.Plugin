@@ -30,6 +30,7 @@ namespace AstroPM.NINA.Plugin
         private bool _flatsEnabled;
         private bool _offlineMode;
         private string _selectedImagingSystem = string.Empty;
+        private string _lastReportedModesHash = string.Empty;
 
         public string SyncToken
         {
@@ -174,6 +175,15 @@ namespace AstroPM.NINA.Plugin
         {
             get => _flatsEnabled;
             set { if (_flatsEnabled != value) { _flatsEnabled = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Hash of the camera readout-mode list last successfully reported to the cloud
+        /// (advisory camera-modes sync). Prevents re-pushing an unchanged list night after night;
+        /// cleared implicitly when the enumeration changes (hash differs).</summary>
+        public string LastReportedModesHash
+        {
+            get => _lastReportedModesHash;
+            set { if (_lastReportedModesHash != value) { _lastReportedModesHash = value; OnPropertyChanged(); } }
         }
 
         // ── Persistence ──

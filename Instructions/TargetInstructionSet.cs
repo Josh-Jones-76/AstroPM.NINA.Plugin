@@ -805,6 +805,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 var astroLoc = _profileService.ActiveProfile.AstrometrySettings;
                 await ImagingSystemSettingsService.ApplySelectedFromCloudAsync(
                     settings, apiService, astroLoc.Latitude, astroLoc.Longitude, token);
+                // Advisory camera-modes report: fire-and-forget so schedule build never waits on
+                // it; failures are silent (retried next run) and nothing downstream reads it.
+                _ = ReportCameraModesIfChangedAsync(settings, apiService, token);
                 try {
                     var response = await apiService.ListTargetsAsync(settings.SyncToken, "Active", token);
                     if (response.Success && response.Targets != null) {
@@ -1403,6 +1406,40 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
 
             global::NINA.Core.Utility.Logger.Info($"AstroPM | Target set for triggers: {block.TargetName} RA={block.RaHours:F4}h Dec={block.DecDegrees:F3}°");
+        }
+
+        /// <summary>Advisory camera-modes sync: push the connected camera's readout-mode enumeration
+        /// to the imaging system's cloud row so the desktop app can offer it as a one-click
+        /// suggestion. Push only when the list has 2+ entries (modeless ZWO/DSLR rigs report a
+        /// single "Default" — nothing to sync) and only when it changed since the last successful
+        /// report. Never throws; the authoritative mode list stays the user's camera row.</summary>
+        private async Task ReportCameraModesIfChangedAsync(AstroPMSettings settings, AstroPMApiService apiService, CancellationToken token) {
+            try {
+                var info = _cameraMediator?.GetInfo();
+                if (info == null || !info.Connected) return;
+                var modes = info.ReadoutModes?.Where(m => !string.IsNullOrWhiteSpace(m)).ToList();
+                if (modes == null || modes.Count < 2) return;
+                if (string.IsNullOrEmpty(settings.SelectedImagingSystem)) return;
+
+                // Order matters (position = NINA readout-mode index), so the fingerprint is the
+                // ordered list itself. Human-readable on purpose — visible in settings.json.
+                var fingerprint = string.Join("|", modes);
+                if (fingerprint == settings.LastReportedModesHash) return;
+
+                bool stored = await apiService.ReportCameraModesAsync(
+                    settings.SyncToken, settings.SelectedImagingSystem, info.Name, modes, token);
+                if (stored) {
+                    settings.LastReportedModesHash = fingerprint;
+                    settings.Save();
+                    Logger.Info($"AstroPM | Reported {modes.Count} camera readout modes for '{settings.SelectedImagingSystem}' ({info.Name})");
+                } else {
+                    Logger.Debug("AstroPM | Camera readout-mode report not stored (offline or system not on cloud) — will retry next run");
+                }
+            } catch (OperationCanceledException) {
+                // Sequence stopped mid-report — advisory, drop it.
+            } catch (Exception ex) {
+                Logger.Debug($"AstroPM | Camera readout-mode report failed (advisory, ignored): {ex.Message}");
+            }
         }
 
         private bool IsTargetViable(TargetBlock block, double latDeg, double lonDeg) {

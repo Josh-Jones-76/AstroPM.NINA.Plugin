@@ -125,6 +125,38 @@ namespace AstroPM.NINA.Plugin.Services
         }
 
         /// <summary>
+        /// Reports the readout-mode list enumerated from the live camera as ADVISORY data on the
+        /// imaging system's cloud row (the desktop app surfaces it as a suggestion; nothing
+        /// schedules from it). Fire-and-forget semantics: returns true only when the server
+        /// confirms it stored the report.
+        /// </summary>
+        public async Task<bool> ReportCameraModesAsync(string syncToken, string systemName, string cameraName, IList<string> modes, CancellationToken ct = default)
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["sync_token"] = syncToken,
+                ["action"] = "report_camera_modes",
+                ["name"] = systemName,
+                ["camera_name"] = cameraName ?? "",
+                ["modes"] = modes
+            };
+            var json = JsonConvert.SerializeObject(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(ImagingSystemsApiUrl, content, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return false;
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            try
+            {
+                var parsed = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+                return parsed != null
+                    && parsed.TryGetValue("stored", out var stored)
+                    && stored is bool b && b;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
         /// List all targets matching the sync token, optionally filtered by status.
         /// </summary>
         public async Task<ApiListResponse> ListTargetsAsync(string syncToken, string statusFilter = null, CancellationToken ct = default)
