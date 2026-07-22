@@ -35,25 +35,6 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             geo.Freeze();
             ImageGeometry = geo;
 
-            // Log all SVG resource keys available in NINA (scan merged dictionaries too)
-            try {
-                var keys = new System.Collections.Generic.List<string>();
-                void ScanDict(ResourceDictionary rd) {
-                    foreach (var key in rd.Keys) {
-                        var keyStr = key?.ToString() ?? "";
-                        if (keyStr.Contains("SVG", StringComparison.OrdinalIgnoreCase))
-                            keys.Add(keyStr);
-                    }
-                    foreach (var merged in rd.MergedDictionaries)
-                        ScanDict(merged);
-                }
-                ScanDict(Application.Current.Resources);
-                keys.Sort();
-                global::NINA.Core.Utility.Logger.Info($"AstroPM Panel | Available SVG keys ({keys.Count}): {string.Join(", ", keys)}");
-            } catch (Exception ex) {
-                global::NINA.Core.Utility.Logger.Warning($"AstroPM Panel | SVG scan error: {ex.Message}");
-            }
-
             _pollTimer = new DispatcherTimer(DispatcherPriority.Background, Application.Current.Dispatcher) {
                 Interval = TimeSpan.FromSeconds(2)
             };
