@@ -623,6 +623,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 // so returning false here skips the instruction set entirely and the
                 // stale-session reset in Execute() never gets the chance to rebuild.
                 if (IsStaleSession) return true;
+                // Never flip false while a block is actively executing — the end-of-night
+                // grace sub deliberately runs past _sessionEndUtc, and the condition
+                // watchdog would cancel it mid-integration (see ExecuteNextBlock).
+                if (_executingBlock) return true;
                 if (!BlocksExhausted) return true;
                 // Hold the container alive until the Flat Handling pass finishes. The parent
                 // loop conditions key off this property, and NINA's condition watchdog CANCELS
@@ -982,6 +986,22 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
 
         private async Task ExecuteNextBlock(IProgress<ApplicationStatus> progress, CancellationToken token) {
+            // Flag the active execution window so HasBlocksRemaining can't flip false
+            // mid-block: the end-of-night grace sub intentionally runs past _sessionEndUtc,
+            // and NINA's condition watchdog cancels the running instruction the moment the
+            // loop condition goes false — slewing/parking into the still-integrating final
+            // frame (streaked stars) and starting flats before the last light is done.
+            _executingBlock = true;
+            try {
+                await ExecuteNextBlockCore(progress, token);
+            } finally {
+                _executingBlock = false;
+            }
+        }
+
+        private volatile bool _executingBlock;
+
+        private async Task ExecuteNextBlockCore(IProgress<ApplicationStatus> progress, CancellationToken token) {
             double latDeg = _profileService.ActiveProfile.AstrometrySettings.Latitude;
             double lonDeg = _profileService.ActiveProfile.AstrometrySettings.Longitude;
 
@@ -1006,6 +1026,18 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
 
             var block = _blocks[_currentBlockIndex];
+
+            // A block with no scheduled exposures (the planner emitted a Slew the walk
+            // couldn't fill) would slew + center + guide for nothing — skip it outright.
+            if (!block.Entries.Any(e => e.Command == "Image" || e.Command == "Bonus")) {
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Skipping empty block (no scheduled exposures): {block.TargetName} ({block.UtcStart:HH:mm}–{block.UtcEnd:HH:mm} UTC)");
+                if (_blockSummaries != null && _currentBlockIndex < _blockSummaries.Count)
+                    _blockSummaries[_currentBlockIndex].Status = "skipped";
+                _currentBlockIndex++;
+                return;
+            }
+
             UpdateCurrentBlock();
             SetTargetFromBlock(block);
 

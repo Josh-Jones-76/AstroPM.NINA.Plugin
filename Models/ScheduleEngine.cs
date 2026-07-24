@@ -1557,6 +1557,34 @@ namespace AstroPM.NINA.Plugin.Models {
                             prof = row.Profile;
                             target = prof.Target;
                             targetIdx = row.RowIndex;
+                        } else {
+                            // No fallback target has planned work here either. If this target can
+                            // at least take bonus subs, keep the visit; otherwise release the dead
+                            // slots and idle through them — a Slew row with no exposures becomes an
+                            // orphan block that ExecuteNextBlock runs as a real slew + center + guide.
+                            int releaseEnd = reassignEnd;
+                            if (bonusEnabled) {
+                                for (int fs = s; fs < reassignEnd; fs++) {
+                                    state.FilterCycle.Remove(prof);
+                                    var bonusProbe = SessionScheduler.PickExposureSet(
+                                        prof, targetIdx, fs, matrix.Slots, state,
+                                        filterSwitchEnabled, filterSwitchCount, probeAllowed,
+                                        includeCompleted: true,
+                                        filterSwitchTolerance: filterSwitchTolerance);
+                                    if (bonusProbe.Es != null) { releaseEnd = fs; break; }
+                                }
+                                state.FilterCycle.Remove(prof);
+                            }
+                            if (releaseEnd > s) {
+                                global::NINA.Core.Utility.Logger.Info(
+                                    $"AstroPM | Walk: [{prof.DisplayName}] no plannable or bonus work at slot {s} — releasing {releaseEnd - s} slot(s) as idle instead of slewing");
+                                for (int fs = s; fs < releaseEnd; fs++)
+                                    matrix.SlotAssignment[fs] = -1;
+                                waitStart = currentUtc;
+                                lastAssignedRow = -1;
+                                s = releaseEnd - 1;
+                                continue;
+                            }
                         }
                     }
 
