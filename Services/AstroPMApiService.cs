@@ -27,8 +27,12 @@ namespace AstroPM.NINA.Plugin.Services
             // Use a conventional User-Agent format (with URL) so server logs and
             // WAFs can identify legitimate traffic. Short non-descriptive UAs
             // sometimes trip generic ModSecurity rules on shared hosting.
+            // The REAL assembly version goes in the UA — the server-side API log uses it
+            // to tell which plugin build a client runs (it was hardcoded 1.0.0.4 for years,
+            // which made every install look ancient).
+            var pluginVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0.0";
             _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-                "AstroPM.NINA.Plugin/1.0.0.4 (+https://github.com/Josh-Jones-76/AstroPM.NINA.Plugin)");
+                $"AstroPM.NINA.Plugin/{pluginVersion} (+https://github.com/Josh-Jones-76/AstroPM.NINA.Plugin)");
             _httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         }
 

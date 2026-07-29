@@ -173,6 +173,13 @@ namespace AstroPM.NINA.Plugin.Instructions {
         private bool _scheduleBuilt;
         private DateTime _sessionEndUtc;
 
+        /// <summary>When the last schedule build produced zero blocks. Guards the rebuild:
+        /// without it, an empty build + a generic NINA loop container (Loop While Safe etc.)
+        /// re-enters Execute instantly and re-fetches the cloud at HTTP speed — observed in
+        /// the wild at ~4 calls/sec, sustained (API log, license 183, 7/29/26).</summary>
+        private DateTime _lastEmptyBuildUtc = DateTime.MinValue;
+        private static readonly TimeSpan EmptyRebuildCooldown = TimeSpan.FromMinutes(5);
+
         // Persisted across interruptions
         private int _currentBlockIndex;
 
@@ -684,6 +691,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _blocks = null;
             _currentBlockIndex = 0;
             _sessionEndUtc = DateTime.MinValue;
+            _lastEmptyBuildUtc = DateTime.MinValue;   // a reset (manual or stale) always allows an immediate fetch
             Logger.Info("AstroPM | Schedule reset for new night");
         }
 
@@ -720,6 +728,17 @@ namespace AstroPM.NINA.Plugin.Instructions {
             bool needsBuild = !_scheduleBuilt
                 || _blocks == null || _blocks.Count == 0;
 
+            // An empty build keeps needsBuild true forever — throttle the retry so a hot
+            // outer loop can't hammer the cloud. Within the cooldown: no fetch, just a
+            // short cancellable wait so the wrapping loop container isn't a busy-spin.
+            if (needsBuild && _scheduleBuilt
+                && DateTime.UtcNow - _lastEmptyBuildUtc < EmptyRebuildCooldown) {
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Execute: last build was empty {(DateTime.UtcNow - _lastEmptyBuildUtc).TotalSeconds:F0}s ago — waiting out the {EmptyRebuildCooldown.TotalMinutes:F0}m rebuild cooldown (no cloud fetch)");
+                await Task.Delay(TimeSpan.FromSeconds(30), token);
+                return;
+            }
+
             try {
                 if (needsBuild) {
                     var reason = !_scheduleBuilt ? "first run or reset" : "no blocks";
@@ -737,8 +756,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         // could never flip it stale — every later sequence start would skip
                         // the instruction set until NINA restarts.
                         _sessionEndUtc = DateTime.UtcNow;
+                        _lastEmptyBuildUtc = DateTime.UtcNow;   // arms the rebuild cooldown
                         global::NINA.Core.Utility.Logger.Info(
-                            $"AstroPM | Schedule build produced no blocks — eligible to rebuild after {StaleAfterHours}h");
+                            $"AstroPM | Schedule build produced no blocks — next rebuild attempt in {EmptyRebuildCooldown.TotalMinutes:F0}m");
                         return;
                     }
                 } else {
@@ -1646,6 +1666,45 @@ namespace AstroPM.NINA.Plugin.Instructions {
             FlatsSummary = $"Tonight: {string.Join("  ·  ", parts)}";
         }
 
+        /// <summary>Detached parent for the flat runners while they execute. NINA's execution
+        /// strategy evaluates triggers on the running container AND every ancestor up the parent
+        /// chain before/after each instruction — parented into the live sequence, the user's
+        /// sequence-level triggers (Restore Guiding, meridian flip, autofocus…) fire between
+        /// flat instructions (field report 7/25: Restore Guiding restarted PHD2 mid-flats).
+        /// This shim has no Parent, so the trigger walk dead-ends here and NO trigger can run
+        /// during the flats pass. Loop CONDITIONS are unaffected: "Loop while safe" etc.
+        /// interrupt through the parent container's condition watchdog and our cancellation
+        /// token, not the trigger walk. Implements IDeepSkyObjectContainer so NINA's image
+        /// saver still resolves $$TARGETNAME$$ (it walks the exposure's parents for the
+        /// nearest target-bearing container).</summary>
+        private sealed class FlatsIsolationContainer : SequentialContainer, IDeepSkyObjectContainer {
+            private InputTarget _target;
+            public InputTarget Target {
+                get => _target;
+                set { _target = value; RaisePropertyChanged(); }
+            }
+            public NighttimeData NighttimeData { get; set; }
+        }
+
+        private FlatsIsolationContainer _flatsShim;
+
+        /// <summary>Nothing else stops the guider at session end — without this, PHD2 keeps
+        /// guiding from the last block straight into the flats pass unless the user's Before
+        /// Flats box happens to park the mount.</summary>
+        private async Task StopGuidingForFlats(CancellationToken token) {
+            try {
+                if (_guiderMediator.GetInfo()?.Connected == true) {
+                    global::NINA.Core.Utility.Logger.Info("AstroPM | Flats: stopping guiding for flats pass");
+                    await _guiderMediator.StopGuiding(token);
+                }
+            } catch (OperationCanceledException) {
+                throw;
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Warning(
+                    $"AstroPM | Flats: stop guiding failed: {ex.Message} — continuing with flats");
+            }
+        }
+
         /// <summary>At session complete: for each rotation used tonight, move the rotator to its
         /// recorded mechanical position, then for each filter used at that rotation, switch the
         /// wheel and run the Flat Handling instructions once. _flatsDone is only set after a full
@@ -1669,6 +1728,23 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 return;
             }
 
+            // Guider down + trigger blackout for the whole pass (see FlatsIsolationContainer).
+            await StopGuidingForFlats(token);
+            _flatsShim = new FlatsIsolationContainer { Target = Target, NighttimeData = NighttimeData };
+            try {
+                await RunFlatsCore(specs, hasSetup, hasPerCombo, hasTeardown, progress, token);
+            } finally {
+                // Re-home the runners: a cancelled pass would otherwise leave them parented
+                // to the shim, and the next pass/UI expects the normal tree.
+                _flatsShim = null;
+                FlatsSetupRunner?.AttachNewParent(this);
+                FlatsRunner?.AttachNewParent(this);
+                FlatsTeardownRunner?.AttachNewParent(this);
+            }
+        }
+
+        private async Task RunFlatsCore(List<FlatSpec> specs, bool hasSetup, bool hasPerCombo,
+            bool hasTeardown, IProgress<ApplicationStatus> progress, CancellationToken token) {
             bool useRotator = _rotatorMediator.GetInfo()?.Connected == true;
             global::NINA.Core.Utility.Logger.Info(
                 $"AstroPM | Flats: starting — {specs.Count} filter/rotation combos, rotator {(useRotator ? "connected" : "not connected")}");
@@ -1681,7 +1757,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 progress?.Report(new ApplicationStatus { Status = "Astro PM: Flats — running setup instructions..." });
                 try {
                     global::NINA.Core.Utility.Logger.Info("AstroPM | Flats: running Before Flats instructions");
-                    FlatsSetupRunner.AttachNewParent(this);
+                    FlatsSetupRunner.AttachNewParent(_flatsShim);
                     ResetRunnerProgress(FlatsSetupRunner);
                     await FlatsSetupRunner.Run(progress, token);
                 } catch (OperationCanceledException) {
@@ -1692,7 +1768,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 }
             }
 
-            FlatsRunner.AttachNewParent(this);
+            FlatsRunner.AttachNewParent(_flatsShim);
 
             // Group by rotation so the rotator moves once per angle, preserving capture order
             // within each group (= the filter order used at night).
@@ -1772,7 +1848,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 progress?.Report(new ApplicationStatus { Status = "Astro PM: Flats — running teardown instructions..." });
                 try {
                     global::NINA.Core.Utility.Logger.Info("AstroPM | Flats: running After Flats instructions");
-                    FlatsTeardownRunner.AttachNewParent(this);
+                    FlatsTeardownRunner.AttachNewParent(_flatsShim);
                     ResetRunnerProgress(FlatsTeardownRunner);
                     await FlatsTeardownRunner.Run(progress, token);
                 } catch (OperationCanceledException) {
@@ -1828,6 +1904,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
             target.TargetName = targetName;
             if (target.DeepSkyObject != null) target.DeepSkyObject.Name = targetName;
             Target = target;
+            // The runners hang off the isolation shim during flats, so the image saver's
+            // parent walk finds the SHIM's target — keep it in sync with ours.
+            if (_flatsShim != null) _flatsShim.Target = target;
             global::NINA.Core.Utility.Logger.Info($"AstroPM | Flats: saving under target '{targetName}'");
         }
 
