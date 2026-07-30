@@ -173,6 +173,13 @@ namespace AstroPM.NINA.Plugin.Instructions {
         private bool _scheduleBuilt;
         private DateTime _sessionEndUtc;
 
+        /// <summary>Noon-to-noon night key the current schedule was built for (BuildSchedule's
+        /// date). Guards IsStaleSession: a finished session only goes stale once rebuilding
+        /// would key to a DIFFERENT night — otherwise the stale reset rebuilds the same
+        /// already-over night and the loop spins reset→fetch→rebuild at full speed
+        /// (observed Dome A 7/30/26: 33 cloud fetches in 30s after flats ran late).</summary>
+        private DateTime _scheduleNightDate = DateTime.MinValue;
+
         /// <summary>When the last schedule build produced zero blocks. Guards the rebuild:
         /// without it, an empty build + a generic NINA loop container (Loop While Safe etc.)
         /// re-enters Execute instantly and re-fetches the cloud at HTTP speed — observed in
@@ -426,6 +433,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _blocks = null;
             _currentBlockIndex = 0;
             _sessionEndUtc = DateTime.MinValue;
+            _scheduleNightDate = DateTime.MinValue;
             _lastLog = null;
             _lastSlots = null;
             _lastProfiles = null;
@@ -674,23 +682,36 @@ namespace AstroPM.NINA.Plugin.Instructions {
         /// <summary>True when the built schedule is left over from a finished night. A
         /// session goes stale StaleAfterHours after its end time: long enough that the
         /// dawn wind-down (watchdog condition checks, flats, the daily loop's dawn tasks)
-        /// still sees it as tonight's and the nightly loop exits cleanly, short enough
-        /// that a sequence started any time later that day — morning included — resets
-        /// and rebuilds for the coming night instead of being skipped.</summary>
+        /// still sees it as tonight's and the nightly loop exits cleanly. Additionally the
+        /// current night key must differ from the one the schedule was built for — before
+        /// local noon a rebuild would reproduce the SAME finished night (BuildSchedule's
+        /// noon boundary), so resetting then just spins reset→fetch→rebuild; the finished
+        /// night reads as complete instead and the loop exits. After noon the key flips,
+        /// the session goes stale, and the reset rebuilds for the coming night.</summary>
         public bool IsStaleSession {
             get {
                 if (!_scheduleBuilt || _sessionEndUtc == DateTime.MinValue) return false;
-                return DateTime.UtcNow >= _sessionEndUtc.AddHours(StaleAfterHours);
+                if (DateTime.UtcNow < _sessionEndUtc.AddHours(StaleAfterHours)) return false;
+                return CurrentNightKey() != _scheduleNightDate;
             }
         }
 
         private const double StaleAfterHours = 2;
+
+        /// <summary>The noon-to-noon night identifier for "now": before local noon we are
+        /// still in the night that started yesterday evening. Must match BuildSchedule's
+        /// date choice exactly — IsStaleSession compares against it.</summary>
+        private static DateTime CurrentNightKey() {
+            var localNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.Local);
+            return localNow.Hour < 12 ? DateTime.Today.AddDays(-1) : DateTime.Today;
+        }
 
         public void ResetForNewNight() {
             _scheduleBuilt = false;
             _blocks = null;
             _currentBlockIndex = 0;
             _sessionEndUtc = DateTime.MinValue;
+            _scheduleNightDate = DateTime.MinValue;
             _lastEmptyBuildUtc = DateTime.MinValue;   // a reset (manual or stale) always allows an immediate fetch
             Logger.Info("AstroPM | Schedule reset for new night");
         }
@@ -917,7 +938,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // recovers instead of resetting under it. Dawn is always before noon, so a
             // hard-coded dawn hour is unnecessary. After noon we schedule tonight.
             var localNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-            var date = localNow.Hour < 12 ? DateTime.Today.AddDays(-1) : DateTime.Today;
+            var date = CurrentNightKey();
+            _scheduleNightDate = date;
             SyncFlatTrackingForNight(date);
             global::NINA.Core.Utility.Logger.Info(
                 $"AstroPM | BuildSchedule: date={date:yyyy-MM-dd} (local={localNow:HH:mm}), lat={latDeg:F4}, lon={lonDeg:F4}, tz={tz.Id}, targets={targets.Count}");
