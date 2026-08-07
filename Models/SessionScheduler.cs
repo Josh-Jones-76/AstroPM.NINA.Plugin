@@ -29,6 +29,14 @@ namespace AstroPM.NINA.Plugin.Models {
         public double RemainingTotalSec { get; set; }
         public int WindowStartSlot { get; set; } = -1;
         public int WindowEndSlot { get; set; } = -1;
+
+        // Exoplanet transit lock (mirrors desktop): when set, the engine pre-claims
+        // every usable slot in [FixedWindowStartUtc, FixedWindowEndUtc) before any
+        // other pass runs — the transit takes precedence and everything else
+        // schedules around it. Null for all non-exoplanet targets.
+        public DateTime? FixedWindowStartUtc { get; set; }
+        public DateTime? FixedWindowEndUtc { get; set; }
+
         public double AllocatedSec { get; set; }
         public int? PanelIndex { get; set; }
         public string DisplayName => PanelIndex.HasValue
@@ -194,7 +202,8 @@ namespace AstroPM.NINA.Plugin.Models {
         }
 
         public static List<TargetProfile> BuildTargetProfiles(List<ProjectTarget> targets, List<TimeSlot> slots,
-            double latDeg, double lonDeg, bool mosaicPanelPreference = false, HorizonProfile customHorizon = null) {
+            double latDeg, double lonDeg, bool mosaicPanelPreference = false, HorizonProfile customHorizon = null,
+            TimeZoneInfo tz = null) {
             // Custom .hrz horizon (NINA's profile horizon file, if loaded): a slot is only
             // usable when the target clears the obstruction line at its azimuth, in
             // addition to MinTargetAltitude. The desktop simulator applies the same check
@@ -307,6 +316,22 @@ namespace AstroPM.NINA.Plugin.Models {
                     }
                 }
 
+                // Exoplanet transit lock (mirrors desktop BuildTargetProfilesStatic):
+                // compute tonight's recommended capture window. An exoplanet project
+                // images ONLY during its transit — on a night with no window (or when
+                // locked to a different night) it is skipped entirely.
+                DateTime? exoWinStart = null, exoWinEnd = null;
+                var exoEphem = ExoEphemeris.FromJson(target.ExoplanetJson);
+                if (exoEphem != null) {
+                    if (lunarFreeSec + nonLunarSec > 0 && slots.Count > 0) {
+                        var win = exoEphem.WindowForNight(
+                            slots[0].UtcStart, slots[slots.Count - 1].UtcStart.AddSeconds(300),
+                            target.RaHours, target.DecDegrees, tz);
+                        if (win.HasValue) { exoWinStart = win.Value.StartUtc; exoWinEnd = win.Value.EndUtc; }
+                    }
+                    if (exoWinStart == null) continue;
+                }
+
                 var orderedPanels = target.Panels.OrderBy(p => p.PanelIndex).ToList();
                 if (mosaicPanelPreference && orderedPanels.Count > 1) {
                     for (int pi = 0; pi < orderedPanels.Count; pi++) {
@@ -339,6 +364,8 @@ namespace AstroPM.NINA.Plugin.Models {
                             RemainingTotalSec = panelLaSec + panelNonLaSec,
                             WindowStartSlot = windowStart,
                             WindowEndSlot = windowEnd,
+                            FixedWindowStartUtc = exoWinStart,
+                            FixedWindowEndUtc = exoWinEnd,
                             PanelIndex = pi,
                         });
                     }
@@ -366,6 +393,8 @@ namespace AstroPM.NINA.Plugin.Models {
                         RemainingTotalSec = lunarFreeSec + nonLunarSec,
                         WindowStartSlot = windowStart,
                         WindowEndSlot = windowEnd,
+                        FixedWindowStartUtc = exoWinStart,
+                        FixedWindowEndUtc = exoWinEnd,
                     });
                 }
             }

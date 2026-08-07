@@ -317,6 +317,7 @@
                                         <RowDefinition/>
                                         <RowDefinition/>
                                         <RowDefinition/>
+                                        <RowDefinition/>
                                     </Grid.RowDefinitions>
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Allocated:" FontSize="11"
                                                Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,8,2"/>
@@ -326,13 +327,19 @@
                                                Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,8,2"/>
                                     <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Window}" FontSize="11"
                                                Foreground="{DynamicResource PrimaryBrush}"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Altitude:" FontSize="11"
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Transit:" FontSize="11"
+                                               Visibility="{Binding TransitVisibility}"
                                                Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,8,2"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AltitudeRange}" FontSize="11"
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding TransitWindow}" FontSize="11"
+                                               Visibility="{Binding TransitVisibility}"
+                                               FontWeight="SemiBold" Foreground="#FFB74D"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Altitude:" FontSize="11"
+                                               Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,8,2"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AltitudeRange}" FontSize="11"
                                                Foreground="{DynamicResource PrimaryBrush}"/>
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Moon sep:" FontSize="11"
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Moon sep:" FontSize="11"
                                                Foreground="{DynamicResource PrimaryBrush}" Margin="0,0,8,2"/>
-                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding MoonSeparation}" FontSize="11"
+                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding MoonSeparation}" FontSize="11"
                                                Foreground="{DynamicResource PrimaryBrush}"/>
                                 </Grid>
 
@@ -422,6 +429,29 @@
                                 <TextBlock Text="LA = Lunar Avoidance" FontSize="9" Foreground="{DynamicResource PrimaryBrush}"
                                            FontStyle="Italic" Margin="0,4,0,0"
                                            Visibility="{Binding LaDefinitionVisibility}"/>
+
+                                <!-- Exoplanet transit notice: red callout box (mirrors desktop card) -->
+                                <Border Visibility="{Binding TransitVisibility}" Margin="0,6,0,0"
+                                        Background="#26E53935" BorderBrush="#80E53935"
+                                        BorderThickness="1" CornerRadius="4" Padding="8,6">
+                                    <StackPanel>
+                                        <TextBlock Text="TRANSIT RUN" FontSize="9" FontWeight="Bold"
+                                                   Foreground="White"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                            <TextBlock Text="✕" FontSize="10" FontWeight="Bold"
+                                                       Foreground="#E53935" Margin="0,0,4,0"/>
+                                            <TextBlock Text="Dither off" FontSize="10"
+                                                       Foreground="White"/>
+                                            <TextBlock Text="✕" FontSize="10" FontWeight="Bold"
+                                                       Foreground="#E53935" Margin="12,0,4,0"/>
+                                            <TextBlock Text="Filter switching off" FontSize="10"
+                                                       Foreground="White"/>
+                                        </StackPanel>
+                                        <TextBlock Text="Scientific / exoplanet projects have highest priority — the transit window is reserved ahead of regular active projects."
+                                                   FontSize="9" FontStyle="Italic" Foreground="White"
+                                                   Opacity="0.85" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Border>
 
                                 <!-- Constraint checks -->
                                 <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,8,0,0" Padding="0,6,0,0">

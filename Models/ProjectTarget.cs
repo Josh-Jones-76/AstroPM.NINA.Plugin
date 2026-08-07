@@ -43,6 +43,10 @@ namespace AstroPM.NINA.Plugin.Models {
         [JsonIgnore]
         public int Priority => Constraints?.Priority ?? 0;
 
+        /// <summary>Exoplanet transit ephemeris JSON (null for normal targets).</summary>
+        [JsonIgnore]
+        public string ExoplanetJson => Constraints?.ExoplanetJson;
+
         [JsonProperty("telescope_name")]
         public string TelescopeName { get; set; }
 
@@ -231,6 +235,12 @@ namespace AstroPM.NINA.Plugin.Models {
         /// <summary>Scheduling priority: 1 = highest, 0 = unset (sorts last).</summary>
         [JsonProperty("priority")]
         public int Priority { get; set; }
+
+        /// <summary>Exoplanet transit ephemeris JSON (null for normal targets) —
+        /// rides the constraints blob so the server needs no changes. Parsed by
+        /// ExoEphemeris; drives the engine's locked transit-window pre-claim.</summary>
+        [JsonProperty("exoplanet_json")]
+        public string ExoplanetJson { get; set; }
 
         [JsonProperty("twilight_type_index")]
         public int TwilightTypeIndex { get; set; }

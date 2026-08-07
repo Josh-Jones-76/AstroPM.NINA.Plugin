@@ -10,6 +10,10 @@ namespace AstroPM.NINA.Plugin.Models {
         public Visibility PriorityBadgeVisibility { get; set; } = Visibility.Collapsed;
         public string AllocatedTime { get; set; } = "";
         public string Window { get; set; } = "";
+        // Exoplanet targets: the locked transit capture window (ingress−1h … egress+1h)
+        // the engine reserves — distinct from the visibility Window above.
+        public string TransitWindow { get; set; } = "";
+        public Visibility TransitVisibility { get; set; } = Visibility.Collapsed;
         public string AltitudeRange { get; set; } = "";
         public string MoonSeparation { get; set; } = "";
         public Brush ColorBrush { get; set; }

@@ -176,6 +176,12 @@ namespace AstroPM.NINA.Plugin.Models {
         public int UserPriorityIndex { get; set; }
         public bool PreFiltered { get; set; }
 
+        // Set by PreClaimFixedWindows when this row claimed a locked exo transit
+        // window: its allocation is externally defined (the recommended capture
+        // window IS the block) — minimum-time enforcement and bonus gap-fill must
+        // neither extend nor shrink it.
+        public bool HasLockedWindow { get; set; }
+
         public int MostRestrictiveTierWithWork() {
             for (int t = TierWorkSec.Length - 1; t >= 1; t--)
                 if (TierWorkSec[t] > 0) return t;
@@ -210,6 +216,11 @@ namespace AstroPM.NINA.Plugin.Models {
         public int[] SlotAssignment { get; set; } = Array.Empty<int>();
         public SlotWorkType[] SlotWorkHint { get; set; } = Array.Empty<SlotWorkType>();
         public bool[] PrunedSlot { get; set; } = Array.Empty<bool>();
+
+        // Exoplanet transit lock: slots pre-claimed by PreClaimFixedWindows. Locked
+        // slots must never be reassigned, borrowed, pruned, or defragmented away.
+        // All false (a strict no-op in every guard) when no transit falls tonight.
+        public bool[] LockedSlot { get; set; } = Array.Empty<bool>();
 
         public int FirstUsableSlot { get; set; } = -1;
         public int LastUsableSlot { get; set; } = -1;
@@ -260,6 +271,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 SlotAssignment = new int[slotCount],
                 SlotWorkHint = new SlotWorkType[slotCount],
                 PrunedSlot = new bool[slotCount],
+                LockedSlot = new bool[slotCount],
             };
 
             Array.Fill(matrix.SlotAssignment, -1);
@@ -482,6 +494,57 @@ namespace AstroPM.NINA.Plugin.Models {
             }
         }
 
+        // ─── Pass EXO — fixed transit-window pre-claim ───────────────────────
+        // An exoplanet target with a transit tonight owns its recommended capture
+        // window (ingress−1h … egress+1h, from TargetProfile.FixedWindow*) outright:
+        // every slot whose MIDPOINT falls in the window (nearest-boundary rounding
+        // on the 5-minute grid) where the target clears altitude/darkness is
+        // assigned and LOCKED before any other pass runs, so the rest of the night
+        // schedules around it. The target's remaining work is then zeroed — the
+        // transit IS its night; it doesn't also compete for slots elsewhere.
+        // Mirrors the desktop engine exactly; with no transit tonight this pass
+        // assigns nothing and every downstream lock guard is a no-op.
+        public static void PreClaimFixedWindows(ScheduleMatrix matrix) {
+            foreach (var row in matrix.Rows) {
+                var prof = row.Profile;
+                if (!prof.FixedWindowStartUtc.HasValue || !prof.FixedWindowEndUtc.HasValue) continue;
+                DateTime winStart = prof.FixedWindowStartUtc.Value;
+                DateTime winEnd = prof.FixedWindowEndUtc.Value;
+
+                int ri = row.RowIndex;
+                int claimed = 0, firstSlot = -1, lastSlot = -1;
+                for (int s = 0; s < matrix.Slots.Count; s++) {
+                    var slotMid = matrix.Slots[s].UtcStart.AddSeconds(150);
+                    if (slotMid < winStart) continue;
+                    if (slotMid >= winEnd) break;
+                    if (!matrix.CanImage[ri][s]) continue;
+                    if (matrix.SlotAssignment[s] >= 0) continue; // earlier fixed window won the overlap
+
+                    matrix.SlotAssignment[s] = ri;
+                    matrix.LockedSlot[s] = true;
+                    matrix.SlotWorkHint[s] = SlotWorkType.Any;
+                    claimed++;
+                    if (firstSlot < 0) firstSlot = s;
+                    lastSlot = s;
+                }
+
+                // A transit target only ever images inside its window — zero its work
+                // even when nothing was claimable (e.g. below min altitude for the
+                // whole window) so it can't fall back to normal scheduling.
+                for (int t = 0; t < row.TierWorkSec.Length; t++)
+                    row.TierWorkSec[t] = 0;
+                row.PreFiltered = true;
+
+                if (claimed == 0) {
+                    PaintTrace.AppendLine($"EXO-LOCK: [{prof.DisplayName}] transit window {winStart:HH:mm}-{winEnd:HH:mm} UTC has no claimable slots — target sits out tonight");
+                    continue;
+                }
+                row.HasLockedWindow = true;
+
+                PaintTrace.AppendLine($"EXO-LOCK: [{prof.DisplayName}] transit window {winStart:HH:mm}-{winEnd:HH:mm} UTC locked: slots {firstSlot}-{lastSlot} ({claimed} slots, {claimed * 5} min)");
+            }
+        }
+
         // ─── PaintSlotsGreedy (ManualPriority strategy) ──────────────────────
 
         public static void PaintSlotsGreedy(
@@ -491,6 +554,9 @@ namespace AstroPM.NINA.Plugin.Models {
 
             PaintTrace.Clear();
             PaintTrace.AppendLine("=== PAINT TRACE (Greedy / ManualPriority) ===");
+
+            // Exoplanet transit windows claim their slots before anything else runs
+            PreClaimFixedWindows(matrix);
 
             // Pre-filter: skip targets whose total accessible work < minimum
             foreach (var row in matrix.Rows) {
@@ -575,7 +641,8 @@ namespace AstroPM.NINA.Plugin.Models {
             // Bonus / gap fill
             if (bonusEnabled) {
                 for (int s = 1; s < matrix.Slots.Count; s++) {
-                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0) {
+                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0
+                        && !matrix.LockedSlot[s - 1]) {
                         int ri = matrix.SlotAssignment[s - 1];
                         if (matrix.CanImage[ri][s]) {
                             matrix.SlotAssignment[s] = ri;
@@ -584,7 +651,8 @@ namespace AstroPM.NINA.Plugin.Models {
                     }
                 }
                 for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
-                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0) {
+                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0
+                        && !matrix.LockedSlot[s + 1]) {
                         int ri = matrix.SlotAssignment[s + 1];
                         if (matrix.CanImage[ri][s]) {
                             matrix.SlotAssignment[s] = ri;
@@ -599,7 +667,8 @@ namespace AstroPM.NINA.Plugin.Models {
 
             // Absorb pruned slots into adjacent targets
             for (int s = 1; s < matrix.Slots.Count; s++) {
-                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0) {
+                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0
+                    && !matrix.LockedSlot[s - 1]) {
                     int ri = matrix.SlotAssignment[s - 1];
                     if (matrix.CanImage[ri][s]) {
                         matrix.SlotAssignment[s] = ri;
@@ -608,7 +677,8 @@ namespace AstroPM.NINA.Plugin.Models {
                 }
             }
             for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
-                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0) {
+                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0
+                    && !matrix.LockedSlot[s + 1]) {
                     int ri = matrix.SlotAssignment[s + 1];
                     if (matrix.CanImage[ri][s]) {
                         matrix.SlotAssignment[s] = ri;
@@ -628,6 +698,10 @@ namespace AstroPM.NINA.Plugin.Models {
 
             PaintTrace.Clear();
             PaintTrace.AppendLine("=== PAINT TRACE ===");
+
+            // Exoplanet transit windows claim their slots before anything else runs
+            PreClaimFixedWindows(matrix);
+
             foreach (var row in matrix.Rows) {
                 int ri = row.RowIndex;
                 int safeSlots = 0, unsafeSlots = 0;
@@ -654,6 +728,7 @@ namespace AstroPM.NINA.Plugin.Models {
             {
                 var activeRows = matrix.Rows.Where(r => !r.PreFiltered && r.TotalWorkSec > 0).ToList();
                 for (int s = 0; s < matrix.Slots.Count; s++) {
+                    if (matrix.SlotAssignment[s] >= 0) continue; // locked exo window slot
                     int soleCandidate = -1;
                     bool multiple = false;
                     foreach (var row in activeRows) {
@@ -863,7 +938,8 @@ namespace AstroPM.NINA.Plugin.Models {
             // Pass 4: Bonus / gap fill
             if (bonusEnabled) {
                 for (int s = 1; s < matrix.Slots.Count; s++) {
-                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0) {
+                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0
+                        && !matrix.LockedSlot[s - 1]) {
                         int ri = matrix.SlotAssignment[s - 1];
                         if (matrix.CanImage[ri][s]) {
                             matrix.SlotAssignment[s] = ri;
@@ -872,7 +948,8 @@ namespace AstroPM.NINA.Plugin.Models {
                     }
                 }
                 for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
-                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0) {
+                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0
+                        && !matrix.LockedSlot[s + 1]) {
                         int ri = matrix.SlotAssignment[s + 1];
                         if (matrix.CanImage[ri][s]) {
                             matrix.SlotAssignment[s] = ri;
@@ -889,7 +966,8 @@ namespace AstroPM.NINA.Plugin.Models {
 
             // Absorb pruned slots into adjacent targets
             for (int s = 1; s < matrix.Slots.Count; s++) {
-                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0) {
+                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0
+                    && !matrix.LockedSlot[s - 1]) {
                     int ri = matrix.SlotAssignment[s - 1];
                     if (matrix.CanImage[ri][s]) {
                         matrix.SlotAssignment[s] = ri;
@@ -898,7 +976,8 @@ namespace AstroPM.NINA.Plugin.Models {
                 }
             }
             for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
-                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0) {
+                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0
+                    && !matrix.LockedSlot[s + 1]) {
                     int ri = matrix.SlotAssignment[s + 1];
                     if (matrix.CanImage[ri][s]) {
                         matrix.SlotAssignment[s] = ri;
@@ -946,6 +1025,13 @@ namespace AstroPM.NINA.Plugin.Models {
                     int a2SlotEnd = blocks[i + 2].End;
                     int bLen = bSlotEnd - bSlotStart + 1;
                     int a2Len = a2SlotEnd - a2SlotStart + 1;
+
+                    // Never rewrite locked exo transit slots — the swap region covers
+                    // blocks i+1 and i+2, so check that whole span.
+                    bool touchesLocked = false;
+                    for (int s = bSlotStart; s <= a2SlotEnd && !touchesLocked; s++)
+                        if (matrix.LockedSlot[s]) touchesLocked = true;
+                    if (touchesLocked) continue;
 
                     // Both targets must be able to actually produce work in their
                     // swapped slots (tier-aware: moon safety, not just altitude)
@@ -1069,6 +1155,11 @@ namespace AstroPM.NINA.Plugin.Models {
 
         private static void EnforceMinimumAllocations(ScheduleMatrix matrix) {
             for (int r = 0; r < matrix.Rows.Count; r++) {
+                // Exo transit rows: the locked window IS the allocation — exactly the
+                // recommended capture span. Never extend it to MinTimeOnTarget, never
+                // borrow for it, never clear it.
+                if (matrix.Rows[r].HasLockedWindow) continue;
+
                 int assigned = 0;
                 int firstAssigned = -1, lastAssigned = -1;
                 for (int s = 0; s < matrix.SlotAssignment.Length; s++) {
@@ -1117,6 +1208,7 @@ namespace AstroPM.NINA.Plugin.Models {
                         && slotCounts[victim] - 1 >= matrix.Rows[victim].MinChunkSlots;
 
                     bool TryTake(int s) {
+                        if (matrix.LockedSlot[s]) return false; // exo transit slot — never borrowed
                         if (!matrix.CanImage[r][s]) return false;
                         int victim = matrix.SlotAssignment[s];
                         if (victim == r) return false;
@@ -1152,7 +1244,7 @@ namespace AstroPM.NINA.Plugin.Models {
 
                 if (assigned + extended < matrix.Rows[r].MinChunkSlots) {
                     for (int s = 0; s < matrix.SlotAssignment.Length; s++)
-                        if (matrix.SlotAssignment[s] == r)
+                        if (matrix.SlotAssignment[s] == r && !matrix.LockedSlot[s])
                             matrix.SlotAssignment[s] = -1;
                 }
             }
@@ -1194,6 +1286,12 @@ namespace AstroPM.NINA.Plugin.Models {
 
                 foreach (var run in runs) {
                     if (run.Length >= minChunk) continue;
+
+                    // Locked exo transit slots are never pruned
+                    bool lockedRun = false;
+                    for (int s = run.Start; s < run.Start + run.Length; s++)
+                        if (matrix.LockedSlot[s]) { lockedRun = true; break; }
+                    if (lockedRun) continue;
 
                     // Don't prune if this run is separated from ALL good runs by
                     // another target's slots — it's an independent allocation (e.g.
@@ -1464,6 +1562,10 @@ namespace AstroPM.NINA.Plugin.Models {
             int lastAssignedRow = -1;
             DateTime waitStart = DateTime.MinValue;
 
+            // Exoplanet transit targets run a continuous single-filter time series —
+            // filter-switch batching is disabled for them (mirrors the desktop).
+            bool FsFor(TargetProfile p) => filterSwitchEnabled && !p.FixedWindowStartUtc.HasValue;
+
             for (int s = matrix.FirstUsableSlot; s <= matrix.LastUsableSlot; s++) {
                 int rowIdx = matrix.SlotAssignment[s];
                 DateTime slotStart = matrix.Slots[s].UtcStart;
@@ -1508,9 +1610,15 @@ namespace AstroPM.NINA.Plugin.Models {
                         ? new HashSet<int> { prof.PanelIndex.Value } : (HashSet<int>)null;
                     var probe = SessionScheduler.PickExposureSet(
                         prof, targetIdx, s, matrix.Slots, state,
-                        filterSwitchEnabled, filterSwitchCount, probeAllowed,
+                        FsFor(prof), filterSwitchCount, probeAllowed,
                         filterSwitchTolerance: filterSwitchTolerance);
-                    if (probe.Es == null) {
+                    if (probe.Es == null && matrix.LockedSlot[s]) {
+                        // Locked exo transit slot: never hand the window to another
+                        // target — stay on the transit target (bonus imaging covers
+                        // any planned-count shortfall when enabled).
+                        global::NINA.Core.Utility.Logger.Info(
+                            $"AstroPM | Walk: [{prof.DisplayName}] entry probe failed at LOCKED slot {s} — keeping transit window");
+                    } else if (probe.Es == null) {
                         // Find where this target's contiguous run ends
                         int runEnd = s;
                         for (int fs = s + 1; fs <= matrix.LastUsableSlot; fs++) {
@@ -1524,7 +1632,7 @@ namespace AstroPM.NINA.Plugin.Models {
                             state.FilterCycle.Remove(prof);
                             var laterProbe = SessionScheduler.PickExposureSet(
                                 prof, targetIdx, fs, matrix.Slots, state,
-                                filterSwitchEnabled, filterSwitchCount,
+                                FsFor(prof), filterSwitchCount,
                                 prof.PanelIndex.HasValue ? new HashSet<int> { prof.PanelIndex.Value } : null,
                                 filterSwitchTolerance: filterSwitchTolerance);
                             if (laterProbe.Es != null) { firstViableSlot = fs; break; }
@@ -1543,14 +1651,16 @@ namespace AstroPM.NINA.Plugin.Models {
                                 ? new HashSet<int> { fp.PanelIndex.Value } : (HashSet<int>)null;
                             var fPick = SessionScheduler.PickExposureSet(
                                 fp, r, s, matrix.Slots, state,
-                                filterSwitchEnabled, filterSwitchCount, fAllowed,
+                                FsFor(fp), filterSwitchCount, fAllowed,
                                 filterSwitchTolerance: filterSwitchTolerance);
                             if (fPick.Es != null) { fallbackRow = r; break; }
                         }
                         if (fallbackRow >= 0) {
                             // Only reassign the leading unviable slots, not the entire run
-                            for (int fs = s; fs < reassignEnd; fs++)
+                            for (int fs = s; fs < reassignEnd; fs++) {
+                                if (matrix.LockedSlot[fs]) break; // never give away exo transit slots
                                 matrix.SlotAssignment[fs] = fallbackRow;
+                            }
 
                             rowIdx = fallbackRow;
                             row = matrix.Rows[rowIdx];
@@ -1568,7 +1678,7 @@ namespace AstroPM.NINA.Plugin.Models {
                                     state.FilterCycle.Remove(prof);
                                     var bonusProbe = SessionScheduler.PickExposureSet(
                                         prof, targetIdx, fs, matrix.Slots, state,
-                                        filterSwitchEnabled, filterSwitchCount, probeAllowed,
+                                        FsFor(prof), filterSwitchCount, probeAllowed,
                                         includeCompleted: true,
                                         filterSwitchTolerance: filterSwitchTolerance);
                                     if (bonusProbe.Es != null) { releaseEnd = fs; break; }
@@ -1576,14 +1686,22 @@ namespace AstroPM.NINA.Plugin.Models {
                                 state.FilterCycle.Remove(prof);
                             }
                             if (releaseEnd > s) {
-                                global::NINA.Core.Utility.Logger.Info(
-                                    $"AstroPM | Walk: [{prof.DisplayName}] no plannable or bonus work at slot {s} — releasing {releaseEnd - s} slot(s) as idle instead of slewing");
-                                for (int fs = s; fs < releaseEnd; fs++)
+                                // Never release exo transit slots — stop at the first
+                                // locked slot so the walk still visits the window.
+                                int released = s;
+                                for (int fs = s; fs < releaseEnd; fs++) {
+                                    if (matrix.LockedSlot[fs]) break;
                                     matrix.SlotAssignment[fs] = -1;
-                                waitStart = currentUtc;
-                                lastAssignedRow = -1;
-                                s = releaseEnd - 1;
-                                continue;
+                                    released = fs + 1;
+                                }
+                                if (released > s) {
+                                    global::NINA.Core.Utility.Logger.Info(
+                                        $"AstroPM | Walk: [{prof.DisplayName}] no plannable or bonus work at slot {s} — releasing {released - s} slot(s) as idle instead of slewing");
+                                    waitStart = currentUtc;
+                                    lastAssignedRow = -1;
+                                    s = released - 1;
+                                    continue;
+                                }
                             }
                         }
                     }
@@ -1668,7 +1786,7 @@ namespace AstroPM.NINA.Plugin.Models {
 
                     var pick = SessionScheduler.PickExposureSet(
                         prof, targetIdx, currentSlotIdx, matrix.Slots, state,
-                        filterSwitchEnabled, filterSwitchCount, allowedPanels,
+                        FsFor(prof), filterSwitchCount, allowedPanels,
                         filterSwitchTolerance: filterSwitchTolerance,
                         targetRemainingSec: targetRemainingSec);
 
@@ -1688,7 +1806,7 @@ namespace AstroPM.NINA.Plugin.Models {
                         if (pick.Es == null)
                             pick = SessionScheduler.PickExposureSet(
                                 prof, targetIdx, currentSlotIdx, matrix.Slots, state,
-                                filterSwitchEnabled, filterSwitchCount, allowedPanels, includeCompleted: true,
+                                FsFor(prof), filterSwitchCount, allowedPanels, includeCompleted: true,
                                 filterSwitchTolerance: filterSwitchTolerance,
                                 targetRemainingSec: targetRemainingSec);
                     }
@@ -1835,7 +1953,10 @@ namespace AstroPM.NINA.Plugin.Models {
 
                     subsSinceDither++;
 
-                    if (ditherEnabled && subsSinceDither >= ditherEvery) {
+                    // Exoplanet transit runs never dither: a dither punches a gap in the
+                    // photometric time series and moves the star off its pixels.
+                    if (ditherEnabled && subsSinceDither >= ditherEvery
+                        && !prof.FixedWindowStartUtc.HasValue) {
                         var dSlot = SessionScheduler.GetSlotIndex(currentUtc, matrix.Slots);
                         log.Add(new SimLogEntry {
                             Command = "Dither",
@@ -1986,10 +2107,16 @@ namespace AstroPM.NINA.Plugin.Models {
                 }
             }
 
+            // FILTER-STUCK is exempt for exoplanet transit targets: a single-filter
+            // time series of hundreds of consecutive subs is exactly what they do.
+            var exoTargets = new HashSet<string>(matrix.Rows
+                .Where(r => r.Profile.FixedWindowStartUtc.HasValue)
+                .Select(r => r.Profile.DisplayName));
             string lastFilter = null;
             string lastTarget = null;
             int consecutive = 0;
             foreach (var entry in log.Where(e => e.Command == "Image" || e.Command == "Bonus")) {
+                if (exoTargets.Contains(entry.Target)) continue;
                 if (entry.Target == lastTarget && entry.Filter == lastFilter) {
                     consecutive++;
                     if (consecutive == 31)

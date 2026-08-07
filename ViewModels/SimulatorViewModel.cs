@@ -746,7 +746,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             // NINA's custom horizon (.hrz) — same obstruction check the live instruction
             // set applies, so the simulator preview matches what will actually run.
             _customHorizon = HorizonProfile.LoadFromNinaProfile();
-            _profiles = SessionScheduler.BuildTargetProfiles(targets, _slots, lat, lon, _mosaicPanelPreference, _customHorizon);
+            _profiles = SessionScheduler.BuildTargetProfiles(targets, _slots, lat, lon, _mosaicPanelPreference, _customHorizon, tz);
 
             if (_profiles.Count == 0) {
                 _log = new List<SimLogEntry> { new SimLogEntry { Command = "Info", Target = "No targets visible tonight." } };
@@ -1016,12 +1016,24 @@ namespace AstroPM.NINA.Plugin.ViewModels {
 
                 var hasLa = panelFilterGroups.Any(g => g.Any(p => p.IsLunarAvoid));
 
+                // Exoplanet: show the locked transit capture window so the visibility
+                // Window above isn't read as the transit (mirrors the desktop card).
+                string transitText = "";
+                if (prof.FixedWindowStartUtc.HasValue && prof.FixedWindowEndUtc.HasValue) {
+                    var tS = TimeZoneInfo.ConvertTimeFromUtc(prof.FixedWindowStartUtc.Value, TimeZoneInfo.Local);
+                    var tE = TimeZoneInfo.ConvertTimeFromUtc(prof.FixedWindowEndUtc.Value, TimeZoneInfo.Local);
+                    double transitHrs = (prof.FixedWindowEndUtc.Value - prof.FixedWindowStartUtc.Value).TotalHours;
+                    transitText = $"{tS:HH:mm} – {tE:HH:mm} ({transitHrs:F1}h)";
+                }
+
                 cards.Add(new TargetCardModel {
                     Name = prof.DisplayName,
                     PriorityBadge = priorityRank.TryGetValue(i, out var rank) ? $"#{rank}" : "",
                     PriorityBadgeVisibility = priorityRank.ContainsKey(i) ? Visibility.Visible : Visibility.Collapsed,
                     AllocatedTime = allocTime,
                     Window = window,
+                    TransitWindow = transitText,
+                    TransitVisibility = transitText.Length > 0 ? Visibility.Visible : Visibility.Collapsed,
                     AltitudeRange = altRange,
                     MoonSeparation = $"{moonSep:F0}°",
                     ColorBrush = new SolidColorBrush(color),
@@ -1192,6 +1204,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                     Name = card.Name,
                     AllocatedTime = card.AllocatedTime,
                     Window = card.Window,
+                    TransitWindow = card.TransitWindow,
+                    TransitVisibility = card.TransitVisibility,
                     AltitudeRange = card.AltitudeRange,
                     MoonSeparation = card.MoonSeparation,
                     ColorBrush = card.ColorBrush,

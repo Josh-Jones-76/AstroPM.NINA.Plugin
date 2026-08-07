@@ -952,7 +952,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 ? $"AstroPM | Custom horizon active: {customHorizon.Points.Count} points from NINA profile horizon file"
                 : "AstroPM | No custom horizon file in NINA profile (flat min-altitude only)");
 
-            var profiles = SessionScheduler.BuildTargetProfiles(targets, slots, latDeg, lonDeg, settings.MosaicPanelPreference, customHorizon);
+            var profiles = SessionScheduler.BuildTargetProfiles(targets, slots, latDeg, lonDeg, settings.MosaicPanelPreference, customHorizon, tz);
 
             foreach (var p in profiles)
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Profile: {p.DisplayName} PanelIdx={p.PanelIndex} LA={p.RemainingLunarFreeSec / 60:F0}m NonLA={p.RemainingNonLunarSec / 60:F0}m window={p.WindowStartSlot}-{p.WindowEndSlot}");
