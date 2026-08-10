@@ -296,6 +296,16 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public string ImageType { get => "LIGHT"; set { } }
         public BinningMode Binning { get => new BinningMode((short)_binX, (short)_binY); set { } }
 
+        /// <summary>
+        /// NINA's MeridianFlipTrigger sizes the flip window from the NEXT item's estimated
+        /// duration. Without this override it inherits TimeSpan.Zero and will let a long
+        /// exposure start seconds before the flip limit — the mount then hits its own
+        /// meridian stop mid-sub and quits tracking, the trigger skips evaluation
+        /// ("Telescope is not tracking") so the flip never runs, and any timer/HFR
+        /// autofocus that fires next runs on a non-tracking mount.
+        /// </summary>
+        public override TimeSpan GetEstimatedDuration() => TimeSpan.FromSeconds(_exposureSec);
+
         private FilterInfo _resolvedFilter;
         private bool _filterSwitched;
 
