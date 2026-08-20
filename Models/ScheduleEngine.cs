@@ -591,9 +591,15 @@ namespace AstroPM.NINA.Plugin.Models {
                 if (row.PreFiltered || row.TotalWorkSec <= 0) continue;
                 int ri = row.RowIndex;
 
-                // Phase A: Moon-down slots — most restrictive tiers first
-                for (int t = row.TierWorkSec.Length - 1; t >= 0; t--) {
+                // Phase A: Moon-down pre-claim — ONLY for tier work that cannot run
+                // while the moon is up tonight (zero safe moon-up slots, e.g. No Moon
+                // profiles under a bright moon). Moon-up-safe LA work must NOT be
+                // parked here: doing so shoves a priority-1 target to the post-moonset
+                // hours and hands its prime early slots to lower priorities.
+                for (int t = row.TierWorkSec.Length - 1; t >= 1; t--) {
                     if (row.TierWorkSec[t] <= 0) continue;
+                    bool moonDownOnly = t >= row.TierMoonUpSafeSlots.Length || row.TierMoonUpSafeSlots[t] == 0;
+                    if (!moonDownOnly) continue;
                     double budget = row.TierWorkSec[t];
 
                     for (int s = 0; s < matrix.Slots.Count && budget > 0; s++) {
@@ -603,24 +609,25 @@ namespace AstroPM.NINA.Plugin.Models {
 
                         matrix.SlotAssignment[s] = ri;
                         matrix.SlotAllocTier[s] = t;
-                        var hint = t > 0 ? SlotWorkType.LaPreferred : SlotWorkType.Any;
-                        matrix.SlotWorkHint[s] = hint;
+                        matrix.SlotWorkHint[s] = SlotWorkType.LaPreferred;
                         row.TierWorkSec[t] = Math.Max(0, row.TierWorkSec[t] - 300.0);
                         budget -= 300.0;
                     }
                 }
 
-                // Phase B: Moon-up slots — use tier info for safe allocation
+                // Phase B: everything else paints chronologically earliest-first — this
+                // is what makes priority order equal imaging order. Moon-down slots
+                // accept any tier (all safe there); moon-up slots need a tier that is
+                // safe at that slot, most restrictive first so scarce windows are used.
                 for (int s = 0; s < matrix.Slots.Count; s++) {
-                    if (matrix.MoonDown[s]) continue;
                     if (matrix.SlotAssignment[s] >= 0) continue;
                     if (!matrix.CanImage[ri][s]) continue;
                     if (row.TotalWorkSec <= 0) break;
 
                     int bestTier = -1;
-                    for (int t = 1; t < row.TierWorkSec.Length; t++) {
+                    for (int t = row.TierWorkSec.Length - 1; t >= 1; t--) {
                         if (row.TierWorkSec[t] <= 0) continue;
-                        if (t < matrix.TierSafe[ri].Length && matrix.TierSafe[ri][t][s]) { bestTier = t; break; }
+                        if (matrix.MoonDown[s] || (t < matrix.TierSafe[ri].Length && matrix.TierSafe[ri][t][s])) { bestTier = t; break; }
                     }
                     if (bestTier < 0 && row.TierWorkSec.Length > 0 && row.TierWorkSec[0] > 0)
                         bestTier = 0;
@@ -628,7 +635,9 @@ namespace AstroPM.NINA.Plugin.Models {
 
                     matrix.SlotAssignment[s] = ri;
                     matrix.SlotAllocTier[s] = bestTier;
-                    var hint2 = bestTier > 0 ? SlotWorkType.NonLaPreferred : SlotWorkType.Any;
+                    var hint2 = bestTier > 0
+                        ? (matrix.MoonDown[s] ? SlotWorkType.LaPreferred : SlotWorkType.NonLaPreferred)
+                        : SlotWorkType.Any;
                     matrix.SlotWorkHint[s] = hint2;
                     row.TierWorkSec[bestTier] = Math.Max(0, row.TierWorkSec[bestTier] - 300.0);
                 }
@@ -1792,8 +1801,19 @@ namespace AstroPM.NINA.Plugin.Models {
 
                     if (pick.Es == null && bonusEnabled)
                     {
-                        if (lastEs != null)
+                        // Bonus imaging runs the REGULAR pick over completed sets, so the
+                        // normal filter-switch cadence rotates bonus subs across every
+                        // filter that still passes its moon/safety tests — instead of
+                        // repeating the last filter for the rest of the night.
+                        pick = SessionScheduler.PickExposureSet(
+                            prof, targetIdx, currentSlotIdx, matrix.Slots, state,
+                            FsFor(prof), filterSwitchCount, allowedPanels, includeCompleted: true,
+                            filterSwitchTolerance: filterSwitchTolerance,
+                            targetRemainingSec: targetRemainingSec);
+                        if (pick.Es == null && lastEs != null)
                         {
+                            // Last resort (e.g. panel restriction excluded every set):
+                            // repeat the previous exposure if it's still moon-safe here.
                             var gapSlot = currentSlotIdx >= 0 && currentSlotIdx < matrix.Slots.Count
                                 ? matrix.Slots[currentSlotIdx] : null;
                             double gapMoonSep = currentSlotIdx >= 0 && currentSlotIdx < prof.MoonSepPerSlot.Length
@@ -1803,12 +1823,6 @@ namespace AstroPM.NINA.Plugin.Models {
                             if (gapMoonOk)
                                 pick = (lastEs, lastPanelLabel, lastPanelIdx, lastEsIdx);
                         }
-                        if (pick.Es == null)
-                            pick = SessionScheduler.PickExposureSet(
-                                prof, targetIdx, currentSlotIdx, matrix.Slots, state,
-                                FsFor(prof), filterSwitchCount, allowedPanels, includeCompleted: true,
-                                filterSwitchTolerance: filterSwitchTolerance,
-                                targetRemainingSec: targetRemainingSec);
                     }
                     if (pick.Es == null) break;
 

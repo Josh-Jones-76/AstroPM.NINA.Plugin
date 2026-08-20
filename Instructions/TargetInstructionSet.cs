@@ -890,7 +890,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _cachedTargets = targets;
 
             targets = targets.Where(t => t.Panels != null && t.Panels.Any(p =>
-                p.ExposureSets != null && p.ExposureSets.Any(es => es.Remaining > 0))).ToList();
+                p.ExposureSets != null && p.ExposureSets.Any(es =>
+                    SessionScheduler.EffectiveRemainingSubs(es, settings.OvershootPercent) > 0))).ToList();
 
             // Active projects only — re-filter here even though we request "Active" from the server,
             // because the cache (used offline) can hold on-hold/planning/old targets: the simulator and
@@ -952,7 +953,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 ? $"AstroPM | Custom horizon active: {customHorizon.Points.Count} points from NINA profile horizon file"
                 : "AstroPM | No custom horizon file in NINA profile (flat min-altitude only)");
 
-            var profiles = SessionScheduler.BuildTargetProfiles(targets, slots, latDeg, lonDeg, settings.MosaicPanelPreference, customHorizon, tz);
+            var profiles = SessionScheduler.BuildTargetProfiles(targets, slots, latDeg, lonDeg, settings.MosaicPanelPreference, customHorizon, tz,
+                overshootPercent: settings.OvershootPercent);
 
             foreach (var p in profiles)
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Profile: {p.DisplayName} PanelIdx={p.PanelIndex} LA={p.RemainingLunarFreeSec / 60:F0}m NonLA={p.RemainingNonLunarSec / 60:F0}m window={p.WindowStartSlot}-{p.WindowEndSlot}");
@@ -996,6 +998,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 ScheduleEngine.PaintSlots(matrix, sortChain, moonDownChain, settings.BonusEnabled);
 
             var state = new ScheduleSessionState();
+            if (settings.OvershootPercent > 0) state.OvershootFraction = settings.OvershootPercent / 100.0;
             var log = ScheduleEngine.WalkToLog(matrix, state, tz,
                 settings.DitherEnabled, settings.DitherEvery, settings.FilterSwitchEnabled, settings.FilterSwitchCount, sortChain,
                 bonusEnabled: settings.BonusEnabled,

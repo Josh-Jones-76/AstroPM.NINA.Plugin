@@ -91,9 +91,21 @@ namespace AstroPM.NINA.Plugin.Models {
 
         private int EsKey(int targetIdx, int panelIdx, int esIdx) => targetIdx * 10000 + panelIdx * 100 + esIdx;
 
+        // Overshoot: extends each exposure set's planned count by
+        // ceil(PlannedCount × fraction) — guaranteed insurance frames taken as part
+        // of the project, BEFORE open-ended bonus fill kicks in. null/0 = none.
+        public double? OvershootFraction;
+
+        public int OvershootCap(ExposureSetData es) {
+            return OvershootFraction is double f && f > 0
+                ? (int)Math.Ceiling(Math.Max(0, es.PlannedCount) * f) : 0;
+        }
+
         public int RemainingForEs(int targetIdx, int panelIdx, int esIdx, ExposureSetData es) {
+            if (!es.Enabled) return 0;
             int key = EsKey(targetIdx, panelIdx, esIdx);
-            return Math.Max(0, es.Remaining) - (EmittedSubsByEsIdx.ContainsKey(key) ? EmittedSubsByEsIdx[key] : 0);
+            return Math.Max(0, es.PlannedCount + OvershootCap(es) - es.AcceptedCount)
+                   - (EmittedSubsByEsIdx.ContainsKey(key) ? EmittedSubsByEsIdx[key] : 0);
         }
 
         public void RecordExposure(TargetProfile target, int targetIdx, int panelIdx, int esIdx, ExposureSetData es) {
@@ -201,9 +213,19 @@ namespace AstroPM.NINA.Plugin.Models {
             return slots;
         }
 
+        /// <summary>Remaining subs including the overshoot extension:
+        /// max(0, planned + ceil(planned × overshoot%) − accepted). Mirrors the
+        /// desktop's EffectiveRemainingSubs so allocation reserves overshoot time.</summary>
+        public static int EffectiveRemainingSubs(ExposureSetData es, int overshootPercent) {
+            if (!es.Enabled) return 0;
+            int cap = overshootPercent > 0
+                ? (int)Math.Ceiling(Math.Max(0, es.PlannedCount) * (overshootPercent / 100.0)) : 0;
+            return Math.Max(0, es.PlannedCount + cap - es.AcceptedCount);
+        }
+
         public static List<TargetProfile> BuildTargetProfiles(List<ProjectTarget> targets, List<TimeSlot> slots,
             double latDeg, double lonDeg, bool mosaicPanelPreference = false, HorizonProfile customHorizon = null,
-            TimeZoneInfo tz = null) {
+            TimeZoneInfo tz = null, int overshootPercent = 0) {
             // Custom .hrz horizon (NINA's profile horizon file, if loaded): a slot is only
             // usable when the target clears the obstruction line at its azimuth, in
             // addition to MinTargetAltitude. The desktop simulator applies the same check
@@ -258,7 +280,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 double lunarFreeSec = 0, nonLunarSec = 0;
                 foreach (var panel in target.Panels) {
                     foreach (var es in panel.ExposureSets) {
-                        var remaining = es.Remaining * es.ExposureLengthSec;
+                        var remaining = (double)EffectiveRemainingSubs(es, overshootPercent) * es.ExposureLengthSec;
                         if (es.HasMoonAvoidance)
                             lunarFreeSec += remaining;
                         else
@@ -341,7 +363,7 @@ namespace AstroPM.NINA.Plugin.Models {
                         // V4: per-tier work for this panel
                         var panelTierSec = new double[tiers.Length];
                         foreach (var es in panel.ExposureSets) {
-                            var remaining = es.Remaining * es.ExposureLengthSec;
+                            var remaining = (double)EffectiveRemainingSubs(es, overshootPercent) * es.ExposureLengthSec;
                             if (es.HasMoonAvoidance) panelLaSec += remaining;
                             else panelNonLaSec += remaining;
                             if (esToTier.TryGetValue(es, out var tierIdx))
@@ -373,7 +395,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     // V4: per-tier work totals
                     var tierSec = new double[tiers.Length];
                     foreach (var es in allEs) {
-                        var remaining = es.Remaining * es.ExposureLengthSec;
+                        var remaining = (double)EffectiveRemainingSubs(es, overshootPercent) * es.ExposureLengthSec;
                         if (esToTier.TryGetValue(es, out var tierIdx))
                             tierSec[tierIdx] += remaining;
                     }

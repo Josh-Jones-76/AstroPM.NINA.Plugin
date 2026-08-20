@@ -38,6 +38,9 @@ namespace AstroPM.NINA.Plugin.Models
         [JsonProperty("Playback")] public string Playback { get; set; } = "TimeAware";
         [JsonProperty("SortChain")] public string SortChain { get; set; } = "";
         [JsonProperty("BonusEnabled")] public bool BonusEnabled { get; set; } = true;
+        // Guaranteed extra subs per exposure set as a percent of its planned count
+        // (insurance frames for SubInspector rejections). 0 or legacy -1 = none.
+        [JsonProperty("OvershootPercent")] public int OvershootPercent { get; set; } = 0;
         [JsonProperty("MosaicPanelPreference")] public bool MosaicPanelPreference { get; set; } = true;
         [JsonProperty("DitherEnabled")] public bool DitherEnabled { get; set; } = true;
         [JsonProperty("DitherEvery")] public int DitherEvery { get; set; } = 3;

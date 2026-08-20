@@ -58,6 +58,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private ObservableCollection<SortChipItem> _sortChainItems = new ObservableCollection<SortChipItem>();
         private ImagingStrategy _strategy = ImagingStrategy.SharedTime;
         private double _filterSwitchTolerance = 0.5;
+        private int _overshootPercent = 0;
         private bool _flatsEnabled;
         private string _strategyDescription = "";
         private PlaybackMode _playback = PlaybackMode.TimeAware;
@@ -157,6 +158,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _filterSwitchEnabled = settings.FilterSwitchEnabled;
             _filterSwitchCount = settings.FilterSwitchCount;
             _filterSwitchTolerance = settings.FilterSwitchTolerance;
+            _overshootPercent = settings.OvershootPercent;
             _flatsEnabled = settings.FlatsEnabled;
             _bonusImagesEnabled = settings.BonusEnabled;
             _mosaicPanelPreference = settings.MosaicPanelPreference;
@@ -492,6 +494,24 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             }
         }
 
+        public List<KeyValuePair<int, string>> OvershootOptions { get; } =
+            new List<KeyValuePair<int, string>> {
+                new KeyValuePair<int, string>(0, "0%"),
+                new KeyValuePair<int, string>(5, "5%"),
+                new KeyValuePair<int, string>(10, "10%"),
+                new KeyValuePair<int, string>(15, "15%"),
+                new KeyValuePair<int, string>(20, "20%"),
+                new KeyValuePair<int, string>(25, "25%"),
+            };
+
+        public int OvershootPercent {
+            get => _overshootPercent;
+            set {
+                if (_overshootPercent == value) return;
+                _overshootPercent = value; OnPropertyChanged(); SaveSimSettings(); _ = RunSimulationAsync();
+            }
+        }
+
         public bool MosaicPanelPreference {
             get => _mosaicPanelPreference;
             set {
@@ -746,7 +766,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             // NINA's custom horizon (.hrz) — same obstruction check the live instruction
             // set applies, so the simulator preview matches what will actually run.
             _customHorizon = HorizonProfile.LoadFromNinaProfile();
-            _profiles = SessionScheduler.BuildTargetProfiles(targets, _slots, lat, lon, _mosaicPanelPreference, _customHorizon, tz);
+            _profiles = SessionScheduler.BuildTargetProfiles(targets, _slots, lat, lon, _mosaicPanelPreference, _customHorizon, tz,
+                overshootPercent: _overshootPercent);
 
             if (_profiles.Count == 0) {
                 _log = new List<SimLogEntry> { new SimLogEntry { Command = "Info", Target = "No targets visible tonight." } };
@@ -787,6 +808,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             } catch { }
 
             var state = new ScheduleSessionState();
+            if (_overshootPercent > 0) state.OvershootFraction = _overshootPercent / 100.0;
             _log = ScheduleEngine.WalkToLog(matrix, state, tz,
                 _ditherEnabled, _ditherEvery, _filterSwitchEnabled, _filterSwitchCount, _sortChain,
                 bonusEnabled: _bonusImagesEnabled,
@@ -797,7 +819,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             var settings = AstroPMSettings.Load();
             var targets = _allTargets.Where(t =>
                 t.Panels != null && t.Panels.Any(p =>
-                    p.ExposureSets != null && p.ExposureSets.Any(es => es.Remaining > 0)));
+                    p.ExposureSets != null && p.ExposureSets.Any(es =>
+                        SessionScheduler.EffectiveRemainingSubs(es, _overshootPercent) > 0)));
 
             // Always filter to Active status
             targets = targets.Where(t => string.Equals(t.Status, "Active", StringComparison.OrdinalIgnoreCase));
@@ -850,6 +873,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _filterSwitchEnabled = settings.FilterSwitchEnabled; OnPropertyChanged(nameof(FilterSwitchEnabled));
             _filterSwitchCount = settings.FilterSwitchCount; OnPropertyChanged(nameof(FilterSwitchCount));
             _filterSwitchTolerance = settings.FilterSwitchTolerance; OnPropertyChanged(nameof(FilterSwitchTolerance));
+            _overshootPercent = settings.OvershootPercent; OnPropertyChanged(nameof(OvershootPercent));
             _flatsEnabled = settings.FlatsEnabled; OnPropertyChanged(nameof(FlatsEnabled));
             _bonusImagesEnabled = settings.BonusEnabled; OnPropertyChanged(nameof(BonusImagesEnabled));
             _mosaicPanelPreference = settings.MosaicPanelPreference; OnPropertyChanged(nameof(MosaicPanelPreference));
@@ -873,6 +897,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.FilterSwitchTolerance = _filterSwitchTolerance;
             settings.FlatsEnabled = _flatsEnabled;
             settings.BonusEnabled = _bonusImagesEnabled;
+            settings.OvershootPercent = _overshootPercent;
             settings.MosaicPanelPreference = _mosaicPanelPreference;
             settings.SortChain = string.Join(",", _sortChain);
             settings.Strategy = _strategy.ToString();

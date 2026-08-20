@@ -22,6 +22,7 @@ namespace AstroPM.NINA.Plugin
         private bool _filterSwitchEnabled = true;
         private int _filterSwitchCount = 20;
         private bool _bonusEnabled = true;
+        private int _overshootPercent = 0;
         private bool _mosaicPanelPreference = true;
         private string _sortChain = "LowestPeakAltitude,SettingSoonest,MostRemainingWork,Constrained";
         private string _strategy = "SharedTime";
@@ -130,6 +131,15 @@ namespace AstroPM.NINA.Plugin
         {
             get => _bonusEnabled;
             set { if (_bonusEnabled != value) { _bonusEnabled = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Guaranteed extra subs per exposure set as a percent of its planned
+        /// count (insurance frames for SubInspector rejections), taken as part of the
+        /// project before open-ended bonus fill. 0 = none.</summary>
+        public int OvershootPercent
+        {
+            get => _overshootPercent;
+            set { if (_overshootPercent != value) { _overshootPercent = value; OnPropertyChanged(); } }
         }
 
         public bool MosaicPanelPreference

@@ -76,6 +76,15 @@
                               VerticalAlignment="Center"
                               ToolTip="Continue capturing exposures past requested amount if no other targets are available"/>
 
+                    <!-- Overshoot: guaranteed extra subs per filter (insurance for rejections) -->
+                    <TextBlock Text="Overshoot" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <ComboBox Width="60" VerticalAlignment="Center"
+                              ItemsSource="{Binding OvershootOptions}"
+                              DisplayMemberPath="Value" SelectedValuePath="Key"
+                              SelectedValue="{Binding OvershootPercent, Mode=TwoWay}"
+                              ToolTip="Guaranteed extra subs per filter, as a percentage of its planned count — insurance frames for subs you'll likely reject in SubInspector. Example: 60 planned subs at 10% schedules 6 extra subs on that filter as part of the project. Overshoot subs are taken right after planned work finishes; bonus imaging (if enabled) then fills any time still remaining."/>
+
                     <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
 
                     <!-- Mosaic panel preference -->
