@@ -61,7 +61,6 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private int _overshootPercent = 0;
         private bool _flatsEnabled;
         private bool _flatsFullSet;
-        private bool _flatsPerTarget = true;
         private string _strategyDescription = "";
         private PlaybackMode _playback = PlaybackMode.TimeAware;
 
@@ -163,7 +162,6 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _overshootPercent = settings.OvershootPercent;
             _flatsEnabled = settings.FlatsEnabled;
             _flatsFullSet = settings.FlatsFullSet;
-            _flatsPerTarget = settings.FlatsPerTarget;
             _bonusImagesEnabled = settings.BonusEnabled;
             _mosaicPanelPreference = settings.MosaicPanelPreference;
             _sortChain = ParseSortChain(settings.SortChain);
@@ -441,13 +439,6 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         public bool FlatsFullSet {
             get => _flatsFullSet;
             set { _flatsFullSet = value; OnPropertyChanged(); SaveSimSettings(); }
-        }
-
-        /// <summary>ON (default): separate physical flat set per target. OFF: one capture per
-        /// unique combo + file copies to the other targets. Mirrors the desktop checkbox.</summary>
-        public bool FlatsPerTarget {
-            get => _flatsPerTarget;
-            set { _flatsPerTarget = value; OnPropertyChanged(); SaveSimSettings(); }
         }
 
         public List<KeyValuePair<ImagingStrategy, string>> StrategyOptions { get; } =
@@ -894,7 +885,6 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _overshootPercent = settings.OvershootPercent; OnPropertyChanged(nameof(OvershootPercent));
             _flatsEnabled = settings.FlatsEnabled; OnPropertyChanged(nameof(FlatsEnabled));
             _flatsFullSet = settings.FlatsFullSet; OnPropertyChanged(nameof(FlatsFullSet));
-            _flatsPerTarget = settings.FlatsPerTarget; OnPropertyChanged(nameof(FlatsPerTarget));
             _bonusImagesEnabled = settings.BonusEnabled; OnPropertyChanged(nameof(BonusImagesEnabled));
             _mosaicPanelPreference = settings.MosaicPanelPreference; OnPropertyChanged(nameof(MosaicPanelPreference));
             _sortChain = ParseSortChain(settings.SortChain); RefreshSortChainItems();
@@ -917,7 +907,6 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.FilterSwitchTolerance = _filterSwitchTolerance;
             settings.FlatsEnabled = _flatsEnabled;
             settings.FlatsFullSet = _flatsFullSet;
-            settings.FlatsPerTarget = _flatsPerTarget;
             settings.BonusEnabled = _bonusImagesEnabled;
             settings.OvershootPercent = _overshootPercent;
             settings.MosaicPanelPreference = _mosaicPanelPreference;

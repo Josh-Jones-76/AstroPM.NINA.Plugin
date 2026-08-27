@@ -146,7 +146,7 @@
                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <CheckBox IsChecked="{Binding FlatsEnabled, Mode=TwoWay}"
                               VerticalAlignment="Center"
-                              ToolTip="At session complete, run the Flat Handling instructions in the Astro PM Instructions block — flats for exactly the filters, rotations, and camera settings used that night (or every wheel filter, when Full Set of Flats is also checked). Mirrors the desktop app's simulator setting."/>
+                              ToolTip="At session complete, run the Flat Handling instructions in the Astro PM Instructions block — flats for exactly the filters, rotations, and camera settings used that night (or every wheel filter, when Full Set of Flats is also checked). Targets sharing an identical rotation + filter + camera combination are captured once, with the files copied into each target's folder. Mirrors the desktop app's simulator setting."/>
 
                     <TextBlock Text="Full Set of Flats" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="12,0,6,0"/>
@@ -154,13 +154,6 @@
                               IsEnabled="{Binding FlatsEnabled}"
                               VerticalAlignment="Center"
                               ToolTip="Take flats for EVERY filter in the filter wheel at each target/rotation captured tonight — not just the filters shot. Useful for building a complete flat library in one pass. Mirrors the desktop app's simulator setting."/>
-
-                    <TextBlock Text="Flats for Each Target" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
-                               VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <CheckBox IsChecked="{Binding FlatsPerTarget, Mode=TwoWay}"
-                              IsEnabled="{Binding FlatsEnabled}"
-                              VerticalAlignment="Center"
-                              ToolTip="On (default): physically capture a separate flat set for every target. Off: capture each unique rotation + filter + camera combination only once, then copy the identical flat files into the other targets' folders (needs $$TARGETNAME$$ in the NINA file pattern). Mirrors the desktop app's simulator setting."/>
 
                 </WrapPanel>
 

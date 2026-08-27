@@ -337,19 +337,13 @@
                                           IsEnabled="{Binding FlatsEnabled}"
                                           Margin="10,0,0,0" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
                                           VerticalAlignment="Center"
-                                          ToolTip="Take flats for EVERY filter in the filter wheel at each target/rotation captured tonight — not just the filters shot. Filters that weren't shot inherit the target's gain/offset/binning. Synced with 'Full Set of Flats' in the Astro PM desktop app and the plugin Simulator panel."/>
-                                <CheckBox Content="Per Target" IsChecked="{Binding FlatsPerTarget}"
-                                          IsEnabled="{Binding FlatsEnabled}"
-                                          Margin="10,0,0,0" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
-                                          VerticalAlignment="Center"
-                                          ToolTip="On (default): physically capture a separate flat set for every target. Off: capture each unique rotation + filter + camera combination only once, then copy the identical flat files into the other targets' folders (needs $$TARGETNAME$$ in the NINA file pattern). Synced with 'Flats for Each Target' in the Astro PM desktop app and the plugin Simulator panel."/>
-                                <TextBlock Text="{Binding FlatsSummary}" FontSize="10"
+                                          ToolTip="Take flats for EVERY filter in the filter wheel at each target/rotation captured tonight — not just the filters shot. Filters that weren't shot inherit the target's gain/offset/binning. Synced with 'Full Set of Flats' in the Astro PM desktop app and the plugin Simulator panel."/>                                <TextBlock Text="{Binding FlatsSummary}" FontSize="10"
                                            Foreground="{DynamicResource PrimaryBrush}" Opacity="0.75"
                                            VerticalAlignment="Center" Margin="16,0,0,0"/>
                             </StackPanel>
                         </Expander.Header>
                         <StackPanel Margin="0,4,0,0">
-                    <TextBlock Text="Runs when the session completes. Setup and teardown run once; the middle box repeats once per target + filter + rotation combination captured tonight — the filter wheel, rotator, gain, offset, and binning are set automatically for each pass to match the lights, and flats are saved under each target's name. With Full Set checked, every filter in the wheel runs at each target/rotation, not just the filters shot tonight. With Per Target unchecked, targets sharing an identical rotation + filter + camera combination get ONE physical capture, and the saved files are copied into the other targets' folders."
+                    <TextBlock Text="Runs when the session completes. Setup and teardown run once; the middle box repeats once per target + filter + rotation combination captured tonight — the filter wheel, rotator, gain, offset, and binning are set automatically for each pass to match the lights, and flats are saved under each target's name. Targets sharing an identical rotation + filter + camera combination are captured once, with the saved files copied into each target's folder. With Full Set checked, every filter in the wheel runs at each target/rotation, not just the filters shot tonight."
                                FontSize="10" FontStyle="Italic" TextWrapping="Wrap"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,2"/>
 

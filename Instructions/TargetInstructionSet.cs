@@ -243,7 +243,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
             AstroPMSettings.ExternallyChanged += () => {
                 RaisePropertyChanged(nameof(FlatsEnabled));
                 RaisePropertyChanged(nameof(FlatsFullSet));
-                RaisePropertyChanged(nameof(FlatsPerTarget));
             };
 
             // Initialize Target so other plugins (e.g. SequencerPlus) don't get a null
@@ -296,22 +295,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 var s = AstroPMSettings.Load();
                 if (s.FlatsFullSet != value) {
                     s.FlatsFullSet = value;
-                    s.Save();
-                    AstroPMSettings.NotifyExternallyChanged(); // refresh Simulator panel mirror
-                }
-                RaisePropertyChanged();
-            }
-        }
-
-        /// <summary>ON (default): capture a separate physical flat set for every target. OFF:
-        /// capture each unique rotation+filter+camera combo only once, then copy the saved
-        /// files into the other targets' folders (identical data, zero extra capture time).</summary>
-        public bool FlatsPerTarget {
-            get => AstroPMSettings.Load().FlatsPerTarget;
-            set {
-                var s = AstroPMSettings.Load();
-                if (s.FlatsPerTarget != value) {
-                    s.FlatsPerTarget = value;
                     s.Save();
                     AstroPMSettings.NotifyExternallyChanged(); // refresh Simulator panel mirror
                 }
@@ -1747,15 +1730,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
         }
 
-        /// <summary>Per-run map from a deduped spec to the OTHER target names it stands in for
-        /// (Flats for Each Target off) — consumed by CopyFlatsToDuplicateTargets. Null when
-        /// per-target capture is on.</summary>
+        /// <summary>Per-run map from a deduped spec to the OTHER target names it stands in for —
+        /// consumed by CopyFlatsToDuplicateTargets after each combo's pass.</summary>
         private Dictionary<FlatSpec, List<string>> _flatsCopyMap;
 
-        /// <summary>Flats for Each Target OFF: collapse specs that differ only by target —
-        /// same rotation, filter, gain, offset, and binning produce byte-identical flats, so
-        /// one capture serves them all. The first target keeps the capture; the rest are
-        /// recorded in <paramref name="copyMap"/> for post-pass file copies.</summary>
+        /// <summary>Collapse specs that differ only by target — same rotation, filter, gain,
+        /// offset, and binning produce byte-identical flats, so one capture serves them all.
+        /// The first target keeps the capture; the rest are recorded in
+        /// <paramref name="copyMap"/> for post-pass file copies.</summary>
         private List<FlatSpec> DedupeSpecsAcrossTargets(List<FlatSpec> specs, Dictionary<FlatSpec, List<string>> copyMap) {
             var result = new List<FlatSpec>();
             var index = new Dictionary<string, FlatSpec>(StringComparer.OrdinalIgnoreCase);
@@ -1774,7 +1756,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
             if (result.Count < specs.Count)
                 global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Flats: Flats for Each Target off — {specs.Count} combos collapse to {result.Count} physical captures; identical files will be copied to the duplicate targets");
+                    $"AstroPM | Flats: {specs.Count} combos collapse to {result.Count} physical captures (identical rotation/filter/camera across targets); files will be copied to the duplicate targets");
             return result;
         }
 
@@ -1915,15 +1897,13 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // wheel filters that were NOT shot — one pass builds a complete flat library.
             if (FlatsFullSet) specs = ExpandSpecsToFullWheel(specs);
 
-            // Flats for Each Target OFF: several targets sharing a rotation+filter+camera
-            // combo need only ONE physical capture — dedupe here, remember which other
-            // targets each surviving spec stands in for, and copy the saved files to them
-            // after each combo's pass (see CopyFlatsToDuplicateTargets).
-            _flatsCopyMap = null;
-            if (!FlatsPerTarget) {
-                _flatsCopyMap = new Dictionary<FlatSpec, List<string>>();
-                specs = DedupeSpecsAcrossTargets(specs, _flatsCopyMap);
-            }
+            // Several targets sharing a rotation+filter+camera combo produce byte-identical
+            // flats, so only ONE physical capture is needed — dedupe here, remember which
+            // other targets each surviving spec stands in for, and copy the saved files to
+            // them after each combo's pass (see CopyFlatsToDuplicateTargets). Mosaic panels
+            // are the common case: every panel shares one rotation and filter set.
+            _flatsCopyMap = new Dictionary<FlatSpec, List<string>>();
+            specs = DedupeSpecsAcrossTargets(specs, _flatsCopyMap);
 
             // Guider down + trigger blackout for the whole pass (see FlatsIsolationContainer).
             await StopGuidingForFlats(token);
@@ -2019,8 +1999,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     // matches the lights — no reliance on the user configuring each instruction.
                     ApplyComboToTrainedFlats(FlatsRunner, spec, filter);
 
-                    // Flats for Each Target off: watch what NINA saves during this combo's pass
-                    // so the files can be mirrored into the duplicate targets' folders after.
+                    // When this combo stands in for other targets, watch what NINA saves during
+                    // its pass so the files can be mirrored into their folders after.
                     List<string> savedPaths = null;
                     List<string> dupTargets = null;
                     EventHandler<ImageSavedEventArgs> saveHandler = null;

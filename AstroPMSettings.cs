@@ -30,7 +30,6 @@ namespace AstroPM.NINA.Plugin
         private string _playbackMode = "TimeAware";
         private bool _flatsEnabled;
         private bool _flatsFullSet;
-        private bool _flatsPerTarget = true;
         private bool _offlineMode;
         private string _selectedImagingSystem = string.Empty;
         private string _lastReportedModesHash = string.Empty;
@@ -196,15 +195,6 @@ namespace AstroPM.NINA.Plugin
         {
             get => _flatsFullSet;
             set { if (_flatsFullSet != value) { _flatsFullSet = value; OnPropertyChanged(); } }
-        }
-
-        /// <summary>ON (default): capture a separate physical flat set for every target.
-        /// OFF: capture each unique rotation+filter+camera combo once and copy the files
-        /// into the other targets' folders. Pushed from the desktop app via cloud sync.</summary>
-        public bool FlatsPerTarget
-        {
-            get => _flatsPerTarget;
-            set { if (_flatsPerTarget != value) { _flatsPerTarget = value; OnPropertyChanged(); } }
         }
 
         /// <summary>Hash of the camera readout-mode list last successfully reported to the cloud

@@ -49,7 +49,6 @@ namespace AstroPM.NINA.Plugin.Models
         [JsonProperty("FilterSwitchTolerance")] public double FilterSwitchTolerance { get; set; } = 0.5;
         [JsonProperty("FlatsEnabled")] public bool FlatsEnabled { get; set; } = false;
         [JsonProperty("FlatsFullSet")] public bool FlatsFullSet { get; set; } = false;
-        [JsonProperty("FlatsPerTarget")] public bool FlatsPerTarget { get; set; } = true;
 
         // Site coordinates stamped in by the desktop at push time — used to warn when the
         // NINA profile's observatory location disagrees with the rig's site.
