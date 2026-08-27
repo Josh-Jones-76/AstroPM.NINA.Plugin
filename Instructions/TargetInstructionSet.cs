@@ -484,7 +484,15 @@ namespace AstroPM.NINA.Plugin.Instructions {
             ResetRunnerProgress(FlatsSetupRunner);
             ResetRunnerProgress(FlatsRunner);
             ResetRunnerProgress(FlatsTeardownRunner);
-            global::NINA.Core.Utility.Logger.Info("AstroPM | Manual reset — schedule and flat tracking cleared, will re-fetch on next run");
+            // The container itself still carries NINA-side FINISHED status from the previous
+            // run — without resetting it, a stopped-and-restarted sequence SKIPS Execute()
+            // entirely and the schedule is never re-fetched (field report: users had to also
+            // right-click → Reset Progress on the instruction set before targets came back).
+            // One button now does both. Skipped while RUNNING: the live pass already rebuilds
+            // via _scheduleBuilt = false, and yanking statuses mid-execution confuses NINA.
+            if (Status != global::NINA.Core.Enum.SequenceEntityStatus.RUNNING)
+                ResetRunnerProgress(this);
+            global::NINA.Core.Utility.Logger.Info("AstroPM | Manual reset — schedule, flat tracking, and container progress cleared, will re-fetch on next run");
             Notification.ShowInformation("Astro PM: Schedule reset. Start the sequence to fetch new targets.");
         });
 
