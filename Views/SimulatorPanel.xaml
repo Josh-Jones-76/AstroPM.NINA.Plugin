@@ -155,6 +155,13 @@
                               VerticalAlignment="Center"
                               ToolTip="Take flats for EVERY filter in the filter wheel at each target/rotation captured tonight — not just the filters shot. Useful for building a complete flat library in one pass. Mirrors the desktop app's simulator setting."/>
 
+                    <TextBlock Text="Flats for Each Target" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <CheckBox IsChecked="{Binding FlatsPerTarget, Mode=TwoWay}"
+                              IsEnabled="{Binding FlatsEnabled}"
+                              VerticalAlignment="Center"
+                              ToolTip="On (default): physically capture a separate flat set for every target. Off: capture each unique rotation + filter + camera combination only once, then copy the identical flat files into the other targets' folders (needs $$TARGETNAME$$ in the NINA file pattern). Mirrors the desktop app's simulator setting."/>
+
                 </WrapPanel>
 
                 <!-- Sort Chain — drag-to-reorder priority -->

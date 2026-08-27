@@ -243,6 +243,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             AstroPMSettings.ExternallyChanged += () => {
                 RaisePropertyChanged(nameof(FlatsEnabled));
                 RaisePropertyChanged(nameof(FlatsFullSet));
+                RaisePropertyChanged(nameof(FlatsPerTarget));
             };
 
             // Initialize Target so other plugins (e.g. SequencerPlus) don't get a null
@@ -295,6 +296,22 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 var s = AstroPMSettings.Load();
                 if (s.FlatsFullSet != value) {
                     s.FlatsFullSet = value;
+                    s.Save();
+                    AstroPMSettings.NotifyExternallyChanged(); // refresh Simulator panel mirror
+                }
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>ON (default): capture a separate physical flat set for every target. OFF:
+        /// capture each unique rotation+filter+camera combo only once, then copy the saved
+        /// files into the other targets' folders (identical data, zero extra capture time).</summary>
+        public bool FlatsPerTarget {
+            get => AstroPMSettings.Load().FlatsPerTarget;
+            set {
+                var s = AstroPMSettings.Load();
+                if (s.FlatsPerTarget != value) {
+                    s.FlatsPerTarget = value;
                     s.Save();
                     AstroPMSettings.NotifyExternallyChanged(); // refresh Simulator panel mirror
                 }
@@ -1730,6 +1747,86 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
         }
 
+        /// <summary>Per-run map from a deduped spec to the OTHER target names it stands in for
+        /// (Flats for Each Target off) — consumed by CopyFlatsToDuplicateTargets. Null when
+        /// per-target capture is on.</summary>
+        private Dictionary<FlatSpec, List<string>> _flatsCopyMap;
+
+        /// <summary>Flats for Each Target OFF: collapse specs that differ only by target —
+        /// same rotation, filter, gain, offset, and binning produce byte-identical flats, so
+        /// one capture serves them all. The first target keeps the capture; the rest are
+        /// recorded in <paramref name="copyMap"/> for post-pass file copies.</summary>
+        private List<FlatSpec> DedupeSpecsAcrossTargets(List<FlatSpec> specs, Dictionary<FlatSpec, List<string>> copyMap) {
+            var result = new List<FlatSpec>();
+            var index = new Dictionary<string, FlatSpec>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in specs) {
+                string key = $"{Math.Round(s.RotationDeg, 1)}|{s.FilterName}|{s.Gain}|{s.Offset}|{s.BinX}x{s.BinY}";
+                if (index.TryGetValue(key, out var primary)) {
+                    if (!string.IsNullOrEmpty(s.TargetName)
+                        && !string.Equals(primary.TargetName, s.TargetName, StringComparison.OrdinalIgnoreCase)) {
+                        if (!copyMap.TryGetValue(primary, out var list)) copyMap[primary] = list = new List<string>();
+                        if (!list.Contains(s.TargetName, StringComparer.OrdinalIgnoreCase)) list.Add(s.TargetName);
+                    }
+                } else {
+                    index[key] = s;
+                    result.Add(s);
+                }
+            }
+            if (result.Count < specs.Count)
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Flats: Flats for Each Target off — {specs.Count} combos collapse to {result.Count} physical captures; identical files will be copied to the duplicate targets");
+            return result;
+        }
+
+        /// <summary>After a deduped combo's pass: copy the flat files NINA just saved into each
+        /// duplicate target's folder by swapping the primary target's name inside the saved
+        /// path. If the user's file pattern has no $$TARGETNAME$$, the paths contain no target
+        /// segment and there is nothing to mirror — the single shared set is already right.</summary>
+        private void CopyFlatsToDuplicateTargets(FlatSpec spec, List<string> savedPaths, List<string> dupTargets) {
+            try {
+                List<string> paths;
+                lock (savedPaths) paths = savedPaths.ToList();
+                string primary = spec.TargetName ?? "";
+                if (paths.Count == 0) {
+                    global::NINA.Core.Utility.Logger.Warning(
+                        $"AstroPM | Flats: no saved flat files observed for {primary} {spec.FilterName} — nothing to copy to {dupTargets.Count} duplicate target(s)");
+                    return;
+                }
+                if (string.IsNullOrEmpty(primary)) return;
+
+                foreach (var dup in dupTargets) {
+                    string safeDup = SanitizeForPath(dup);
+                    int copied = 0, skipped = 0;
+                    foreach (var src in paths) {
+                        if (src.IndexOf(primary, StringComparison.OrdinalIgnoreCase) < 0) { skipped++; continue; }
+                        string dst = src.Replace(primary, safeDup, StringComparison.OrdinalIgnoreCase);
+                        if (string.Equals(dst, src, StringComparison.OrdinalIgnoreCase)) continue;
+                        try {
+                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(dst));
+                            if (!System.IO.File.Exists(dst)) { System.IO.File.Copy(src, dst); copied++; }
+                        } catch (Exception ex) {
+                            global::NINA.Core.Utility.Logger.Warning($"AstroPM | Flats: copy failed {src} → {dst}: {ex.Message}");
+                        }
+                    }
+                    if (skipped == paths.Count)
+                        global::NINA.Core.Utility.Logger.Info(
+                            $"AstroPM | Flats: saved paths contain no target-name segment (no $$TARGETNAME$$ in file pattern?) — shared set stands, no copies for '{dup}'");
+                    else
+                        global::NINA.Core.Utility.Logger.Info(
+                            $"AstroPM | Flats: copied {copied} flat(s) ({spec.FilterName} @ {spec.RotationDeg:F1}°) from '{primary}' to '{dup}'");
+                }
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Warning($"AstroPM | Flats: duplicate-target copy failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Target names become folder/file segments — mirror the invalid-char scrub the
+        /// primary name went through when NINA built the source path.</summary>
+        private static string SanitizeForPath(string name) {
+            foreach (var c in System.IO.Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+            return name;
+        }
+
         private void UpdateFlatsSummary() {
             List<FlatSpec> specs;
             lock (_flatSpecs) specs = _flatSpecs.ToList();
@@ -1818,6 +1915,16 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // wheel filters that were NOT shot — one pass builds a complete flat library.
             if (FlatsFullSet) specs = ExpandSpecsToFullWheel(specs);
 
+            // Flats for Each Target OFF: several targets sharing a rotation+filter+camera
+            // combo need only ONE physical capture — dedupe here, remember which other
+            // targets each surviving spec stands in for, and copy the saved files to them
+            // after each combo's pass (see CopyFlatsToDuplicateTargets).
+            _flatsCopyMap = null;
+            if (!FlatsPerTarget) {
+                _flatsCopyMap = new Dictionary<FlatSpec, List<string>>();
+                specs = DedupeSpecsAcrossTargets(specs, _flatsCopyMap);
+            }
+
             // Guider down + trigger blackout for the whole pass (see FlatsIsolationContainer).
             await StopGuidingForFlats(token);
             _flatsShim = new FlatsIsolationContainer { Target = Target, NighttimeData = NighttimeData };
@@ -1827,6 +1934,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 // Re-home the runners: a cancelled pass would otherwise leave them parented
                 // to the shim, and the next pass/UI expects the normal tree.
                 _flatsShim = null;
+                _flatsCopyMap = null;
                 FlatsSetupRunner?.AttachNewParent(this);
                 FlatsRunner?.AttachNewParent(this);
                 FlatsTeardownRunner?.AttachNewParent(this);
@@ -1911,6 +2019,23 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     // matches the lights — no reliance on the user configuring each instruction.
                     ApplyComboToTrainedFlats(FlatsRunner, spec, filter);
 
+                    // Flats for Each Target off: watch what NINA saves during this combo's pass
+                    // so the files can be mirrored into the duplicate targets' folders after.
+                    List<string> savedPaths = null;
+                    List<string> dupTargets = null;
+                    EventHandler<ImageSavedEventArgs> saveHandler = null;
+                    if (_flatsCopyMap != null && _flatsCopyMap.TryGetValue(spec, out dupTargets) && dupTargets.Count > 0) {
+                        savedPaths = new List<string>();
+                        var sink = savedPaths;
+                        saveHandler = (o, args) => {
+                            try {
+                                if (args?.PathToImage == null) return;
+                                lock (sink) sink.Add(args.PathToImage.LocalPath);
+                            } catch { }
+                        };
+                        _imageSaveMediator.ImageSaved += saveHandler;
+                    }
+
                     try {
                         global::NINA.Core.Utility.Logger.Info(
                             $"AstroPM | Flats: running instructions for {spec.TargetName} {spec.FilterName} G{spec.Gain} O{spec.Offset} {spec.BinX}×{spec.BinY} @ {group.Key:F1}°");
@@ -1925,7 +2050,12 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     } catch (Exception ex) {
                         global::NINA.Core.Utility.Logger.Error(
                             $"AstroPM | Flats: instructions failed for {spec.TargetName} {spec.FilterName} @ {group.Key:F1}°: {ex.Message} — continuing with next combo");
+                    } finally {
+                        if (saveHandler != null) _imageSaveMediator.ImageSaved -= saveHandler;
                     }
+
+                    if (savedPaths != null)
+                        CopyFlatsToDuplicateTargets(spec, savedPaths, dupTargets);
                 }
                 }
             }
