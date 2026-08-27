@@ -29,6 +29,7 @@ namespace AstroPM.NINA.Plugin
         private double _filterSwitchTolerance = 0.5;
         private string _playbackMode = "TimeAware";
         private bool _flatsEnabled;
+        private bool _flatsFullSet;
         private bool _offlineMode;
         private string _selectedImagingSystem = string.Empty;
         private string _lastReportedModesHash = string.Empty;
@@ -185,6 +186,15 @@ namespace AstroPM.NINA.Plugin
         {
             get => _flatsEnabled;
             set { if (_flatsEnabled != value) { _flatsEnabled = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>With Flat Handling enabled: take flats for EVERY filter in the wheel at
+        /// each target/rotation captured tonight, not just the filters actually shot. Pushed
+        /// from the desktop app's simulator settings via the imaging-system cloud sync.</summary>
+        public bool FlatsFullSet
+        {
+            get => _flatsFullSet;
+            set { if (_flatsFullSet != value) { _flatsFullSet = value; OnPropertyChanged(); } }
         }
 
         /// <summary>Hash of the camera readout-mode list last successfully reported to the cloud

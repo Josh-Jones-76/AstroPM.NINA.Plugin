@@ -240,7 +240,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             // Cloud-applied settings (Options refresh / schedule build) flip FlatsEnabled in
             // settings.json — re-read it so the sequencer header checkbox tracks the change.
-            AstroPMSettings.ExternallyChanged += () => RaisePropertyChanged(nameof(FlatsEnabled));
+            AstroPMSettings.ExternallyChanged += () => {
+                RaisePropertyChanged(nameof(FlatsEnabled));
+                RaisePropertyChanged(nameof(FlatsFullSet));
+            };
 
             // Initialize Target so other plugins (e.g. SequencerPlus) don't get a null
             // when they walk the tree looking for IDeepSkyObjectContainer before we execute.
@@ -276,6 +279,22 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 var s = AstroPMSettings.Load();
                 if (s.FlatsEnabled != value) {
                     s.FlatsEnabled = value;
+                    s.Save();
+                    AstroPMSettings.NotifyExternallyChanged(); // refresh Simulator panel mirror
+                }
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>Same plugin-wide proxy pattern as <see cref="FlatsEnabled"/>: with flats on,
+        /// run the Flat Handling instructions for EVERY filter in the wheel at each
+        /// target/rotation captured tonight — not just the filters actually shot.</summary>
+        public bool FlatsFullSet {
+            get => AstroPMSettings.Load().FlatsFullSet;
+            set {
+                var s = AstroPMSettings.Load();
+                if (s.FlatsFullSet != value) {
+                    s.FlatsFullSet = value;
                     s.Save();
                     AstroPMSettings.NotifyExternallyChanged(); // refresh Simulator panel mirror
                 }
@@ -1669,6 +1688,48 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
         }
 
+        /// <summary>Full Set of Flats: for every (target, rotation) group captured tonight, append
+        /// a spec for each wheel filter the group is missing — camera settings (gain/offset/bin)
+        /// and the mechanical rotation are inherited from the group's recorded lights, so the
+        /// synthesized flats file under the same target with matching trained-flat identity.
+        /// Recorded combos keep their capture order; synthesized ones follow in wheel order.</summary>
+        private List<FlatSpec> ExpandSpecsToFullWheel(List<FlatSpec> specs) {
+            try {
+                var wheel = _profileService?.ActiveProfile?.FilterWheelSettings?.FilterWheelFilters;
+                if (wheel == null || wheel.Count == 0) {
+                    global::NINA.Core.Utility.Logger.Warning(
+                        "AstroPM | Flats: Full Set requested but no filters are defined in the NINA profile — using tonight's captures only");
+                    return specs;
+                }
+                var result = new List<FlatSpec>(specs);
+                foreach (var g in specs.GroupBy(s => new { T = s.TargetName ?? "", Rot = Math.Round(s.RotationDeg, 1) })) {
+                    var template = g.First();
+                    foreach (var f in wheel) {
+                        if (string.IsNullOrEmpty(f?.Name)) continue;
+                        if (g.Any(s => string.Equals(s.FilterName, f.Name, StringComparison.OrdinalIgnoreCase))) continue;
+                        result.Add(new FlatSpec {
+                            TargetName = template.TargetName,
+                            FilterName = f.Name,
+                            RotationDeg = template.RotationDeg,
+                            MechanicalRotation = template.MechanicalRotation,
+                            Gain = template.Gain,
+                            Offset = template.Offset,
+                            BinX = template.BinX,
+                            BinY = template.BinY,
+                        });
+                    }
+                }
+                if (result.Count > specs.Count)
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | Flats: Full Set of Flats — expanded {specs.Count} captured combos to {result.Count} (all {wheel.Count} wheel filters at each target/rotation)");
+                return result;
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Warning(
+                    $"AstroPM | Flats: Full Set expansion failed ({ex.Message}) — using tonight's captures only");
+                return specs;
+            }
+        }
+
         private void UpdateFlatsSummary() {
             List<FlatSpec> specs;
             lock (_flatSpecs) specs = _flatSpecs.ToList();
@@ -1752,6 +1813,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 _flatsDone = true;
                 return;
             }
+
+            // Full Set of Flats: at every target/rotation captured tonight, also run the
+            // wheel filters that were NOT shot — one pass builds a complete flat library.
+            if (FlatsFullSet) specs = ExpandSpecsToFullWheel(specs);
 
             // Guider down + trigger blackout for the whole pass (see FlatsIsolationContainer).
             await StopGuidingForFlats(token);

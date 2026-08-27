@@ -146,7 +146,14 @@
                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <CheckBox IsChecked="{Binding FlatsEnabled, Mode=TwoWay}"
                               VerticalAlignment="Center"
-                              ToolTip="At session complete, run the Flat Handling instructions in the Astro PM Instructions block — flats for exactly the filters, rotations, and camera settings used that night. Mirrors the desktop app's simulator setting."/>
+                              ToolTip="At session complete, run the Flat Handling instructions in the Astro PM Instructions block — flats for exactly the filters, rotations, and camera settings used that night (or every wheel filter, when Full Set of Flats is also checked). Mirrors the desktop app's simulator setting."/>
+
+                    <TextBlock Text="Full Set of Flats" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <CheckBox IsChecked="{Binding FlatsFullSet, Mode=TwoWay}"
+                              IsEnabled="{Binding FlatsEnabled}"
+                              VerticalAlignment="Center"
+                              ToolTip="Take flats for EVERY filter in the filter wheel at each target/rotation captured tonight — not just the filters shot. Useful for building a complete flat library in one pass. Mirrors the desktop app's simulator setting."/>
 
                 </WrapPanel>
 

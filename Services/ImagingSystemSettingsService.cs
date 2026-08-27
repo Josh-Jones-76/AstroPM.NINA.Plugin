@@ -64,6 +64,7 @@ namespace AstroPM.NINA.Plugin.Services
                     settings.FilterSwitchCount = s.FilterSwitchCount;
                     settings.FilterSwitchTolerance = s.FilterSwitchTolerance;
                     settings.FlatsEnabled = s.FlatsEnabled;
+                    settings.FlatsFullSet = s.FlatsFullSet;
                 }
 
                 settings.Save();
