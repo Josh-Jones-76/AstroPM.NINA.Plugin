@@ -914,6 +914,10 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.Strategy = _strategy.ToString();
             settings.PlaybackMode = _playback.ToString();
             settings.Save();
+            // Other views proxy these settings live (e.g. the sequencer's read-only flats
+            // status pill) — tell them a Simulator-panel edit happened. Re-entrant safe:
+            // our own ExternallyChanged handler only re-reads, it never saves.
+            AstroPMSettings.NotifyExternallyChanged();
         }
 
         // ── Card Building ──

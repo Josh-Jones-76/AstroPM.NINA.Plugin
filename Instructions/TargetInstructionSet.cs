@@ -243,6 +243,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             AstroPMSettings.ExternallyChanged += () => {
                 RaisePropertyChanged(nameof(FlatsEnabled));
                 RaisePropertyChanged(nameof(FlatsFullSet));
+                RaisePropertyChanged(nameof(FlatsStatusText));
             };
 
             // Initialize Target so other plugins (e.g. SequencerPlus) don't get a null
@@ -301,6 +302,15 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 RaisePropertyChanged();
             }
         }
+
+        /// <summary>Read-only status pill for the sequencer header — the ON/OFF sliders that
+        /// used to sit there wrote the global setting but read as a local instruction-set
+        /// toggle, which misled users. The real switches live in the desktop app / plugin
+        /// Simulator panel.</summary>
+        public string FlatsStatusText =>
+            !FlatsEnabled ? "Flats: Off  (enable in Astro PM app or Simulator panel)"
+            : FlatsFullSet ? "Flats: Enabled · Full Filter Set"
+            : "Flats: Enabled";
 
         /// <summary>Runs once, before the per-combo loop — park mount, close flat panel, light on.</summary>
         [JsonProperty]

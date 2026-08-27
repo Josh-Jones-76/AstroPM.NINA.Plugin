@@ -329,15 +329,15 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="Flat Handling" FontSize="11" FontWeight="SemiBold"
                                            Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center"/>
-                                <CheckBox Content="Enabled" IsChecked="{Binding FlatsEnabled}"
-                                          Margin="16,0,0,0" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
-                                          VerticalAlignment="Center"
-                                          ToolTip="When off, the flat instructions are skipped at session complete. When on, flats run once per target + filter + rotation captured tonight (or every wheel filter, with Full Set checked). Synced with 'Enable Flats Sequence' in the Astro PM desktop app and the plugin Simulator panel."/>
-                                <CheckBox Content="Full Set" IsChecked="{Binding FlatsFullSet}"
-                                          IsEnabled="{Binding FlatsEnabled}"
-                                          Margin="10,0,0,0" FontSize="10" Foreground="{DynamicResource PrimaryBrush}"
-                                          VerticalAlignment="Center"
-                                          ToolTip="Take flats for EVERY filter in the filter wheel at each target/rotation captured tonight — not just the filters shot. Filters that weren't shot inherit the target's gain/offset/binning. Synced with 'Full Set of Flats' in the Astro PM desktop app and the plugin Simulator panel."/>                                <TextBlock Text="{Binding FlatsSummary}" FontSize="10"
+                                <!-- Read-only status: the actual switches live in the Astro PM app /
+                                     plugin Simulator panel — checkboxes here misled users into thinking
+                                     this instruction set had its own local toggle. -->
+                                <Border Margin="16,0,0,0" VerticalAlignment="Center" CornerRadius="3"
+                                        Background="#22007ACC" Padding="7,1"
+                                        ToolTip="Read-only status. Flats are controlled by 'Enable Flats Sequence' and 'Full Set of Flats' in the Astro PM desktop app (per imaging system, synced to this rig) or the plugin's Simulator panel — not here.">
+                                    <TextBlock Text="{Binding FlatsStatusText}" FontSize="10"
+                                               Foreground="{DynamicResource PrimaryBrush}"/>
+                                </Border>                                <TextBlock Text="{Binding FlatsSummary}" FontSize="10"
                                            Foreground="{DynamicResource PrimaryBrush}" Opacity="0.75"
                                            VerticalAlignment="Center" Margin="16,0,0,0"/>
                             </StackPanel>
