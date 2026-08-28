@@ -364,7 +364,7 @@
                             </StackPanel>
                         </Expander.Header>
                         <StackPanel Margin="0,4,0,0">
-                    <TextBlock Text="Runs when the session completes. Setup and teardown run once; the middle box repeats once per target + filter + rotation combination captured tonight — the filter wheel, rotator, gain, offset, and binning are set automatically for each pass to match the lights, and flats are saved under each target's name. Targets sharing an identical rotation + filter + camera combination are captured once, with the saved files copied into each target's folder. With Full Set checked, every filter in the wheel runs at each target/rotation, not just the filters shot tonight."
+                    <TextBlock Text="Runs when the session completes. Setup and teardown run once; the middle box repeats once per target + filter + rotation combination captured tonight — the filter wheel, rotator, gain, offset, and binning are set automatically for each pass to match the lights, and flats are saved under each target's name. Targets sharing an identical rotation + filter + camera combination are captured once, with the saved files copied into each target's folder. With Full Set checked, every filter in the wheel is covered at each rotation — captured once per rotation and copied to every target sharing it, not just the filters shot tonight."
                                FontSize="10" FontStyle="Italic" TextWrapping="Wrap"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,2"/>
 
