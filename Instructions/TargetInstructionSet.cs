@@ -184,7 +184,12 @@ namespace AstroPM.NINA.Plugin.Instructions {
         /// without it, an empty build + a generic NINA loop container (Loop While Safe etc.)
         /// re-enters Execute instantly and re-fetches the cloud at HTTP speed — observed in
         /// the wild at ~4 calls/sec, sustained (API log, license 183, 7/29/26).</summary>
-        private DateTime _lastEmptyBuildUtc = DateTime.MinValue;
+        // Stamped at the START of every schedule-build attempt (not on success) so no exit
+        // path — empty result, exception mid-build, or cancellation — can leave the rebuild
+        // cooldown unarmed. Field case 8/6/26: an exception thrown inside BuildSchedule left
+        // the old empty-build stamp unset, and a generic NINA loop container re-entered
+        // Execute at fetch speed for hours (license 133/201 runaway loops in the API log).
+        private DateTime _lastBuildAttemptUtc = DateTime.MinValue;
         private static readonly TimeSpan EmptyRebuildCooldown = TimeSpan.FromMinutes(5);
 
         // Persisted across interruptions
@@ -463,6 +468,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _currentBlockIndex = 0;
             _sessionEndUtc = DateTime.MinValue;
             _scheduleNightDate = DateTime.MinValue;
+            _lastBuildAttemptUtc = DateTime.MinValue;   // manual reset always allows an immediate fetch
             _lastLog = null;
             _lastSlots = null;
             _lastProfiles = null;
@@ -749,7 +755,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _currentBlockIndex = 0;
             _sessionEndUtc = DateTime.MinValue;
             _scheduleNightDate = DateTime.MinValue;
-            _lastEmptyBuildUtc = DateTime.MinValue;   // a reset (manual or stale) always allows an immediate fetch
+            _lastBuildAttemptUtc = DateTime.MinValue;   // a reset (manual or stale) always allows an immediate fetch
             Logger.Info("AstroPM | Schedule reset for new night");
         }
 
@@ -786,13 +792,16 @@ namespace AstroPM.NINA.Plugin.Instructions {
             bool needsBuild = !_scheduleBuilt
                 || _blocks == null || _blocks.Count == 0;
 
-            // An empty build keeps needsBuild true forever — throttle the retry so a hot
-            // outer loop can't hammer the cloud. Within the cooldown: no fetch, just a
-            // short cancellable wait so the wrapping loop container isn't a busy-spin.
-            if (needsBuild && _scheduleBuilt
-                && DateTime.UtcNow - _lastEmptyBuildUtc < EmptyRebuildCooldown) {
+            // An empty OR failed build keeps needsBuild true forever — throttle retries so a
+            // hot outer loop can't hammer the cloud. Gated on the last ATTEMPT, not on
+            // _scheduleBuilt: an exception inside BuildSchedule leaves _scheduleBuilt false,
+            // and the old gate then never throttled (the 1.4.10/1.5.3 runaway-loop hole).
+            // Within the cooldown: no fetch, just a short cancellable wait so the wrapping
+            // loop container isn't a busy-spin.
+            if (needsBuild
+                && DateTime.UtcNow - _lastBuildAttemptUtc < EmptyRebuildCooldown) {
                 global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Execute: last build was empty {(DateTime.UtcNow - _lastEmptyBuildUtc).TotalSeconds:F0}s ago — waiting out the {EmptyRebuildCooldown.TotalMinutes:F0}m rebuild cooldown (no cloud fetch)");
+                    $"AstroPM | Execute: last build attempt was {(DateTime.UtcNow - _lastBuildAttemptUtc).TotalSeconds:F0}s ago with no schedule to run — waiting out the {EmptyRebuildCooldown.TotalMinutes:F0}m rebuild cooldown (no cloud fetch)");
                 await Task.Delay(TimeSpan.FromSeconds(30), token);
                 return;
             }
@@ -801,6 +810,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 if (needsBuild) {
                     var reason = !_scheduleBuilt ? "first run or reset" : "no blocks";
                     global::NINA.Core.Utility.Logger.Info($"AstroPM | Execute: building schedule ({reason})");
+                    _lastBuildAttemptUtc = DateTime.UtcNow;   // arm the cooldown BEFORE the attempt
                     await BuildSchedule(progress, token);
                     _scheduleBuilt = true;
                     if (_blocks == null || _blocks.Count == 0) {
@@ -814,7 +824,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         // could never flip it stale — every later sequence start would skip
                         // the instruction set until NINA restarts.
                         _sessionEndUtc = DateTime.UtcNow;
-                        _lastEmptyBuildUtc = DateTime.UtcNow;   // arms the rebuild cooldown
+                        _lastBuildAttemptUtc = DateTime.UtcNow;   // re-stamp at completion so slow fetches get the full cooldown
                         global::NINA.Core.Utility.Logger.Info(
                             $"AstroPM | Schedule build produced no blocks — next rebuild attempt in {EmptyRebuildCooldown.TotalMinutes:F0}m");
                         return;
@@ -844,7 +854,11 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     HasLiveStatus = true;
                 }
             } catch (OperationCanceledException) {
-                // Sequence was stopped — reset status displays
+                // Sequence was stopped — reset status displays. Also disarm the rebuild
+                // cooldown: a user stopping and restarting the sequence expects an
+                // immediate fresh fetch, not a 5-minute wait (the cooldown exists for
+                // unattended runaway loops, and those don't cancel — they throw).
+                _lastBuildAttemptUtc = DateTime.MinValue;
                 ResetLiveStatus();
                 progress?.Report(new ApplicationStatus { Status = "" });
                 throw;
