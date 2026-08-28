@@ -39,8 +39,11 @@ namespace AstroPM.NINA.Plugin.Models {
 
         public double AllocatedSec { get; set; }
         public int? PanelIndex { get; set; }
+        // "P{n}" matches the engine's panel labels, the sim log's Panel column, and the
+        // folder names the panel-rotation (preference OFF) path produces — one naming
+        // convention regardless of which mosaic mode built the schedule.
         public string DisplayName => PanelIndex.HasValue
-            ? $"{Target.TargetName} Panel {PanelIndex.Value + 1}"
+            ? $"{Target.TargetName} P{PanelIndex.Value + 1}"
             : Target.TargetName;
     }
 

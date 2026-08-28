@@ -88,6 +88,20 @@
                         <GridViewColumn Header="Offset" Width="45" DisplayMemberBinding="{Binding Offset}"/>
                         <GridViewColumn Header="Bin" Width="35" DisplayMemberBinding="{Binding Bin}"/>
                         <GridViewColumn Header="Readout" Width="50" DisplayMemberBinding="{Binding ReadoutMode}"/>
+                        <GridViewColumn Header="Rot" Width="45" DisplayMemberBinding="{Binding Rotation}"/>
+                        <GridViewColumn Header="RA" Width="85" DisplayMemberBinding="{Binding RA}"/>
+                        <GridViewColumn Header="DEC" Width="90" DisplayMemberBinding="{Binding DEC}"/>
+                        <GridViewColumn Header="Sort 1" Width="42" DisplayMemberBinding="{Binding Sort1}"/>
+                        <GridViewColumn Header="Sort 2" Width="42" DisplayMemberBinding="{Binding Sort2}"/>
+                        <GridViewColumn Header="Sort 3" Width="42" DisplayMemberBinding="{Binding Sort3}"/>
+                        <GridViewColumn Header="Sort 4" Width="42" DisplayMemberBinding="{Binding Sort4}"/>
+                        <GridViewColumn Header="Alt" Width="40" DisplayMemberBinding="{Binding Altitude}"/>
+                        <GridViewColumn Header="Moon Sep" Width="60" DisplayMemberBinding="{Binding MoonSep}"/>
+                        <GridViewColumn Header="Moon OK" Width="55" DisplayMemberBinding="{Binding MoonSafe}"/>
+                        <GridViewColumn Header="Avoid Sep" Width="60" DisplayMemberBinding="{Binding MoonAvoidSep}"/>
+                        <GridViewColumn Header="Dark" Width="40" DisplayMemberBinding="{Binding DarkSafe}"/>
+                        <GridViewColumn Header="LA" Width="32" DisplayMemberBinding="{Binding LaEnabled}"/>
+                        <GridViewColumn Header="LA Safe" Width="50" DisplayMemberBinding="{Binding LaSafe}"/>
                         <GridViewColumn Header="Filter Profile" Width="95" DisplayMemberBinding="{Binding FilterProfile}"/>
                         <GridViewColumn Header="Accepted Profiles" Width="175" DisplayMemberBinding="{Binding AcceptedProfiles}"/>
                     </GridView>

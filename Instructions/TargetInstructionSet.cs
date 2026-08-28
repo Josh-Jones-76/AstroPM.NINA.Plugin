@@ -2256,8 +2256,12 @@ namespace AstroPM.NINA.Plugin.Instructions {
                             rot = pnl.RotationDeg;
                         }
                     } else if (isPanelSlew && profile != null) {
-                        var pnl = profile.Target.Panels?.FirstOrDefault(p =>
-                            string.Equals(p.Label, panelLabel, StringComparison.OrdinalIgnoreCase));
+                        // Engine panel labels are POSITIONAL — "P1" = first panel in
+                        // PanelIndex order. They never equal the cloud's Label text
+                        // ("Panel 1"), so matching on Label always fell back to the
+                        // project-center coordinates and every panel slewed to the middle
+                        // of the mosaic.
+                        var pnl = ResolvePanelByEngineLabel(profile, panelLabel);
                         if (pnl != null) {
                             ra = pnl.RaHours;
                             dec = pnl.DecDegrees;
@@ -2296,7 +2300,48 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 blocks.Add(current);
             }
 
+            // Mosaic fixup. The engine's log is panel-accurate (every Image entry carries
+            // its Panel label), but the block boundaries hide it in two spots: the INITIAL
+            // slew to a mosaic is logged with the bare target name (the panel is only
+            // picked after the slew), so the first block filed under a suffix-less name
+            // and slewed to the project center. Derive each block's panel from its own
+            // exposure entries, then re-point the block at that panel.
+            foreach (var b in blocks) {
+                var panels = b.Profile?.Target?.Panels;
+                if (panels == null || panels.Count <= 1) continue;
+                if (b.Profile.PanelIndex.HasValue) continue;   // per-panel profiles are already exact
+                string pl = b.Entries.FirstOrDefault(e => !string.IsNullOrEmpty(e.Panel))?.Panel;
+                if (string.IsNullOrEmpty(pl)) continue;
+                if (!b.TargetName.EndsWith(" " + pl, StringComparison.OrdinalIgnoreCase))
+                    b.TargetName = $"{b.TargetName} {pl}";
+                var pnl = ResolvePanelByEngineLabel(b.Profile, pl);
+                if (pnl != null) {
+                    b.RaHours = pnl.RaHours;
+                    b.DecDegrees = pnl.DecDegrees;
+                    b.RotationDeg = pnl.RotationDeg;
+                } else {
+                    // Never fall back silently — a mosaic block pointed at the project
+                    // center instead of its panel is how panels imaged the same field
+                    // for weeks without anyone noticing (8/28/26).
+                    global::NINA.Core.Utility.Logger.Warning(
+                        $"AstroPM | Mosaic block '{b.TargetName}': panel '{pl}' did not resolve to a panel " +
+                        $"({panels.Count} panels on target) — block keeps target-level coordinates. Check panel data.");
+                }
+            }
+
             return blocks;
+        }
+
+        /// <summary>Maps an engine panel label ("P1", "P2"…) to its PanelData. Engine labels
+        /// are positional — "P{n}" is the n-th panel in PanelIndex order (see
+        /// SessionScheduler.PickExposureSet) — NOT the cloud's display Label ("Panel 1").</summary>
+        private static PanelData ResolvePanelByEngineLabel(TargetProfile profile, string panelLabel) {
+            var panels = profile?.Target?.Panels;
+            if (panels == null || string.IsNullOrEmpty(panelLabel)) return null;
+            if (panelLabel.Length < 2 || panelLabel[0] != 'P') return null;
+            if (!int.TryParse(panelLabel.Substring(1), out int n)) return null;
+            var ordered = panels.OrderBy(p => p.PanelIndex).ToList();
+            return n >= 1 && n <= ordered.Count ? ordered[n - 1] : null;
         }
 
         private static List<SortCriteria> ParseSortChain(string csv) {

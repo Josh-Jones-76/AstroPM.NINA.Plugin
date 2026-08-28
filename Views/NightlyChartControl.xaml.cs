@@ -392,7 +392,9 @@ namespace AstroPM.NINA.Plugin.Views {
 
         /// <summary>Splits a trailing " Panel N" from a target name → (base name, "PN"), or (name, null).</summary>
         private static (string Name, string Suffix) SplitPanelSuffix(string name) {
-            var m = System.Text.RegularExpressions.Regex.Match(name ?? "", @"^(.*\S)\s+Panel\s+(\d+)$",
+            // Both panel-name forms: "… Panel 2" (legacy per-panel profiles) and "… P2"
+            // (the standard engine label, also used by per-panel profiles since 8/28).
+            var m = System.Text.RegularExpressions.Regex.Match(name ?? "", @"^(.*\S)\s+(?:Panel\s+|P)(\d+)$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             return m.Success ? (m.Groups[1].Value, "P" + m.Groups[2].Value) : (name, null);
         }
@@ -682,7 +684,10 @@ namespace AstroPM.NINA.Plugin.Views {
                     if (isPanelSlew) {
                         FlushRun();
                         string panelName = entry.Target.Substring(entry.Target.LastIndexOf("→ ") + 2).Trim();
-                        if (cur.Panels.All(p => p.Name != panelName))
+                        // Segments, not unique names — the schedule alternates panels
+                        // (P1, P2, P1, P2…) and every return visit needs its own divider
+                        // and label, like the desktop chart.
+                        if (cur.Panels.Count == 0 || cur.Panels[cur.Panels.Count - 1].Name != panelName)
                             cur.Panels.Add((panelName, entry.UtcTime));
                     } else {
                         FlushRun();
@@ -710,7 +715,7 @@ namespace AstroPM.NINA.Plugin.Views {
                     else { runEnd = entryEnd; }
 
                     if ((entry.Command == "Image" || entry.Command == "Bonus") && !string.IsNullOrEmpty(entry.Panel)
-                        && cur.Panels.All(p => p.Name != entry.Panel))
+                        && (cur.Panels.Count == 0 || cur.Panels[cur.Panels.Count - 1].Name != entry.Panel))
                         cur.Panels.Add((entry.Panel, entry.UtcTime));
                 } else {
                     FlushRun();
