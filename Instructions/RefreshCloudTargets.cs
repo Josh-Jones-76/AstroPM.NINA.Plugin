@@ -12,7 +12,7 @@ using AstroPM.NINA.Plugin.Services;
 
 namespace AstroPM.NINA.Plugin.Instructions
 {
-    [ExportMetadata("Name", "AstroPM Refresh Cloud Targets")]
+    [ExportMetadata("Name", "Astro PM Refresh Cloud Targets")]
     [ExportMetadata("Description", "Fetches the latest active targets from the Astro PM cloud and updates the local cache")]
     [ExportMetadata("Icon", "LoopSVG")]
     [ExportMetadata("Category", "Astro PM Tools")]
@@ -66,7 +66,7 @@ namespace AstroPM.NINA.Plugin.Instructions
             {
                 FetchSuccess = false;
                 StatusText = "No sync token configured";
-                Notification.ShowWarning("AstroPM Refresh: No sync token configured. Open plugin Options to connect.");
+                Notification.ShowWarning("Astro PM Refresh: No sync token configured. Open plugin Options to connect.");
                 return;
             }
 
@@ -129,7 +129,7 @@ namespace AstroPM.NINA.Plugin.Instructions
                     LastFetchTime = "Last Updated: " + DateTime.Now.ToString("MMM d, yyyy h:mm tt");
                     StatusText = response.Message ?? "Cloud returned an error";
                     Logger.Warning($"AstroPM Refresh | Cloud error: {response.Message}");
-                    Notification.ShowWarning($"AstroPM Refresh: {response.Message ?? "Failed to fetch targets."}");
+                    Notification.ShowWarning($"Astro PM Refresh: {response.Message ?? "Failed to fetch targets."}");
                 }
             }
             catch (Exception ex)
@@ -152,7 +152,7 @@ namespace AstroPM.NINA.Plugin.Instructions
                     StatusText = $"Cloud unavailable — no cache available";
                     Logger.Error($"AstroPM Refresh | Cloud failed and no cache: {ex.Message}");
                 }
-                Notification.ShowWarning($"AstroPM Refresh: Could not reach cloud — {ex.Message}");
+                Notification.ShowWarning($"Astro PM Refresh: Could not reach cloud — {ex.Message}");
             }
 
             progress?.Report(new ApplicationStatus { Status = "" });

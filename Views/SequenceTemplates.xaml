@@ -492,7 +492,7 @@
                             </Style>
                         </Ellipse.Style>
                     </Ellipse>
-                    <TextBlock Text="AstroPM Refresh Cloud Targets" />
+                    <TextBlock Text="Astro PM Refresh Cloud Targets" />
                 </StackPanel>
             </mini:MiniSequenceItem.SequenceItemContent>
         </mini:MiniSequenceItem>
@@ -526,7 +526,7 @@
     <DataTemplate x:Key="AstroPM.NINA.Plugin.Instructions.AstroPMBeforeExposureTrigger_Mini">
         <mini:MiniSequenceItem>
             <mini:MiniSequenceItem.SequenceItemContent>
-                <TextBlock Text="Before Each Exposure Instructions" />
+                <TextBlock Text="Astro PM Before Each Exposure Instructions" />
             </mini:MiniSequenceItem.SequenceItemContent>
         </mini:MiniSequenceItem>
     </DataTemplate>
@@ -559,7 +559,7 @@
     <DataTemplate x:Key="AstroPM.NINA.Plugin.Instructions.AstroPMAfterExposureTrigger_Mini">
         <mini:MiniSequenceItem>
             <mini:MiniSequenceItem.SequenceItemContent>
-                <TextBlock Text="After Each Exposure Instructions" />
+                <TextBlock Text="Astro PM After Each Exposure Instructions" />
             </mini:MiniSequenceItem.SequenceItemContent>
         </mini:MiniSequenceItem>
     </DataTemplate>
@@ -592,7 +592,7 @@
     <DataTemplate x:Key="AstroPM.NINA.Plugin.Instructions.AstroPMBeforeTargetTrigger_Mini">
         <mini:MiniSequenceItem>
             <mini:MiniSequenceItem.SequenceItemContent>
-                <TextBlock Text="Before Target Change Instructions" />
+                <TextBlock Text="Astro PM Before Target Change Instructions" />
             </mini:MiniSequenceItem.SequenceItemContent>
         </mini:MiniSequenceItem>
     </DataTemplate>
@@ -625,7 +625,7 @@
     <DataTemplate x:Key="AstroPM.NINA.Plugin.Instructions.AstroPMAfterTargetTrigger_Mini">
         <mini:MiniSequenceItem>
             <mini:MiniSequenceItem.SequenceItemContent>
-                <TextBlock Text="After Target Change Instructions" />
+                <TextBlock Text="Astro PM After Target Change Instructions" />
             </mini:MiniSequenceItem.SequenceItemContent>
         </mini:MiniSequenceItem>
     </DataTemplate>

@@ -206,7 +206,7 @@
                                         <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
                                                    Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
                                                    Margin="12,0,0,16">
-                                            <Run FontWeight="SemiBold" Text="AstroPM Refresh Cloud Targets"/><Run Text=" — Fetches the latest active targets from your Astro PM cloud account and updates the local cache. Run this at the start of each night to pick up any changes you've made during the day."/>
+                                            <Run FontWeight="SemiBold" Text="Astro PM Refresh Cloud Targets"/><Run Text=" — Fetches the latest active targets from your Astro PM cloud account and updates the local cache. Run this at the start of each night to pick up any changes you've made during the day."/>
                                         </TextBlock>
 
                                         <!-- Instruction Set -->

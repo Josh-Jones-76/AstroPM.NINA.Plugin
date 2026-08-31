@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 
 namespace AstroPM.NINA.Plugin.Instructions {
 
-    [ExportMetadata("Name", "Before Each Exposure Instructions")]
+    [ExportMetadata("Name", "Astro PM Before Each Exposure Instructions")]
     [ExportMetadata("Description", "Runs contained instructions before each AstroPM exposure")]
     [ExportMetadata("Icon", "CameraSVG")]
     [ExportMetadata("Category", "Astro PM Tools")]
@@ -55,10 +55,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
 
         public override object Clone() => new AstroPMBeforeExposureTrigger(this);
-        public override string ToString() => "Before Each Exposure Instructions";
+        public override string ToString() => "Astro PM Before Each Exposure Instructions";
     }
 
-    [ExportMetadata("Name", "After Each Exposure Instructions")]
+    [ExportMetadata("Name", "Astro PM After Each Exposure Instructions")]
     [ExportMetadata("Description", "Runs contained instructions after each AstroPM exposure")]
     [ExportMetadata("Icon", "CameraSVG")]
     [ExportMetadata("Category", "Astro PM Tools")]
@@ -102,10 +102,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
 
         public override object Clone() => new AstroPMAfterExposureTrigger(this);
-        public override string ToString() => "After Each Exposure Instructions";
+        public override string ToString() => "Astro PM After Each Exposure Instructions";
     }
 
-    [ExportMetadata("Name", "Before Target Change Instructions")]
+    [ExportMetadata("Name", "Astro PM Before Target Change Instructions")]
     [ExportMetadata("Description", "Runs contained instructions once AstroPM has slewed, centered and rotated on a new target, before guiding and imaging start")]
     [ExportMetadata("Icon", "SlewToRaDecSVG")]
     [ExportMetadata("Category", "Astro PM Tools")]
@@ -163,10 +163,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
 
         public override object Clone() => new AstroPMBeforeTargetTrigger(this);
-        public override string ToString() => "Before Target Change Instructions";
+        public override string ToString() => "Astro PM Before Target Change Instructions";
     }
 
-    [ExportMetadata("Name", "After Target Change Instructions")]
+    [ExportMetadata("Name", "Astro PM After Target Change Instructions")]
     [ExportMetadata("Description", "Runs contained instructions after AstroPM finishes a target block")]
     [ExportMetadata("Icon", "SlewToRaDecSVG")]
     [ExportMetadata("Category", "Astro PM Tools")]
@@ -218,6 +218,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
 
         public override object Clone() => new AstroPMAfterTargetTrigger(this);
-        public override string ToString() => "After Target Change Instructions";
+        public override string ToString() => "Astro PM After Target Change Instructions";
     }
 }
