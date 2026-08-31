@@ -1252,9 +1252,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // Fires with the scope already slewed/centered/rotated on the new target, before
             // guiding and imaging start — so dropped instructions (autofocus, settle waits,
             // covers, etc.) run on-target rather than while still pointed at the old one.
-            var parentForTargetTriggers = Parent as SequenceContainer;
-            if (parentForTargetTriggers != null) {
-                foreach (var trigger in parentForTargetTriggers.GetTriggersSnapshot()) {
+            // Walk every ancestor container (like NINA's SequentialStrategy) so the
+            // trigger also fires from Global Triggers, not just our immediate parent.
+            for (var c = Parent as SequenceContainer; c != null; c = c.Parent as SequenceContainer) {
+                foreach (var trigger in c.GetTriggersSnapshot()) {
                     if (trigger is AstroPMBeforeTargetTrigger beforeTarget)
                         await beforeTarget.Fire(block, progress, token);
                 }
@@ -1408,12 +1409,17 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 }
 
                 // Fire pre-triggers (autofocus, meridian flip, center-after-drift, etc.)
+                // Walk every ancestor container like NINA's SequentialStrategy does, so
+                // Global Triggers (remote play/pause, meridian flip, ...) fire between
+                // our exposures too — not only the immediate parent's triggers.
                 if (parentContainer != null) {
                     try {
                         UpdateLiveStatus("Triggers", block);
                         global::NINA.Core.Utility.Logger.Info(
                             $"AstroPM | Running pre-triggers: {block.TargetName} {filterName} #{targetIndex + 1}");
-                        await parentContainer.RunTriggers(previousExposure ?? this, exposureItem, progress, token);
+                        for (var c = parentContainer; c != null; c = c.Parent as SequenceContainer) {
+                            await c.RunTriggers(previousExposure ?? this, exposureItem, progress, token);
+                        }
                     } catch (Exception ex) {
                         global::NINA.Core.Utility.Logger.Warning(
                             $"AstroPM | Trigger error before exposure {block.TargetName} #{targetIndex + 1}: {ex.GetType().Name}: {ex.Message}");
@@ -1423,10 +1429,12 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 // Take the exposure
                 await exposureItem.Execute(progress, token);
 
-                // Fire post-triggers
+                // Fire post-triggers (ancestor walk — see pre-triggers above)
                 if (parentContainer != null) {
                     try {
-                        await parentContainer.RunTriggersAfter(exposureItem, this, progress, token);
+                        for (var c = parentContainer; c != null; c = c.Parent as SequenceContainer) {
+                            await c.RunTriggersAfter(exposureItem, this, progress, token);
+                        }
                     } catch (Exception ex) {
                         global::NINA.Core.Utility.Logger.Warning(
                             $"AstroPM | Trigger error after exposure {block.TargetName} #{targetIndex + 1}: {ex.GetType().Name}: {ex.Message}");
@@ -1443,9 +1451,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 FinishBlock(block, skipped: false);
             }
 
-            // ── Fire "After Target" triggers ──
-            if (parentContainer != null) {
-                foreach (var trigger in parentContainer.GetTriggersSnapshot()) {
+            // ── Fire "After Target" triggers ── (ancestor walk, incl. Global Triggers)
+            for (var c = parentContainer; c != null; c = c.Parent as SequenceContainer) {
+                foreach (var trigger in c.GetTriggersSnapshot()) {
                     if (trigger is AstroPMAfterTargetTrigger afterTarget) {
                         try {
                             await afterTarget.Fire(block, progress, token);
