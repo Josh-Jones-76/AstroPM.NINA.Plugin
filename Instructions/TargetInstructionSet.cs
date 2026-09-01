@@ -126,7 +126,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
     [ExportMetadata("Name", "Astro PM Instructions")]
     [ExportMetadata("Description", "Executes the Astro PM nightly imaging schedule — slew, filter, expose, dither per the simulation plan")]
-    [ExportMetadata("Icon", "ParallelSVG")]
+    [ExportMetadata("Icon", "SequentialSVG")]
     [ExportMetadata("Category", "Astro PM Tools")]
     [Export(typeof(ISequenceItem))]
     [Export(typeof(ISequenceContainer))]
