@@ -195,23 +195,19 @@ namespace AstroPM.NINA.Plugin.Services
 
             if (!response.IsSuccessStatusCode)
             {
-                try
-                {
-                    var errorResult = JsonConvert.DeserializeObject<ApiListResponse>(responseBody);
-                    return errorResult ?? new ApiListResponse
-                    {
-                        Success = false,
-                        Message = $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}"
-                    };
-                }
-                catch
-                {
-                    return new ApiListResponse
-                    {
-                        Success = false,
-                        Message = $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}"
-                    };
-                }
+                // project_sync.php answers 401 for an unknown/expired sync token and 403 for a
+                // licence that is no longer active — both mean "this token is dead", which the
+                // caller must treat differently from a transport failure.
+                bool authFailed = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                                  || response.StatusCode == System.Net.HttpStatusCode.Forbidden;
+                ApiListResponse errorResult = null;
+                try { errorResult = JsonConvert.DeserializeObject<ApiListResponse>(responseBody); } catch { }
+                errorResult ??= new ApiListResponse();
+                errorResult.Success = false;
+                errorResult.AuthFailed = authFailed;
+                if (string.IsNullOrEmpty(errorResult.Message))
+                    errorResult.Message = $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}";
+                return errorResult;
             }
 
             return JsonConvert.DeserializeObject<ApiListResponse>(responseBody);

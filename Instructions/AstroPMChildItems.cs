@@ -317,14 +317,20 @@ namespace AstroPM.NINA.Plugin.Instructions {
             if (_filterSwitched) return;
 
             var ninaFilters = _profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters;
-            _resolvedFilter = ninaFilters?.FirstOrDefault(f =>
-                string.Equals(f.Name, _filterName, StringComparison.OrdinalIgnoreCase));
-            if (_resolvedFilter == null)
-                _resolvedFilter = ninaFilters?.FirstOrDefault(f =>
-                    f.Name != null && f.Name.StartsWith(_filterName, StringComparison.OrdinalIgnoreCase));
-            if (_resolvedFilter == null)
-                _resolvedFilter = ninaFilters?.FirstOrDefault(f =>
-                    f.Name != null && _filterName.StartsWith(f.Name, StringComparison.OrdinalIgnoreCase));
+            _resolvedFilter = ResolveFilter(ninaFilters, _filterName);
+
+            // A wheel with filters but no match: do NOT expose through whatever happens to be
+            // in the wheel (that used to capture, and count, an "Ha" sub shot through the last
+            // selected filter all night). Skip this exposure set and tell the user once.
+            if (_resolvedFilter == null && ninaFilters != null && ninaFilters.Count > 0) {
+                _filterUnresolved = true;
+                var available = string.Join(", ", ninaFilters.Select(f => f.Name));
+                global::NINA.Core.Utility.Logger.Error(
+                    $"AstroPM | Filter '{_filterName}' not found in NINA filter wheel — skipping its exposures. Available: {available}");
+                NotifyUnresolvedFilterOnce(_filterName, available);
+                _filterSwitched = true;
+                return;
+            }
 
             if (_resolvedFilter != null) {
                 _updateExposureStatus?.Invoke("Filter", _block, _filterName, "", "", "");
@@ -334,12 +340,44 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Filter switch: {_filterName} for {_block.TargetName} #{_subNumber}");
                 await _filterWheelMediator.ChangeFilter(_resolvedFilter, token);
             } else {
-                global::NINA.Core.Utility.Logger.Warning(
-                    $"AstroPM | Filter '{_filterName}' not found in NINA filter wheel. " +
-                    $"Available: {string.Join(", ", ninaFilters?.Select(f => f.Name) ?? Array.Empty<string>())}");
+                // No filter wheel configured (OSC rig) — capture without a filter switch.
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | No filter wheel filters configured in NINA; capturing '{_filterName}' without a filter switch");
             }
 
             _filterSwitched = true;
+        }
+
+        private bool _filterUnresolved;
+
+        /// <summary>
+        /// Exact (case-insensitive) match first. Then a prefix match in either direction, but
+        /// only when it is UNIQUE — "L" must not silently pick "LPS" over "Lum" by wheel order.
+        /// </summary>
+        internal static FilterInfo ResolveFilter(IList<FilterInfo> ninaFilters, string wanted) {
+            if (ninaFilters == null || ninaFilters.Count == 0 || string.IsNullOrWhiteSpace(wanted)) return null;
+            wanted = wanted.Trim();
+            var exact = ninaFilters.FirstOrDefault(f =>
+                string.Equals(f.Name?.Trim(), wanted, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) return exact;
+
+            var byPrefix = ninaFilters.Where(f => f.Name != null &&
+                (f.Name.Trim().StartsWith(wanted, StringComparison.OrdinalIgnoreCase)
+                 || wanted.StartsWith(f.Name.Trim(), StringComparison.OrdinalIgnoreCase))).ToList();
+            return byPrefix.Count == 1 ? byPrefix[0] : null;
+        }
+
+        // One notification per filter name per 12 h so a mismatch can't spam NINA all night.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _unresolvedNotified =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
+        private static void NotifyUnresolvedFilterOnce(string filterName, string available) {
+            var now = DateTime.UtcNow;
+            if (_unresolvedNotified.TryGetValue(filterName, out var last) && now - last < TimeSpan.FromHours(12)) return;
+            _unresolvedNotified[filterName] = now;
+            global::NINA.Core.Utility.Notification.Notification.ShowError(
+                $"Astro PM: filter '{filterName}' is not in the NINA filter wheel — its exposures are being skipped. " +
+                $"Rename the filter in Astro PM or NINA so the names match. NINA has: {available}");
         }
 
         /// <summary>Apply the per-line readout-mode index for normal (LIGHT) captures — this is the
@@ -388,6 +426,11 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // Switch filter if not already done in pre-trigger phase
             if (!_filterSwitched) {
                 await SwitchFilterAsync(progress, token);
+            }
+            if (_filterUnresolved) {
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Exposure skipped (filter '{_filterName}' not in wheel): {_block.TargetName} #{_subNumber}");
+                return;
             }
 
             // Update live status

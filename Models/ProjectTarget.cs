@@ -277,6 +277,11 @@ namespace AstroPM.NINA.Plugin.Models {
         [JsonProperty("message")]
         public string Message { get; set; }
 
+        /// <summary>True when the server rejected the sync token itself (HTTP 401/403), as
+        /// opposed to a transport or server error. Set by AstroPMApiService, never by JSON.</summary>
+        [JsonIgnore]
+        public bool AuthFailed { get; set; }
+
         [JsonProperty("targets")]
         public List<ProjectTarget> Targets { get; set; }
     }

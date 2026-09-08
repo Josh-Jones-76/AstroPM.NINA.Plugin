@@ -911,6 +911,17 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         TargetCacheService.Save(targets);
                         fetchSourceDesc = $"fetched from cloud {DateTime.Now:MMM d, h:mm tt}";
                         Logger.Info($"AstroPM | Fetched {targets.Count} targets from cloud");
+                    } else if (response.AuthFailed) {
+                        // The token is dead (trial→paid replaced it, licence deactivated, key
+                        // removed). This is NOT a transport blip: falling back to the cache here
+                        // ran last week's targets forever and re-imaged completed ones while the
+                        // desktop pushed progress to the NEW token. Stop and say so.
+                        Logger.Error($"AstroPM | Sync token rejected by cloud ({response.Message}) — not using cached targets");
+                        Notification.ShowError(
+                            "Astro PM: the sync token was rejected by the cloud (it may have been replaced when the " +
+                            "licence changed). Open Astro PM on the desktop, copy the current sync token from " +
+                            "Settings, and paste it into the plugin Options. No targets will run until then.");
+                        return;
                     } else {
                         Logger.Warning($"AstroPM | Cloud error: {response.Message}, falling back to cache");
                     }
@@ -923,6 +934,19 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             if (targets == null) {
                 var cache = TargetCacheService.Load();
+                // Online mode only ever means "the cloud was unreachable just now" — a cache older
+                // than a week is stale project state, not a safe fallback. Offline/Vacation Mode
+                // is the user's explicit choice and keeps using whatever they last synced.
+                if (cache != null && !settings.OfflineMode
+                    && DateTime.UtcNow - cache.FetchedUtc > TargetCacheService.MaxOnlineFallbackAge) {
+                    var age = TargetCacheService.AgeDescription(cache.FetchedUtc);
+                    Logger.Error($"AstroPM | Cloud unreachable and cached targets are {age} old — too stale to run");
+                    Notification.ShowError(
+                        $"Astro PM: the cloud is unreachable and the cached target list is {age} old. " +
+                        "Check the rig's internet connection; cached targets older than " +
+                        $"{TargetCacheService.MaxOnlineFallbackAge.TotalDays:F0} days are not used unless Offline/Vacation Mode is on.");
+                    return;
+                }
                 if (cache != null) {
                     targets = cache.Targets;
                     var age = TargetCacheService.AgeDescription(cache.FetchedUtc);
@@ -1246,7 +1270,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
 
             token.ThrowIfCancellationRequested();
-            if (_skipBlock) { FinishBlock(block, skipped: true); return; }
+            if (_skipBlock) { FinishBlock(block, skipped: true); _currentBlockIndex++; return; }
 
             // ── Fire "Before Target" triggers ──
             // Fires with the scope already slewed/centered/rotated on the new target, before
@@ -1262,7 +1286,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
 
             token.ThrowIfCancellationRequested();
-            if (_skipBlock) { FinishBlock(block, skipped: true); return; }
+            if (_skipBlock) { FinishBlock(block, skipped: true); _currentBlockIndex++; return; }
 
             var guideItem = new AstroPMStartGuidingItem(block, _guiderMediator, updateSimple);
             await guideItem.Execute(progress, token);
@@ -1469,6 +1493,12 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
 
         private void FinishBlock(TargetBlock block, bool skipped) {
+            // Both skip flags are cleared here. Skip Block pressed during the pre-block wait used
+            // to leave _skipWait set after the (early-returned) block, so the NEXT block skipped
+            // its wait and viability gate too and slewed/imaged early. The early-return callers
+            // also advance _currentBlockIndex themselves — without that the same block was
+            // re-entered and waited on again.
+            _skipWait = false;
             if (skipped) {
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Block skipped: {block.TargetName}");
                 if (_blockSummaries != null && _currentBlockIndex < _blockSummaries.Count)

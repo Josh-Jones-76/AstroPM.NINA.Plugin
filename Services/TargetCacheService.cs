@@ -18,6 +18,10 @@ namespace AstroPM.NINA.Plugin.Services
 
         private static readonly string CacheFile = Path.Combine(CacheDir, "target_cache.json");
 
+        /// <summary>Oldest cache the sequencer will run from when the cloud is merely unreachable
+        /// (not in Offline/Vacation Mode).</summary>
+        public static readonly TimeSpan MaxOnlineFallbackAge = TimeSpan.FromDays(7);
+
         /// <summary>
         /// Saves the target list to disk with a UTC timestamp.
         /// </summary>
