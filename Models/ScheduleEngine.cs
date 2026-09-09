@@ -725,8 +725,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 double nonLaLeft = row.RemainingNonLaSec - nonLaInSafe;
                 double accessibleSec = laInSafe + nonLaInSafe + Math.Min(nonLaLeft, unsafeSlots * 300.0);
                 if (accessibleSec < row.MinChunkSec) {
-                    row.RemainingLaSec = 0;
-                    row.RemainingNonLaSec = 0;
+                    for (int t = 0; t < row.TierWorkSec.Length; t++) row.TierWorkSec[t] = 0;
                     row.PreFiltered = true;
                 }
             }
@@ -800,33 +799,61 @@ namespace AstroPM.NINA.Plugin.Models {
             TraceSnapshot(matrix, "After Pass 0b (anchor extend)");
 
             // Pass 1: Moon-down LA priority.
-            // Moon-down slots are a scarce, restricted resource. Targets that can ONLY
-            // image moon-down (no moon-safe moon-up slots for their work) get first claim;
-            // moon-flexible targets — which can fall back to moon-up in Pass 3 — compete
-            // only for whatever moon-down slots remain. Without this split a flexible
-            // target with more raw LA work (e.g. a bright-narrowband mosaic that's still
-            // moon-safe up) can swallow the whole moon-down window and strand a
-            // moon-restricted target that has nowhere else to go.
+            // Moon-down slots are a scarce, restricted resource. They go FIRST to work
+            // that can only be done moon-down (No Moon profiles, or tiers that are
+            // moon-unsafe at every moon-up slot the target has tonight), fair-shared
+            // across targets by that moon-down-only demand — never by a target's whole
+            // workload. Only then does the remaining LA work compete for leftover dark
+            // slots, with genuinely moon-flexible targets (at least a minimum block of
+            // usable moon-up time) deferring to targets that have nowhere else to go.
+            //
+            // Before 9/9/26 the partition was per TARGET and binary: any single
+            // moon-safe moon-up slot made a target "flexible", and an "exclusive"
+            // target claimed dark time with its ENTIRE demand. On a 3% moon night
+            // Cygnus Wall (sets before moonrise → exclusive) took the whole shared
+            // window for Relaxed Ha/SII, while IC 348 (five dawn slots → flexible)
+            // got no dark time at all for its No Moon RGB. Mirrors desktop ScheduleEngine.
             {
-                var candidates = matrix.Rows
-                    .Where(r => !r.PreFiltered && r.HasLaWork && r.MoonDownSlots > 0)
-                    .ToList();
-                var sorted = ApplySortChain(candidates, moonDownSortChain);
-
                 Func<int, int, bool> mdEligible = (ri, s) =>
                     matrix.MoonDown[s] && matrix.CanImage[ri][s] && matrix.SlotAssignment[s] < 0;
 
-                var exclusive = sorted.Where(r => !HasMoonSafeMoonUpSlots(matrix, r)).ToList();
-                var flexible = sorted.Where(r => HasMoonSafeMoonUpSlots(matrix, r)).ToList();
-                PaintTrace.AppendLine($"Pass 1 exclusive ({exclusive.Count}): {string.Join(", ", exclusive.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
-                PaintTrace.AppendLine($"Pass 1 flexible ({flexible.Count}): {string.Join(", ", flexible.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
+                // Pass 1a: moon-down-only work, shared by moon-down-only demand
+                {
+                    var mdOnlyDemand = new Dictionary<int, double>();
+                    foreach (var r in matrix.Rows) {
+                        if (r.PreFiltered || !r.HasLaWork || r.MoonDownSlots <= 0) continue;
+                        double d = MoonDownOnlyWorkSec(matrix, r);
+                        if (d > 0) mdOnlyDemand[r.RowIndex] = d;
+                    }
+                    var candidates = matrix.Rows.Where(r => mdOnlyDemand.ContainsKey(r.RowIndex)).ToList();
+                    var sorted = ApplySortChain(candidates, moonDownSortChain);
+                    PaintTrace.AppendLine($"Pass 1a moon-down-only work ({sorted.Count}): {string.Join(", ", sorted.Select(c => $"{c.Profile.DisplayName} MDonly={mdOnlyDemand[c.RowIndex] / 60:F0}m"))}");
+                    PaintPassFairShare(matrix, sorted, mdEligible,
+                        SlotWorkType.LaPreferred,
+                        r => mdOnlyDemand[r.RowIndex]);
+                }
+                TraceSnapshot(matrix, "After Pass 1a (moon-down-only work)");
 
-                PaintPassFairShare(matrix, exclusive, mdEligible,
-                    SlotWorkType.LaPreferred,
-                    r => r.RemainingLaSec + r.RemainingNonLaSec);
-                PaintPassFairShare(matrix, flexible, mdEligible,
-                    SlotWorkType.LaPreferred,
-                    r => r.RemainingLaSec + r.RemainingNonLaSec);
+                // Pass 1b: remaining LA work on whatever moon-down slots are left
+                {
+                    var candidates = matrix.Rows
+                        .Where(r => !r.PreFiltered && r.HasLaWork && r.MoonDownSlots > 0
+                                    && HasUnpaintedSlots(matrix, r, moonDownOnly: true))
+                        .ToList();
+                    var sorted = ApplySortChain(candidates, moonDownSortChain);
+
+                    var exclusive = sorted.Where(r => MoonUpUsableSlotCount(matrix, r) < r.MinChunkSlots).ToList();
+                    var flexible = sorted.Where(r => MoonUpUsableSlotCount(matrix, r) >= r.MinChunkSlots).ToList();
+                    PaintTrace.AppendLine($"Pass 1b exclusive ({exclusive.Count}): {string.Join(", ", exclusive.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
+                    PaintTrace.AppendLine($"Pass 1b flexible ({flexible.Count}): {string.Join(", ", flexible.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
+
+                    PaintPassFairShare(matrix, exclusive, mdEligible,
+                        SlotWorkType.LaPreferred,
+                        r => r.RemainingLaSec + r.RemainingNonLaSec);
+                    PaintPassFairShare(matrix, flexible, mdEligible,
+                        SlotWorkType.LaPreferred,
+                        r => r.RemainingLaSec + r.RemainingNonLaSec);
+                }
             }
             TraceSnapshot(matrix, "After Pass 1 (moon-down LA)");
 
@@ -1425,23 +1452,66 @@ namespace AstroPM.NINA.Plugin.Models {
             return runs;
         }
 
+        // Tier-aware work accounting. TierWorkSec is the only real store — the V3
+        // RemainingLaSec/RemainingNonLaSec setters are no-ops, so until 9/9/26 this
+        // never decremented anything and every pass saw each target's full
+        // start-of-night demand regardless of what earlier passes had painted.
+        //   LaPreferred    (moon-down slot): most restrictive tier first — the walk
+        //                  spends dark time on No Moon work before Relaxed.
+        //   NonLaPreferred (moon-up slot):   non-LA first, then least restrictive.
+        //   Any                             : proportionally across tiers.
         private static void DecrementWork(TargetRow row, double sec, SlotWorkType hint) {
+            var w = row.TierWorkSec;
+            if (w.Length == 0 || sec <= 0) return;
             if (hint == SlotWorkType.LaPreferred) {
-                double laUse = Math.Min(sec, row.RemainingLaSec);
-                row.RemainingLaSec -= laUse;
-                row.RemainingNonLaSec = Math.Max(0, row.RemainingNonLaSec - (sec - laUse));
-            } else if (hint == SlotWorkType.NonLaPreferred) {
-                double nonLaUse = Math.Min(sec, row.RemainingNonLaSec);
-                row.RemainingNonLaSec -= nonLaUse;
-                row.RemainingLaSec = Math.Max(0, row.RemainingLaSec - (sec - nonLaUse));
-            } else {
-                double total = row.TotalWorkSec;
-                if (total > 0) {
-                    double laFrac = row.RemainingLaSec / total;
-                    row.RemainingLaSec = Math.Max(0, row.RemainingLaSec - sec * laFrac);
-                    row.RemainingNonLaSec = Math.Max(0, row.RemainingNonLaSec - sec * (1 - laFrac));
+                for (int t = w.Length - 1; t >= 0 && sec > 0; t--) {
+                    double use = Math.Min(sec, w[t]);
+                    w[t] -= use; sec -= use;
                 }
+            } else if (hint == SlotWorkType.NonLaPreferred) {
+                for (int t = 0; t < w.Length && sec > 0; t++) {
+                    double use = Math.Min(sec, w[t]);
+                    w[t] -= use; sec -= use;
+                }
+            } else {
+                double total = w.Sum();
+                if (total <= 0) return;
+                double frac = Math.Min(1.0, sec / total);
+                for (int t = 0; t < w.Length; t++) w[t] -= w[t] * frac;
             }
+        }
+
+        // Moon-up slots this row could actually use tonight (some tier with work is
+        // safe there). Pass 1b treats a target as moon-flexible only when this is at
+        // least a minimum block: a few dawn slots after a thin-crescent moonrise are
+        // not an alternative to the dark window.
+        private static int MoonUpUsableSlotCount(ScheduleMatrix matrix, TargetRow row) {
+            int n = 0;
+            for (int s = 0; s < matrix.Slots.Count; s++)
+                if (!matrix.MoonDown[s] && row.UsableSlot[s]) n++;
+            return n;
+        }
+
+        // Work that can ONLY be imaged with the moon down: tiers whose profile
+        // requires moon-down (No Moon), plus tiers that are moon-unsafe at every
+        // moon-up slot the target could otherwise image tonight. A target that sets
+        // before moonrise has zero moon-up slots for EVERY tier, which says nothing
+        // about the work itself — only its RequiresMoonDown tiers count there.
+        private static double MoonDownOnlyWorkSec(ScheduleMatrix matrix, TargetRow row) {
+            var tiers = row.Profile.Tiers;
+            bool hasMoonUpImaging = false;
+            for (int s = 0; s < matrix.Slots.Count && !hasMoonUpImaging; s++)
+                if (!matrix.MoonDown[s] && matrix.CanImage[row.RowIndex][s]) hasMoonUpImaging = true;
+
+            double sec = 0;
+            for (int t = 1; t < row.TierWorkSec.Length; t++) {
+                if (row.TierWorkSec[t] <= 0) continue;
+                bool requiresMd = t < tiers.Length && tiers[t].RequiresMoonDown;
+                bool unsafeAllMoonUp = hasMoonUpImaging
+                    && (t >= row.TierMoonUpSafeSlots.Length || row.TierMoonUpSafeSlots[t] == 0);
+                if (requiresMd || unsafeAllMoonUp) sec += row.TierWorkSec[t];
+            }
+            return sec;
         }
 
         private static bool HasUnpaintedSlots(ScheduleMatrix matrix, TargetRow row, bool moonDownOnly) {
