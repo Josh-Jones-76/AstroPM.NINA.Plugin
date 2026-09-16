@@ -366,6 +366,18 @@ namespace AstroPM.NINA.Plugin.ViewModels
 
         // ── Imaging systems (rigs) ──
 
+        /// <summary>
+        /// Re-pulls the rig list from the cloud (or cache when offline). Called by the Options
+        /// view each time it is shown: the list is otherwise only fetched at NINA start,
+        /// Save &amp; Connect and Refresh, so a rig the desktop pushed after NINA started stayed
+        /// invisible until NINA was restarted.
+        /// </summary>
+        public Task RefreshImagingSystemsAsync()
+        {
+            if (IsTesting) return Task.CompletedTask;
+            return FetchImagingSystemsAsync();
+        }
+
         private async Task FetchImagingSystemsAsync()
         {
             try

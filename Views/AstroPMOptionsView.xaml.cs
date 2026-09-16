@@ -18,10 +18,18 @@ namespace AstroPM.NINA.Plugin.Views
             Loaded += OnLoaded;
         }
 
+        private bool _shownOnce;
+
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             var (lat, lon) = GetObservatoryLocation();
             SimulatorPanelControl.Initialize(lat, lon);
+
+            // The view-model already fetches on construction; on every later show re-pull the
+            // imaging-system list so rigs pushed from the desktop since then appear.
+            if (_shownOnce && DataContext is AstroPMOptionsViewModel vm)
+                _ = vm.RefreshImagingSystemsAsync();
+            _shownOnce = true;
         }
 
         private static (double lat, double lon) GetObservatoryLocation()
