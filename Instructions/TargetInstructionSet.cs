@@ -722,6 +722,25 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
         }
 
+        /// <summary>The dawn flats window has passed with the pass still pending (sequence
+        /// stopped mid-flats or never reached them, then restarted hours or days later).
+        /// Drop the recorded combos and mark the pass done so neither Execute's stale reset
+        /// nor a same-night NINA restart (which reloads the store) resumes them.</summary>
+        private void MarkFlatsMissed() {
+            int count;
+            lock (_flatSpecs) {
+                count = _flatSpecs.Count;
+                _flatSpecs.Clear();
+            }
+            _flatsDone = true;
+            new FlatSpecStore { NightDate = _nightDate, Specs = new List<FlatSpec>(), FlatsCompletedUtc = DateTime.UtcNow }.Save();
+            UpdateFlatsSummary();
+            var age = DateTime.UtcNow - _sessionEndUtc;
+            global::NINA.Core.Utility.Logger.Warning(
+                $"AstroPM | Flats: window missed — session ended {_sessionEndUtc:MMM d HH:mm} UTC ({age.TotalHours:F1} h ago); discarding {count} pending filter/rotation combos, flats will not be re-run");
+            Notification.ShowWarning($"Astro PM: Flats window missed ({age.TotalHours:F0} h since session end) — {count} pending combos discarded.");
+        }
+
         /// <summary>True when the built schedule is left over from a finished night. A
         /// session goes stale StaleAfterHours after its end time: long enough that the
         /// dawn wind-down (watchdog condition checks, flats, the daily loop's dawn tasks)
@@ -770,13 +789,28 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // Reset all live status from any previous run
             ResetLiveStatus();
 
+            // The Flat Handling pass belongs to the dawn right after session end. If the
+            // sequence is started again once that window has passed — later the same
+            // morning, that evening, or days later — the flats were missed and are over:
+            // discard them so the stale reset below can rebuild instead of resuming a
+            // previous night's flats. (9/18/26: the 9/17 session's combos were still
+            // pending at the next dusk; both domes ran Before Flats + Close Dome Shutter
+            // right after the startup had opened the shutter, and the cancel left Dome B's
+            // dome driver reporting "closing" until dawn.)
+            if (FlatsPending && _sessionEndUtc != DateTime.MinValue
+                && DateTime.UtcNow >= _sessionEndUtc.AddHours(StaleAfterHours)) {
+                MarkFlatsMissed();
+            }
+
             // A schedule left over from a finished night (per IsStaleSession) must be
             // discarded — the in-memory state survives sequence stop/restart, so
             // without this reset a re-run instantly reports "session complete"
             // instead of building tonight's schedule.
             // FlatsPending exception: right at session end the flats pass hasn't run yet
             // (and a stop/restart during flats re-enters here) — resetting would nuke the
-            // blocks and rebuild mid-flats. Skip the reset until flats complete.
+            // blocks and rebuild mid-flats. Skip the reset until flats complete. Bounded
+            // by the missed-window check above, so it can never hold a stale session
+            // past StaleAfterHours.
             if (IsStaleSession && !FlatsPending) {
                 global::NINA.Core.Utility.Logger.Info(
                     $"AstroPM | Stale session from previous night (ended {_sessionEndUtc:MMM d HH:mm} UTC) — resetting to rebuild");
