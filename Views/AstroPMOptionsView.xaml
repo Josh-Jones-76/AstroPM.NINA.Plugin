@@ -607,7 +607,7 @@
                     <!-- Offline / Vacation Mode -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,12,0,0">
                         <CheckBox IsChecked="{Binding OfflineMode, Mode=TwoWay}" VerticalAlignment="Center"
-                                  ToolTip="When enabled, the plugin never contacts the cloud: the simulator, Refresh, and the nightly instruction set all use the local target cache. Captured frames are counted down against the cache so multi-night offline runs stay accurate. Turn this off and Save &amp; Connect to resync when you're back online." />
+                                  ToolTip="When enabled, the plugin never contacts the cloud: the simulator, Refresh, and the nightly instruction set all use the local target cache. Use it for rigs with no internet so nightly runs do not wait on timeouts. Captured frames are always counted down locally until the desktop app has counted the files, online or not, so this is only about network access. Turn it off and Save &amp; Connect to resync when you are back online." />
                         <TextBlock Text="Offline / Vacation Mode" FontSize="13" FontWeight="SemiBold"
                                    VerticalAlignment="Center" Margin="6,0,0,0"
                                    Foreground="{DynamicResource PrimaryBrush}" />

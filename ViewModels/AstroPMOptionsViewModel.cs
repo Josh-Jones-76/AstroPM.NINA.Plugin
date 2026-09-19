@@ -303,7 +303,7 @@ namespace AstroPM.NINA.Plugin.ViewModels
                     if (result.Success && result.Targets != null)
                     {
                         _allTargets = result.Targets;
-                        TargetCacheService.Save(_allTargets);   // refresh the offline cache
+                        TargetCacheService.SaveFromCloud(_allTargets);   // refresh the offline cache (capture ledger applied to the list)
                         IsOffline = false;
                         RebuildFilterOptions();
                         ApplyFilters();

@@ -686,7 +686,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 var response = await _apiService.ListTargetsAsync(settings.SyncToken, null);
                 if (response.Success && response.Targets != null) {
                     _allTargets = response.Targets;
-                    TargetCacheService.Save(_allTargets);
+                    TargetCacheService.SaveFromCloud(_allTargets);
                     RebuildFilters();
                     RefreshCacheStatus();
                 } else {

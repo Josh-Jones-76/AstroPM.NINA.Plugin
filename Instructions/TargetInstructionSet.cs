@@ -168,7 +168,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
         private List<TimeSlot> _lastSlots;
         private List<TargetProfile> _lastProfiles;
         private List<TargetBlock> _blocks;
-        private List<ProjectTarget> _cachedTargets;
         private bool _hasChartData;
         private bool _scheduleBuilt;
         private DateTime _sessionEndUtc;
@@ -942,7 +941,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     var response = await apiService.ListTargetsAsync(settings.SyncToken, "Active", token);
                     if (response.Success && response.Targets != null) {
                         targets = response.Targets;
-                        TargetCacheService.Save(targets);
+                        TargetCacheService.SaveFromCloud(targets);   // raw cloud counts to disk, capture ledger applied to `targets`
                         fetchSourceDesc = $"fetched from cloud {DateTime.Now:MMM d, h:mm tt}";
                         Logger.Info($"AstroPM | Fetched {targets.Count} targets from cloud");
                     } else if (response.AuthFailed) {
@@ -994,9 +993,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 }
             }
 
-            // Keep the full loaded list so offline capture-tracking persists count updates
-            // without dropping unscheduled targets from the cache.
-            _cachedTargets = targets;
 
             targets = targets.Where(t => t.Panels != null && t.Panels.Any(p =>
                 p.ExposureSets != null && p.ExposureSets.Any(es =>
@@ -1352,7 +1348,6 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // long safety closures. The block.UtcEnd guard stops both modes at the boundary.
             Enum.TryParse<PlaybackMode>(AstroPMSettings.Load().PlaybackMode, out var playbackMode);
             bool sequential = playbackMode == PlaybackMode.Sequential;
-            bool offlineMode = AstroPMSettings.Load().OfflineMode;
             global::NINA.Core.Utility.Logger.Info(
                 $"AstroPM | Block {block.TargetName}: playback mode = {(sequential ? "Sequential" : "Time-Aware")}");
 
@@ -1436,8 +1431,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         filterImageCount[filterName] = filterSub;
                         OnCaptured();
                         RecordFlatSpec(block, filterName, gain, offset, binX, binY);
-                        if (offlineMode)
-                            RecordOfflineCapture(block, entry.Panel, filterName, exposureSec, gain, offset, binX, binY);
+                        RecordCaptureToLedger(block, entry.Panel, filterName, exposureSec, gain, offset, binX, binY);
                     });
 
                 // Anchor the exposure item's Parent to us (the IDeepSkyObjectContainer that holds the
@@ -1677,7 +1671,11 @@ namespace AstroPM.NINA.Plugin.Instructions {
         /// <summary>Offline/Vacation Mode: count a freshly-captured LIGHT frame against the cached target so
         /// the next night's sim sees reduced remaining. Matches the exposure set by panel + filter + exposure
         /// (disambiguated by gain/offset/bin), increments Accepted/Acquired, and re-saves the cache.</summary>
-        private void RecordOfflineCapture(TargetBlock block, string panelLabel, string filter, double exposureSec, int gain, int offset, int binX, int binY) {
+        /// <summary>Counts a captured light against its exposure set, online or offline. Bumps the
+        /// running in-memory copy (so a same-night rebuild still sees tonight's subs) and the
+        /// on-disk capture ledger, which survives fetches until the desktop's own count moves —
+        /// see TargetCacheService for the reconcile rule.</summary>
+        private void RecordCaptureToLedger(TargetBlock block, string panelLabel, string filter, double exposureSec, int gain, int offset, int binX, int binY) {
             try {
                 var target = block?.Profile?.Target;
                 if (target?.Panels == null || target.Panels.Count == 0) return;
@@ -1695,15 +1693,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 if (es == null) return;
 
                 es.AcquiredCount++;
-                es.AcceptedCount++;   // offline: optimistically count toward Remaining (Planned - Accepted)
+                es.AcceptedCount++;   // optimistic: counts toward Remaining (Planned - Accepted) until the desktop counts the files
 
-                if (_cachedTargets != null)
-                    TargetCacheService.Save(_cachedTargets);
+                TargetCacheService.RecordCapture(target, panel, es);
 
                 global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Offline cache updated: {target.TargetName}/{panel.Label} {filter} {exposureSec:F0}s → {es.AcceptedCount}/{es.PlannedCount} (remaining {es.Remaining})");
+                    $"AstroPM | Capture counted: {target.TargetName}/{panel.Label} {filter} {exposureSec:F0}s → {es.AcceptedCount}/{es.PlannedCount} (remaining {es.Remaining})");
             } catch (Exception ex) {
-                global::NINA.Core.Utility.Logger.Warning($"AstroPM | Offline capture tracking failed: {ex.Message}");
+                global::NINA.Core.Utility.Logger.Warning($"AstroPM | Capture ledger update failed: {ex.Message}");
             }
         }
 

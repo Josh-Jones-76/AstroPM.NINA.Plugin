@@ -108,7 +108,7 @@ namespace AstroPM.NINA.Plugin.Instructions
                         targets = targets.Where(t => string.Equals(t.CameraName, settings.CameraFilter, StringComparison.OrdinalIgnoreCase));
                     var filtered = targets.ToList();
 
-                    TargetCacheService.Save(filtered);
+                    TargetCacheService.SaveFromCloud(filtered);   // stores raw cloud counts, applies the capture ledger to `filtered`
 
                     var activeCount = filtered.Count;
                     var withRemaining = filtered.Count(t =>
