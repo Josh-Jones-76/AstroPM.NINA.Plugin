@@ -57,6 +57,7 @@ namespace AstroPM.NINA.Plugin.Services
                     if (!string.IsNullOrEmpty(s.SortChain)) settings.SortChain = s.SortChain;
                     settings.BonusEnabled = s.BonusEnabled;
                     settings.OvershootPercent = Math.Max(0, s.OvershootPercent); // legacy -1 → 0
+                    settings.MinTimeTolerance = Math.Max(0.0, Math.Min(0.95, s.MinTimeTolerance));
                     settings.MosaicPanelPreference = s.MosaicPanelPreference;
                     settings.DitherEnabled = s.DitherEnabled;
                     settings.DitherEvery = s.DitherEvery;

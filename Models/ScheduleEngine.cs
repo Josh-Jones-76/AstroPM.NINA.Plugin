@@ -167,6 +167,13 @@ namespace AstroPM.NINA.Plugin.Models {
         public double MinChunkSec { get; set; }
         public int MinChunkSlots { get; set; }
 
+        // Min-Time Tolerance floor = MinChunk × (1 − tolerance): the shortest block
+        // still worth a visit. Painting and min-enforcement still AIM for MinChunk;
+        // a block that can't get there is kept if it reaches the floor and dropped
+        // (its slots going to a neighbor) if it can't.
+        public double MinFloorSec { get; set; }
+        public int MinFloorSlots { get; set; }
+
         public double TotalWorkSec => TierWorkSec.Length > 0 ? TierWorkSec.Sum() : 0;
         public bool HasLaWork => TierWorkSec.Length > 1 && TierWorkSec.Skip(1).Any(x => x > 0);
         public bool HasNonLaWork => TierWorkSec.Length > 0 && TierWorkSec[0] > 0;
@@ -222,6 +229,10 @@ namespace AstroPM.NINA.Plugin.Models {
         // All false (a strict no-op in every guard) when no transit falls tonight.
         public bool[] LockedSlot { get; set; } = Array.Empty<bool>();
 
+        // Min-Time Tolerance (0–0.95): how far below MinTimeOnTarget a block may fall
+        // and still be scheduled. See TargetRow.MinFloorSlots.
+        public double MinTimeTolerance { get; set; } = 0.5;
+
         public int FirstUsableSlot { get; set; } = -1;
         public int LastUsableSlot { get; set; } = -1;
         public int FirstDarkSlot { get; set; } = -1;
@@ -254,12 +265,16 @@ namespace AstroPM.NINA.Plugin.Models {
         public static ScheduleMatrix BuildMatrix(
             List<TimeSlot> slots,
             List<TargetProfile> profiles,
-            List<int> priorityOrder) {
+            List<int> priorityOrder,
+            double minTimeTolerance = 0.5) {
 
             int slotCount = slots.Count;
             int rowCount = profiles.Count;
+            if (double.IsNaN(minTimeTolerance)) minTimeTolerance = 0.5;
+            minTimeTolerance = Math.Max(0.0, Math.Min(0.95, minTimeTolerance));
 
             var matrix = new ScheduleMatrix {
+                MinTimeTolerance = minTimeTolerance,
                 Slots = slots,
                 Rows = new List<TargetRow>(rowCount),
                 CanImage = new bool[rowCount][],
@@ -374,6 +389,8 @@ namespace AstroPM.NINA.Plugin.Models {
                     MoonDownSlots = moonDownCount,
                     MinChunkSec = minChunkSec,
                     MinChunkSlots = (int)Math.Ceiling(minChunkSec / 300.0),
+                    MinFloorSec = minChunkSec * (1.0 - minTimeTolerance),
+                    MinFloorSlots = Math.Max(1, (int)Math.Ceiling(minChunkSec * (1.0 - minTimeTolerance) / 300.0)),
                     IsConstrained = totalUsable * 300 < minChunkSec * 2,
                     PeakAltitude = peakAlt,
                     UserPriorityIndex = userPri,
@@ -571,7 +588,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     }
                     accessibleSec += Math.Min(row.TierWorkSec[t], safeSlots * 300.0);
                 }
-                if (accessibleSec < row.MinChunkSec) {
+                if (accessibleSec < row.MinFloorSec) { // Min-Time Tolerance floor, not the full minimum
                     for (int t = 0; t < row.TierWorkSec.Length; t++)
                         row.TierWorkSec[t] = 0;
                     row.PreFiltered = true;
@@ -724,7 +741,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 double nonLaInSafe = Math.Min(row.RemainingNonLaSec, safeRemaining);
                 double nonLaLeft = row.RemainingNonLaSec - nonLaInSafe;
                 double accessibleSec = laInSafe + nonLaInSafe + Math.Min(nonLaLeft, unsafeSlots * 300.0);
-                if (accessibleSec < row.MinChunkSec) {
+                if (accessibleSec < row.MinFloorSec) { // Min-Time Tolerance floor, not the full minimum
                     for (int t = 0; t < row.TierWorkSec.Length; t++) row.TierWorkSec[t] = 0;
                     row.PreFiltered = true;
                 }
@@ -1211,9 +1228,16 @@ namespace AstroPM.NINA.Plugin.Models {
                 int needed = matrix.Rows[r].MinChunkSlots - assigned;
                 int extended = 0;
 
+                // Only pad with slots this target can actually USE (UsableSlot is
+                // tier-aware: moon-up slots don't count for a No-Moon-only target).
+                // Padding with merely-visible slots produced dead time the walk had
+                // to release as idle — after taking it away from a neighbor.
+                var usable = matrix.Rows[r].UsableSlot;
+                bool Usable(int s) => s < usable.Length ? usable[s] : matrix.CanImage[r][s];
+
                 for (int s = lastAssigned + 1; s < matrix.SlotAssignment.Length && extended < needed; s++) {
                     if (matrix.SlotAssignment[s] >= 0) break;
-                    if (!matrix.CanImage[r][s]) break;
+                    if (!Usable(s)) break;
                     matrix.SlotAssignment[s] = r;
                     matrix.SlotWorkHint[s] = SlotWorkType.Any;
                     extended++;
@@ -1221,7 +1245,7 @@ namespace AstroPM.NINA.Plugin.Models {
 
                 for (int s = firstAssigned - 1; s >= 0 && extended < needed; s--) {
                     if (matrix.SlotAssignment[s] >= 0) break;
-                    if (!matrix.CanImage[r][s]) break;
+                    if (!Usable(s)) break;
                     matrix.SlotAssignment[s] = r;
                     matrix.SlotWorkHint[s] = SlotWorkType.Any;
                     extended++;
@@ -1245,7 +1269,7 @@ namespace AstroPM.NINA.Plugin.Models {
 
                     bool TryTake(int s) {
                         if (matrix.LockedSlot[s]) return false; // exo transit slot — never borrowed
-                        if (!matrix.CanImage[r][s]) return false;
+                        if (!Usable(s)) return false;
                         int victim = matrix.SlotAssignment[s];
                         if (victim == r) return false;
                         if (victim >= 0) {
@@ -1278,10 +1302,17 @@ namespace AstroPM.NINA.Plugin.Models {
                     }
                 }
 
-                if (assigned + extended < matrix.Rows[r].MinChunkSlots) {
+                // Still short of the minimum: keep the block if it reaches the
+                // Min-Time Tolerance floor, otherwise drop it — a sliver that far
+                // under the minimum isn't worth the slew, and its slots do more good
+                // as a neighbor's planned or bonus time.
+                if (assigned + extended < matrix.Rows[r].MinFloorSlots) {
+                    PaintTrace.AppendLine($"MINENF: [{matrix.Rows[r].Profile.DisplayName}] {assigned + extended} slots < min {matrix.Rows[r].MinChunkSlots} and below tolerance floor {matrix.Rows[r].MinFloorSlots} — cleared");
                     for (int s = 0; s < matrix.SlotAssignment.Length; s++)
                         if (matrix.SlotAssignment[s] == r && !matrix.LockedSlot[s])
                             matrix.SlotAssignment[s] = -1;
+                } else if (assigned + extended < matrix.Rows[r].MinChunkSlots) {
+                    PaintTrace.AppendLine($"MINENF: [{matrix.Rows[r].Profile.DisplayName}] {assigned + extended} slots < min {matrix.Rows[r].MinChunkSlots} but >= tolerance floor {matrix.Rows[r].MinFloorSlots} — kept");
                 }
             }
         }
@@ -1764,7 +1795,45 @@ namespace AstroPM.NINA.Plugin.Models {
                                 }
                                 state.FilterCycle.Remove(prof);
                             }
-                            if (releaseEnd > s) {
+                            // The leading slots are dead for this target. Before idling
+                            // through them, offer them as BONUS time to another target that
+                            // can image here — the one we're already on first (no slew),
+                            // then any other. Nobody had planned work here (checked above),
+                            // so bonus subs are the only alternative to an idle mount.
+                            int bonusRow = -1;
+                            if (releaseEnd > s && bonusEnabled) {
+                                var bonusOrder = Enumerable.Range(0, matrix.Rows.Count)
+                                    .Where(r => r != rowIdx && !matrix.Rows[r].PreFiltered && matrix.CanImage[r][s])
+                                    .OrderBy(r => currentTarget != null && matrix.Rows[r].Profile == currentTarget ? 0 : 1)
+                                    .ToList();
+                                foreach (int r in bonusOrder) {
+                                    var bp = matrix.Rows[r].Profile;
+                                    var bAllowed = bp.PanelIndex.HasValue
+                                        ? new HashSet<int> { bp.PanelIndex.Value } : (HashSet<int>)null;
+                                    // Probe without disturbing that target's live filter cycle.
+                                    bool hadCycle = state.FilterCycle.TryGetValue(bp, out var savedCycle);
+                                    var bPick = SessionScheduler.PickExposureSet(
+                                        bp, r, s, matrix.Slots, state,
+                                        FsFor(bp), filterSwitchCount, bAllowed,
+                                        includeCompleted: true,
+                                        filterSwitchTolerance: filterSwitchTolerance);
+                                    if (hadCycle) state.FilterCycle[bp] = savedCycle; else state.FilterCycle.Remove(bp);
+                                    if (bPick.Es != null) { bonusRow = r; break; }
+                                }
+                            }
+                            if (bonusRow >= 0) {
+                                global::NINA.Core.Utility.Logger.Info(
+                                    $"AstroPM | Walk: [{prof.DisplayName}] no planned work anywhere at slot {s} — slots {s}–{releaseEnd - 1} → [{matrix.Rows[bonusRow].Profile.DisplayName}] for bonus imaging");
+                                for (int fs = s; fs < releaseEnd; fs++) {
+                                    if (matrix.LockedSlot[fs]) break;
+                                    matrix.SlotAssignment[fs] = bonusRow;
+                                }
+                                rowIdx = bonusRow;
+                                row = matrix.Rows[rowIdx];
+                                prof = row.Profile;
+                                target = prof.Target;
+                                targetIdx = row.RowIndex;
+                            } else if (releaseEnd > s) {
                                 // Never release exo transit slots — stop at the first
                                 // locked slot so the walk still visits the window.
                                 int released = s;
@@ -2165,10 +2234,10 @@ namespace AstroPM.NINA.Plugin.Models {
                 double minSec = row.MinChunkSec;
 
                 double originalWork = row.Profile.RemainingLunarFreeSec + row.Profile.RemainingNonLunarSec;
-                if (got > 0 && allocatedSec < minSec && originalWork >= minSec)
+                if (got > 0 && allocatedSec < row.MinFloorSec && originalWork >= minSec)
                     warnings.Add(new ScheduleWarning {
                         Severity = "warn",
-                        Message = $"TOTAL-MIN: {row.Profile.DisplayName} got {allocatedSec / 60:F0}min allocated but minimum is {minSec / 60:F0}min",
+                        Message = $"TOTAL-MIN: {row.Profile.DisplayName} got {allocatedSec / 60:F0}min allocated but minimum is {minSec / 60:F0}min (floor {row.MinFloorSec / 60:F0}min)",
                     });
 
                 if (got <= 0 && originalWork > 0 && row.TotalUsableSlots > 0)

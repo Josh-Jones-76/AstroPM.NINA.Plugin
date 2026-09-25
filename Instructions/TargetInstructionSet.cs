@@ -1059,7 +1059,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 : "AstroPM | No custom horizon file in NINA profile (flat min-altitude only)");
 
             var profiles = SessionScheduler.BuildTargetProfiles(targets, slots, latDeg, lonDeg, settings.MosaicPanelPreference, customHorizon, tz,
-                overshootPercent: settings.OvershootPercent);
+                overshootPercent: settings.OvershootPercent, minTimeTolerance: settings.MinTimeTolerance);
 
             foreach (var p in profiles)
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Profile: {p.DisplayName} PanelIdx={p.PanelIndex} LA={p.RemainingLunarFreeSec / 60:F0}m NonLA={p.RemainingNonLunarSec / 60:F0}m window={p.WindowStartSlot}-{p.WindowEndSlot}");
@@ -1081,7 +1081,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 .ThenBy(i => profiles[i].PanelIndex ?? -1) // mosaic panels: explicit P1→P2 order
                 .ThenBy(i => i)
                 .ToList();
-            var matrix = ScheduleEngine.BuildMatrix(slots, profiles, order);
+            var matrix = ScheduleEngine.BuildMatrix(slots, profiles, order, settings.MinTimeTolerance);
 
             if (matrix.FirstUsableSlot < 0) {
                 Notification.ShowWarning("Astro PM: No usable time window for any target.");

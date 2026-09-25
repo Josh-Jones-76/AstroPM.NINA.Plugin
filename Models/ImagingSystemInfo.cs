@@ -41,6 +41,9 @@ namespace AstroPM.NINA.Plugin.Models
         // Guaranteed extra subs per exposure set as a percent of its planned count
         // (insurance frames for SubInspector rejections). 0 or legacy -1 = none.
         [JsonProperty("OvershootPercent")] public int OvershootPercent { get; set; } = 0;
+        // Min-Time Tolerance: how far below Min Time on Target a block may fall and still be
+        // scheduled (fraction). Older desktops don't send it → default 0.5.
+        [JsonProperty("MinTimeTolerance")] public double MinTimeTolerance { get; set; } = 0.5;
         [JsonProperty("MosaicPanelPreference")] public bool MosaicPanelPreference { get; set; } = true;
         [JsonProperty("DitherEnabled")] public bool DitherEnabled { get; set; } = true;
         [JsonProperty("DitherEvery")] public int DitherEvery { get; set; } = 3;

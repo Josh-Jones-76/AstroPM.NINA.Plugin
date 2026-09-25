@@ -23,6 +23,7 @@ namespace AstroPM.NINA.Plugin
         private int _filterSwitchCount = 20;
         private bool _bonusEnabled = true;
         private int _overshootPercent = 0;
+        private double _minTimeTolerance = 0.5;
         private bool _mosaicPanelPreference = true;
         private string _sortChain = "LowestPeakAltitude,SettingSoonest,MostRemainingWork,Constrained";
         private string _strategy = "SharedTime";
@@ -141,6 +142,16 @@ namespace AstroPM.NINA.Plugin
         {
             get => _overshootPercent;
             set { if (_overshootPercent != value) { _overshootPercent = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Min-Time Tolerance ("undershoot"): how far below a project's Min Time on
+        /// Target a block may fall and still be scheduled, as a fraction (0.5 = a 60-min
+        /// minimum keeps a 30-min block; shorter slivers are dropped and their time goes to a
+        /// neighbor's planned or bonus work). 0 = strict minimum. Mirrors the desktop setting.</summary>
+        public double MinTimeTolerance
+        {
+            get => _minTimeTolerance;
+            set { if (Math.Abs(_minTimeTolerance - value) > 0.0001) { _minTimeTolerance = value; OnPropertyChanged(); } }
         }
 
         public bool MosaicPanelPreference

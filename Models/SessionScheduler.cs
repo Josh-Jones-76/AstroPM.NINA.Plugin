@@ -228,7 +228,7 @@ namespace AstroPM.NINA.Plugin.Models {
 
         public static List<TargetProfile> BuildTargetProfiles(List<ProjectTarget> targets, List<TimeSlot> slots,
             double latDeg, double lonDeg, bool mosaicPanelPreference = false, HorizonProfile customHorizon = null,
-            TimeZoneInfo tz = null, int overshootPercent = 0) {
+            TimeZoneInfo tz = null, int overshootPercent = 0, double minTimeTolerance = 0.5) {
             // Custom .hrz horizon (NINA's profile horizon file, if loaded): a slot is only
             // usable when the target clears the obstruction line at its azimuth, in
             // addition to MinTargetAltitude. The desktop simulator applies the same check
@@ -301,7 +301,10 @@ namespace AstroPM.NINA.Plugin.Models {
                     usableHrs = longestRun * 5.0 / 60.0;
                 }
 
-                if (usableHrs < constraints.MinTimeOnTargetHrs)
+                // Min-Time Tolerance: a window shorter than the minimum still qualifies if
+                // it reaches the floor (min × (1 − tolerance)); the engine applies the same
+                // floor when it decides whether a painted block is worth keeping.
+                if (usableHrs < constraints.MinTimeOnTargetHrs * (1.0 - Math.Max(0.0, Math.Min(0.95, minTimeTolerance))))
                     continue;
 
                 // V4: Classify all exposure sets into tiers and compute per-tier slot safety
@@ -432,7 +435,8 @@ namespace AstroPM.NINA.Plugin.Models {
             bool bonusEnabled = false,
             ImagingStrategy strategy = ImagingStrategy.SharedTime,
             double filterSwitchTolerance = 0.5,
-            List<int> priorityOrder = null) {
+            List<int> priorityOrder = null,
+            double minTimeTolerance = 0.5) {
 
             foreach (var p in profiles) p.AllocatedSec = 0;
 
@@ -440,7 +444,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 return new List<SimLogEntry> { new SimLogEntry { Command = "Info", Target = "No active targets." } };
 
             var order = priorityOrder ?? Enumerable.Range(0, profiles.Count).ToList();
-            var matrix = ScheduleEngine.BuildMatrix(slots, profiles, order);
+            var matrix = ScheduleEngine.BuildMatrix(slots, profiles, order, minTimeTolerance);
 
             if (matrix.FirstUsableSlot < 0)
                 return new List<SimLogEntry> { new SimLogEntry { Command = "Info", Target = "No usable time window for any target." } };

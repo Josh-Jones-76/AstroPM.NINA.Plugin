@@ -59,6 +59,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private ImagingStrategy _strategy = ImagingStrategy.SharedTime;
         private double _filterSwitchTolerance = 0.5;
         private int _overshootPercent = 0;
+        private double _minTimeTolerance = 0.5;
         private bool _flatsEnabled;
         private bool _flatsFullSet;
         private string _strategyDescription = "";
@@ -160,6 +161,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _filterSwitchCount = settings.FilterSwitchCount;
             _filterSwitchTolerance = settings.FilterSwitchTolerance;
             _overshootPercent = settings.OvershootPercent;
+            _minTimeTolerance = settings.MinTimeTolerance;
             _flatsEnabled = settings.FlatsEnabled;
             _flatsFullSet = settings.FlatsFullSet;
             _bonusImagesEnabled = settings.BonusEnabled;
@@ -521,6 +523,37 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             }
         }
 
+        public List<KeyValuePair<double, string>> MinTimeToleranceOptions { get; } =
+            new List<KeyValuePair<double, string>> {
+                new KeyValuePair<double, string>(0.00, "0%"),
+                new KeyValuePair<double, string>(0.10, "10%"),
+                new KeyValuePair<double, string>(0.20, "20%"),
+                new KeyValuePair<double, string>(0.25, "25%"),
+                new KeyValuePair<double, string>(0.30, "30%"),
+                new KeyValuePair<double, string>(0.40, "40%"),
+                new KeyValuePair<double, string>(0.50, "50%"),
+                new KeyValuePair<double, string>(0.60, "60%"),
+                new KeyValuePair<double, string>(0.75, "75%"),
+            };
+
+        /// <summary>Min-Time Tolerance ("undershoot"): fraction below Min Time on Target a block
+        /// may fall and still be scheduled. Bound to the nearest option so a cloud-pushed value
+        /// that isn't in the list still selects something.</summary>
+        public double MinTimeTolerance {
+            get {
+                double best = 0.5, bestDiff = double.MaxValue;
+                foreach (var kv in MinTimeToleranceOptions) {
+                    double d = Math.Abs(kv.Key - _minTimeTolerance);
+                    if (d < bestDiff) { bestDiff = d; best = kv.Key; }
+                }
+                return best;
+            }
+            set {
+                if (Math.Abs(_minTimeTolerance - value) < 0.0001) return;
+                _minTimeTolerance = value; OnPropertyChanged(); SaveSimSettings(); _ = RunSimulationAsync();
+            }
+        }
+
         public bool MosaicPanelPreference {
             get => _mosaicPanelPreference;
             set {
@@ -776,7 +809,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             // set applies, so the simulator preview matches what will actually run.
             _customHorizon = HorizonProfile.LoadFromNinaProfile();
             _profiles = SessionScheduler.BuildTargetProfiles(targets, _slots, lat, lon, _mosaicPanelPreference, _customHorizon, tz,
-                overshootPercent: _overshootPercent);
+                overshootPercent: _overshootPercent, minTimeTolerance: _minTimeTolerance);
 
             if (_profiles.Count == 0) {
                 _log = new List<SimLogEntry> { new SimLogEntry { Command = "Info", Target = "No targets visible tonight." } };
@@ -795,7 +828,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 .ThenBy(i => _profiles[i].PanelIndex ?? -1) // mosaic panels: explicit P1→P2 order
                 .ThenBy(i => i)
                 .ToList();
-            var matrix = ScheduleEngine.BuildMatrix(_slots, _profiles, order);
+            var matrix = ScheduleEngine.BuildMatrix(_slots, _profiles, order, _minTimeTolerance);
 
             if (matrix.FirstUsableSlot < 0) {
                 _log = new List<SimLogEntry> { new SimLogEntry { Command = "Info", Target = "No usable time window for any target." } };
@@ -883,6 +916,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _filterSwitchCount = settings.FilterSwitchCount; OnPropertyChanged(nameof(FilterSwitchCount));
             _filterSwitchTolerance = settings.FilterSwitchTolerance; OnPropertyChanged(nameof(FilterSwitchTolerance));
             _overshootPercent = settings.OvershootPercent; OnPropertyChanged(nameof(OvershootPercent));
+            _minTimeTolerance = settings.MinTimeTolerance; OnPropertyChanged(nameof(MinTimeTolerance));
             _flatsEnabled = settings.FlatsEnabled; OnPropertyChanged(nameof(FlatsEnabled));
             _flatsFullSet = settings.FlatsFullSet; OnPropertyChanged(nameof(FlatsFullSet));
             _bonusImagesEnabled = settings.BonusEnabled; OnPropertyChanged(nameof(BonusImagesEnabled));
@@ -909,6 +943,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.FlatsFullSet = _flatsFullSet;
             settings.BonusEnabled = _bonusImagesEnabled;
             settings.OvershootPercent = _overshootPercent;
+            settings.MinTimeTolerance = _minTimeTolerance;
             settings.MosaicPanelPreference = _mosaicPanelPreference;
             settings.SortChain = string.Join(",", _sortChain);
             settings.Strategy = _strategy.ToString();
@@ -1140,8 +1175,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 : prof.RemainingNonLunarSec + prof.RemainingLunarFreeSec;
             bool finishing = c.MinTimeOnTargetHrs > 0 && remainingWorkSec > 0
                 && remainingWorkSec < c.MinTimeOnTargetHrs * 3600;
+            // Min-Time Tolerance: a block down to min × (1 − tolerance) still passes.
+            double floorHrs = c.MinTimeOnTargetHrs * (1.0 - Math.Max(0.0, Math.Min(0.95, _minTimeTolerance)));
+            bool hasFloor = floorHrs < c.MinTimeOnTargetHrs - 1e-9;
             bool timePass = c.MinTimeOnTargetHrs <= 0
-                || allocHrs >= c.MinTimeOnTargetHrs
+                || allocHrs >= floorHrs
                 || (finishing && allocHrs > 0);
             checks.Add(new ConstraintCheckModel {
                 Icon = timePass ? "✓" : "✗", IconColor = timePass ? PassBrush : FailBrush,
@@ -1150,7 +1188,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                     ? $"{allocHrs:F1}h (no min set)"
                     : finishing && timePass
                         ? $"{allocHrs:F1}h (finishing — last {remainingWorkSec / 3600.0:F1}h)"
-                        : $"{allocHrs:F1}h {(timePass ? "≥" : "<")} {c.MinTimeOnTargetHrs:F1}h min",
+                        : timePass && allocHrs >= c.MinTimeOnTargetHrs
+                            ? $"{allocHrs:F1}h ≥ {c.MinTimeOnTargetHrs:F1}h min"
+                            : hasFloor
+                                ? $"{allocHrs:F1}h {(timePass ? "≥" : "<")} {floorHrs:F1}h floor ({c.MinTimeOnTargetHrs:F1}h min)"
+                                : $"{allocHrs:F1}h < {c.MinTimeOnTargetHrs:F1}h min",
                 DetailColor = DimBrush,
             });
 
@@ -1315,8 +1357,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 : prof.RemainingNonLunarSec + prof.RemainingLunarFreeSec;
             bool finishing = c.MinTimeOnTargetHrs > 0 && remainingWorkSec > 0
                 && remainingWorkSec < c.MinTimeOnTargetHrs * 3600;
+            // Min-Time Tolerance: a block down to min × (1 − tolerance) still passes.
+            double floorHrs = c.MinTimeOnTargetHrs * (1.0 - Math.Max(0.0, Math.Min(0.95, _minTimeTolerance)));
+            bool hasFloor = floorHrs < c.MinTimeOnTargetHrs - 1e-9;
             bool timePass = c.MinTimeOnTargetHrs <= 0
-                || allocHrs >= c.MinTimeOnTargetHrs
+                || allocHrs >= floorHrs
                 || (finishing && allocHrs > 0);
             checks.Add(new ConstraintCheckModel {
                 Icon = timePass ? "✓" : "✗", IconColor = timePass ? PassBrush : FailBrush,
@@ -1325,7 +1370,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                     ? $"{allocHrs:F1}h (no min set)"
                     : finishing && timePass
                         ? $"{allocHrs:F1}h (finishing — last {remainingWorkSec / 3600.0:F1}h)"
-                        : $"{allocHrs:F1}h {(timePass ? "≥" : "<")} {c.MinTimeOnTargetHrs:F1}h min",
+                        : timePass && allocHrs >= c.MinTimeOnTargetHrs
+                            ? $"{allocHrs:F1}h ≥ {c.MinTimeOnTargetHrs:F1}h min"
+                            : hasFloor
+                                ? $"{allocHrs:F1}h {(timePass ? "≥" : "<")} {floorHrs:F1}h floor ({c.MinTimeOnTargetHrs:F1}h min)"
+                                : $"{allocHrs:F1}h < {c.MinTimeOnTargetHrs:F1}h min",
                 DetailColor = DimBrush,
             });
 
