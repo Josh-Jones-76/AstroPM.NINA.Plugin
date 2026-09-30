@@ -62,6 +62,9 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private double _minTimeTolerance = 0.5;
         private bool _flatsEnabled;
         private bool _flatsFullSet;
+        private bool _flatsAutoPerProject;
+        private string _flatsAutoMode = "OncePerProject";
+        private int _flatsAutoIntervalDays = 7;
         private string _strategyDescription = "";
         private PlaybackMode _playback = PlaybackMode.TimeAware;
 
@@ -164,6 +167,9 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _minTimeTolerance = settings.MinTimeTolerance;
             _flatsEnabled = settings.FlatsEnabled;
             _flatsFullSet = settings.FlatsFullSet;
+            _flatsAutoPerProject = settings.FlatsAutoPerProject;
+            _flatsAutoMode = settings.FlatsAutoMode == "TimeBased" ? "TimeBased" : "OncePerProject";
+            _flatsAutoIntervalDays = settings.FlatsAutoIntervalDays > 0 ? settings.FlatsAutoIntervalDays : 7;
             _bonusImagesEnabled = settings.BonusEnabled;
             _mosaicPanelPreference = settings.MosaicPanelPreference;
             _sortChain = ParseSortChain(settings.SortChain);
@@ -433,7 +439,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         /// Astro PM Instructions container. Mirrors the desktop simulator's checkbox.</summary>
         public bool FlatsEnabled {
             get => _flatsEnabled;
-            set { _flatsEnabled = value; OnPropertyChanged(); SaveSimSettings(); }
+            set { _flatsEnabled = value; OnPropertyChanged(); OnPropertyChanged(nameof(FlatsAutoDescription)); SaveSimSettings(); }
         }
 
         /// <summary>With flats enabled: every wheel filter at each target/rotation captured
@@ -442,6 +448,43 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             get => _flatsFullSet;
             set { _flatsFullSet = value; OnPropertyChanged(); SaveSimSettings(); }
         }
+
+        /// <summary>Auto Flats Per Project (mirrors the desktop). Only shown with flats enabled.</summary>
+        public bool FlatsAutoPerProject {
+            get => _flatsAutoPerProject;
+            set { _flatsAutoPerProject = value; OnPropertyChanged(); OnPropertyChanged(nameof(FlatsAutoDescription)); SaveSimSettings(); }
+        }
+
+        /// <summary>"OncePerProject" | "TimeBased".</summary>
+        public string FlatsAutoMode {
+            get => _flatsAutoMode;
+            set {
+                _flatsAutoMode = value == "TimeBased" ? "TimeBased" : "OncePerProject";
+                OnPropertyChanged(); OnPropertyChanged(nameof(FlatsAutoTimeBased)); OnPropertyChanged(nameof(FlatsAutoDescription));
+                SaveSimSettings();
+            }
+        }
+
+        public bool FlatsAutoTimeBased => _flatsAutoMode == "TimeBased";
+
+        public int FlatsAutoIntervalDays {
+            get => _flatsAutoIntervalDays;
+            set { _flatsAutoIntervalDays = value > 0 ? value : 7; OnPropertyChanged(); OnPropertyChanged(nameof(FlatsAutoDescription)); SaveSimSettings(); }
+        }
+
+        public List<KeyValuePair<string, string>> FlatsAutoModeOptions { get; } = new List<KeyValuePair<string, string>> {
+            new KeyValuePair<string, string>("OncePerProject", "Once Per Project"),
+            new KeyValuePair<string, string>("TimeBased", "Time Based"),
+        };
+
+        public List<int> FlatsAutoDaysOptions { get; } = new List<int> { 1, 2, 3, 5, 7, 10, 14, 21, 30 };
+
+        public string FlatsAutoDescription =>
+            !_flatsEnabled ? ""
+            : !_flatsAutoPerProject ? "Flats run after every session for each filter + rotation used that night."
+            : _flatsAutoMode == "TimeBased"
+                ? $"Each project's flats are re-taken every {_flatsAutoIntervalDays} day{(_flatsAutoIntervalDays == 1 ? "" : "s")} from its last flat session. A session that ends under a safety hold makes its flats up the following morning."
+                : "Flats are taken the morning after a project is imaged, only for filter + rotation combinations that project doesn't have flats for yet. A session that ends under a safety hold makes its flats up the following morning.";
 
         public List<KeyValuePair<ImagingStrategy, string>> StrategyOptions { get; } =
             StrategyLabels.ToList();
@@ -919,6 +962,11 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _minTimeTolerance = settings.MinTimeTolerance; OnPropertyChanged(nameof(MinTimeTolerance));
             _flatsEnabled = settings.FlatsEnabled; OnPropertyChanged(nameof(FlatsEnabled));
             _flatsFullSet = settings.FlatsFullSet; OnPropertyChanged(nameof(FlatsFullSet));
+            _flatsAutoPerProject = settings.FlatsAutoPerProject; OnPropertyChanged(nameof(FlatsAutoPerProject));
+            _flatsAutoMode = settings.FlatsAutoMode == "TimeBased" ? "TimeBased" : "OncePerProject";
+            OnPropertyChanged(nameof(FlatsAutoMode)); OnPropertyChanged(nameof(FlatsAutoTimeBased));
+            _flatsAutoIntervalDays = settings.FlatsAutoIntervalDays > 0 ? settings.FlatsAutoIntervalDays : 7;
+            OnPropertyChanged(nameof(FlatsAutoIntervalDays)); OnPropertyChanged(nameof(FlatsAutoDescription));
             _bonusImagesEnabled = settings.BonusEnabled; OnPropertyChanged(nameof(BonusImagesEnabled));
             _mosaicPanelPreference = settings.MosaicPanelPreference; OnPropertyChanged(nameof(MosaicPanelPreference));
             _sortChain = ParseSortChain(settings.SortChain); RefreshSortChainItems();
@@ -941,6 +989,9 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.FilterSwitchTolerance = _filterSwitchTolerance;
             settings.FlatsEnabled = _flatsEnabled;
             settings.FlatsFullSet = _flatsFullSet;
+            settings.FlatsAutoPerProject = _flatsAutoPerProject;
+            settings.FlatsAutoMode = _flatsAutoMode;
+            settings.FlatsAutoIntervalDays = _flatsAutoIntervalDays;
             settings.BonusEnabled = _bonusImagesEnabled;
             settings.OvershootPercent = _overshootPercent;
             settings.MinTimeTolerance = _minTimeTolerance;

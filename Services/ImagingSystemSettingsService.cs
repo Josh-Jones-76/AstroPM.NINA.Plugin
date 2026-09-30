@@ -66,6 +66,9 @@ namespace AstroPM.NINA.Plugin.Services
                     settings.FilterSwitchTolerance = s.FilterSwitchTolerance;
                     settings.FlatsEnabled = s.FlatsEnabled;
                     settings.FlatsFullSet = s.FlatsFullSet;
+                    settings.FlatsAutoPerProject = s.FlatsAutoPerProject;
+                    settings.FlatsAutoMode = s.FlatsAutoMode == "TimeBased" ? "TimeBased" : "OncePerProject";
+                    settings.FlatsAutoIntervalDays = s.FlatsAutoIntervalDays > 0 ? s.FlatsAutoIntervalDays : 7;
                 }
 
                 settings.Save();

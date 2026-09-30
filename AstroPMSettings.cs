@@ -31,6 +31,9 @@ namespace AstroPM.NINA.Plugin
         private string _playbackMode = "TimeAware";
         private bool _flatsEnabled;
         private bool _flatsFullSet;
+        private bool _flatsAutoPerProject;
+        private string _flatsAutoMode = "OncePerProject";
+        private int _flatsAutoIntervalDays = 7;
         private bool _offlineMode;
         private string _selectedImagingSystem = string.Empty;
         private string _lastReportedModesHash = string.Empty;
@@ -206,6 +209,29 @@ namespace AstroPM.NINA.Plugin
         {
             get => _flatsFullSet;
             set { if (_flatsFullSet != value) { _flatsFullSet = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Auto Flats Per Project: with flats on, take a project's flats only when it
+        /// needs them instead of after every session (see <see cref="FlatsAutoMode"/>). A night
+        /// that ends under a safety hold carries its combos over to the next morning's pass.</summary>
+        public bool FlatsAutoPerProject
+        {
+            get => _flatsAutoPerProject;
+            set { if (_flatsAutoPerProject != value) { _flatsAutoPerProject = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>"OncePerProject" = only combos the project has no flats for yet;
+        /// "TimeBased" = re-take every <see cref="FlatsAutoIntervalDays"/> days.</summary>
+        public string FlatsAutoMode
+        {
+            get => _flatsAutoMode;
+            set { if (_flatsAutoMode != value) { _flatsAutoMode = value; OnPropertyChanged(); } }
+        }
+
+        public int FlatsAutoIntervalDays
+        {
+            get => _flatsAutoIntervalDays;
+            set { if (_flatsAutoIntervalDays != value) { _flatsAutoIntervalDays = value; OnPropertyChanged(); } }
         }
 
         /// <summary>Hash of the camera readout-mode list last successfully reported to the cloud

@@ -82,6 +82,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
         /// Target is set to this while the combo's flats run, so NINA's $$TARGETNAME$$ file-pattern
         /// token drops the flats into the same folder tree as the lights.</summary>
         public string TargetName { get; set; } = "";
+        /// <summary>Cloud project the target belongs to — the key for the flats ledgers
+        /// (Auto Flats Per Project decides per project, not per mosaic panel).</summary>
+        public string ProjectName { get; set; } = "";
         public string FilterName { get; set; } = "";
         /// <summary>Sky position angle the lights were taken at.</summary>
         public double RotationDeg { get; set; }
@@ -103,6 +106,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public string NightDate { get; set; } = "";
         public List<FlatSpec> Specs { get; set; } = new List<FlatSpec>();
         public DateTime? FlatsCompletedUtc { get; set; }
+        /// <summary>Combos whose flats pass was missed (safety hold / stop past the dawn window)
+        /// under Auto Flats Per Project — made up at the next session's flats pass.</summary>
+        public List<FlatSpec> CarryOver { get; set; } = new List<FlatSpec>();
+        /// <summary>Night the carry-over combos were captured on; they expire after a few nights.</summary>
+        public string CarryOverNight { get; set; } = "";
+        /// <summary>Per-project flats ledgers from the cloud, snapshotted when each combo was
+        /// recorded, so a mid-night NINA restart still has them for the dawn decision.</summary>
+        public Dictionary<string, FlatsLedgerData> CloudLedgers { get; set; } = new Dictionary<string, FlatsLedgerData>(StringComparer.OrdinalIgnoreCase);
 
         private static string FilePath => System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -201,6 +212,12 @@ namespace AstroPM.NINA.Plugin.Instructions {
         private readonly List<FlatSpec> _flatSpecs = new List<FlatSpec>();
         private string _nightDate = "";
         private bool _flatsDone;
+        // Auto Flats Per Project: combos carried over from a night whose flats pass was missed,
+        // and the cloud ledgers (per project) captured alongside tonight's combos.
+        private readonly List<FlatSpec> _carryOverSpecs = new List<FlatSpec>();
+        private string _carryOverNight = "";
+        private readonly Dictionary<string, FlatsLedgerData> _cloudLedgers = new Dictionary<string, FlatsLedgerData>(StringComparer.OrdinalIgnoreCase);
+        private const int CarryOverMaxNights = 3;
 
         // Test mode: skip wait + viability check for current block
         private volatile bool _skipWait;
@@ -311,10 +328,20 @@ namespace AstroPM.NINA.Plugin.Instructions {
         /// used to sit there wrote the global setting but read as a local instruction-set
         /// toggle, which misled users. The real switches live in the desktop app / plugin
         /// Simulator panel.</summary>
-        public string FlatsStatusText =>
-            !FlatsEnabled ? "Flats: Off  (enable in Astro PM app or Simulator panel)"
-            : FlatsFullSet ? "Flats: Enabled · Full Filter Set"
-            : "Flats: Enabled";
+        public string FlatsStatusText {
+            get {
+                if (!FlatsEnabled) return "Flats: Off  (enable in Astro PM app or Simulator panel)";
+                var s = FlatsFullSet ? "Flats: Enabled · Full Filter Set" : "Flats: Enabled";
+                if (FlatsAutoPerProject)
+                    s += FlatsAutoMode == "TimeBased" ? $" · Auto per project every {FlatsAutoIntervalDays} d" : " · Auto once per project";
+                return s;
+            }
+        }
+
+        /// <summary>Auto Flats Per Project (plugin-wide setting, pushed from the desktop).</summary>
+        public bool FlatsAutoPerProject => AstroPMSettings.Load().FlatsAutoPerProject;
+        public string FlatsAutoMode => AstroPMSettings.Load().FlatsAutoMode == "TimeBased" ? "TimeBased" : "OncePerProject";
+        public int FlatsAutoIntervalDays => Math.Max(1, AstroPMSettings.Load().FlatsAutoIntervalDays);
 
         /// <summary>Runs once, before the per-combo loop — park mount, close flat panel, light on.</summary>
         [JsonProperty]
@@ -482,6 +509,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
             lock (_flatSpecs) _flatSpecs.Clear();
             _flatsDone = false;
             _nightDate = "";
+            lock (_carryOverSpecs) _carryOverSpecs.Clear();
+            _carryOverNight = "";
+            lock (_cloudLedgers) _cloudLedgers.Clear();
             new FlatSpecStore().Save();
             UpdateFlatsSummary();
             // Also clear the checkmarks/progress the last flats pass left on the drop-zone
@@ -717,7 +747,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     || (FlatsRunner?.GetItemsSnapshot().Count > 0)
                     || (FlatsTeardownRunner?.GetItemsSnapshot().Count > 0);
                 if (!hasInstructions) return false;
-                lock (_flatSpecs) return _flatSpecs.Count > 0;
+                lock (_flatSpecs) if (_flatSpecs.Count > 0) return true;
+                // Carried-over combos (Auto Flats Per Project) pend only while the CURRENT
+                // session is live — never for a stale schedule, or they'd hold last night's
+                // session open at dusk and run flats after startup (the 9/18 incident).
+                lock (_carryOverSpecs) {
+                    return _carryOverSpecs.Count > 0 && _scheduleBuilt && _sessionEndUtc != DateTime.MinValue
+                        && DateTime.UtcNow < _sessionEndUtc.AddHours(StaleAfterHours);
+                }
             }
         }
 
@@ -727,17 +764,53 @@ namespace AstroPM.NINA.Plugin.Instructions {
         /// nor a same-night NINA restart (which reloads the store) resumes them.</summary>
         private void MarkFlatsMissed() {
             int count;
+            List<FlatSpec> missed;
             lock (_flatSpecs) {
-                count = _flatSpecs.Count;
+                missed = _flatSpecs.ToList();
+                count = missed.Count;
                 _flatSpecs.Clear();
             }
             _flatsDone = true;
-            new FlatSpecStore { NightDate = _nightDate, Specs = new List<FlatSpec>(), FlatsCompletedUtc = DateTime.UtcNow }.Save();
-            UpdateFlatsSummary();
             var age = DateTime.UtcNow - _sessionEndUtc;
+            if (FlatsAutoPerProject && count > 0) {
+                // Auto Flats Per Project: the combos still need flats — make them up at the
+                // next session's pass instead of dropping them (safety-hold night, or the
+                // sequence stopped before dawn).
+                lock (_carryOverSpecs) {
+                    foreach (var m in missed)
+                        if (!_carryOverSpecs.Any(c => SameCombo(c, m))) _carryOverSpecs.Add(m);
+                    _carryOverNight = string.IsNullOrEmpty(_carryOverNight) ? _nightDate : _carryOverNight;
+                }
+                SaveFlatStore(new List<FlatSpec>(), DateTime.UtcNow);
+                UpdateFlatsSummary();
+                global::NINA.Core.Utility.Logger.Warning(
+                    $"AstroPM | Flats: window missed — session ended {_sessionEndUtc:MMM d HH:mm} UTC ({age.TotalHours:F1} h ago); carrying {count} filter/rotation combos over to the next session's flats pass (Auto Flats Per Project)");
+                Notification.ShowWarning($"Astro PM: Flats window missed ({age.TotalHours:F0} h since session end) — {count} combos will be made up after the next session.");
+                return;
+            }
+            SaveFlatStore(new List<FlatSpec>(), DateTime.UtcNow);
+            UpdateFlatsSummary();
             global::NINA.Core.Utility.Logger.Warning(
                 $"AstroPM | Flats: window missed — session ended {_sessionEndUtc:MMM d HH:mm} UTC ({age.TotalHours:F1} h ago); discarding {count} pending filter/rotation combos, flats will not be re-run");
             Notification.ShowWarning($"Astro PM: Flats window missed ({age.TotalHours:F0} h since session end) — {count} pending combos discarded.");
+        }
+
+        private static bool SameCombo(FlatSpec a, FlatSpec b) =>
+            string.Equals(a.TargetName, b.TargetName, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(a.FilterName, b.FilterName, StringComparison.OrdinalIgnoreCase)
+            && Math.Abs(a.RotationDeg - b.RotationDeg) < 0.05
+            && a.Gain == b.Gain && a.Offset == b.Offset && a.BinX == b.BinX && a.BinY == b.BinY;
+
+        /// <summary>Single writer for flat_specs.json: tonight's combos + completion stamp, plus
+        /// the Auto Flats carry-over and cloud-ledger snapshots that must survive a restart.</summary>
+        private void SaveFlatStore(List<FlatSpec> specs, DateTime? completedUtc) {
+            List<FlatSpec> carry; Dictionary<string, FlatsLedgerData> ledgers;
+            lock (_carryOverSpecs) carry = _carryOverSpecs.ToList();
+            lock (_cloudLedgers) ledgers = new Dictionary<string, FlatsLedgerData>(_cloudLedgers, StringComparer.OrdinalIgnoreCase);
+            new FlatSpecStore {
+                NightDate = _nightDate, Specs = specs, FlatsCompletedUtc = completedUtc,
+                CarryOver = carry, CarryOverNight = carry.Count > 0 ? _carryOverNight : "", CloudLedgers = ledgers,
+            }.Save();
         }
 
         /// <summary>True when the built schedule is left over from a finished night. A
@@ -1716,6 +1789,29 @@ namespace AstroPM.NINA.Plugin.Instructions {
             lock (_flatSpecs) {
                 _flatSpecs.Clear();
                 var store = FlatSpecStore.Load();
+                // Auto Flats carry-over rides across nights until it runs, then expires.
+                lock (_carryOverSpecs) {
+                    _carryOverSpecs.Clear();
+                    _carryOverNight = "";
+                    if (store.CarryOver != null && store.CarryOver.Count > 0) {
+                        bool fresh = DateTime.TryParse(store.CarryOverNight, out var cn)
+                            && (nightDate - cn).TotalDays <= CarryOverMaxNights;
+                        if (fresh) {
+                            _carryOverSpecs.AddRange(store.CarryOver);
+                            _carryOverNight = store.CarryOverNight;
+                            global::NINA.Core.Utility.Logger.Info(
+                                $"AstroPM | Flats: {store.CarryOver.Count} combos carried over from {store.CarryOverNight} will be made up at this session's flats pass");
+                        } else {
+                            global::NINA.Core.Utility.Logger.Warning(
+                                $"AstroPM | Flats: dropping {store.CarryOver.Count} carried-over combos from {store.CarryOverNight} — older than {CarryOverMaxNights} nights");
+                        }
+                    }
+                }
+                lock (_cloudLedgers) {
+                    _cloudLedgers.Clear();
+                    if (store.CloudLedgers != null)
+                        foreach (var kv in store.CloudLedgers) _cloudLedgers[kv.Key] = kv.Value;
+                }
                 if (store.NightDate == key) {
                     // NINA restarted mid-night — recover combos captured before the restart
                     _flatSpecs.AddRange(store.Specs);
@@ -1755,8 +1851,13 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         Math.Abs(s.RotationDeg - block.RotationDeg) < 0.05 &&
                         s.Gain == gain && s.Offset == offset && s.BinX == binX && s.BinY == binY);
                     if (!exists) {
+                        var projectName = block.Profile?.Target?.ProjectName ?? "";
+                        var cloudLedger = block.Profile?.Target?.Constraints?.Flats;
+                        if (!string.IsNullOrEmpty(projectName) && cloudLedger != null)
+                            lock (_cloudLedgers) _cloudLedgers[projectName] = cloudLedger;
                         _flatSpecs.Add(new FlatSpec {
                             TargetName = block.TargetName,
+                            ProjectName = projectName,
                             FilterName = filterName,
                             RotationDeg = block.RotationDeg,
                             MechanicalRotation = mech,
@@ -1778,7 +1879,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         global::NINA.Core.Utility.Logger.Info(
                             "AstroPM | Flats: new combo captured after flats completed — re-arming flat handling for tonight");
                     }
-                    new FlatSpecStore { NightDate = _nightDate, Specs = snapshot }.Save();
+                    SaveFlatStore(snapshot, null);
                     UpdateFlatsSummary();
                     global::NINA.Core.Utility.Logger.Info(
                         $"AstroPM | Flats: recorded combo {block.TargetName} {filterName} G{gain} O{offset} {binX}×{binY} @ PA {block.RotationDeg:F1}°" +
@@ -1810,6 +1911,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         if (g.Any(s => string.Equals(s.FilterName, f.Name, StringComparison.OrdinalIgnoreCase))) continue;
                         result.Add(new FlatSpec {
                             TargetName = template.TargetName,
+                            ProjectName = template.ProjectName,
                             FilterName = f.Name,
                             RotationDeg = template.RotationDeg,
                             MechanicalRotation = template.MechanicalRotation,
@@ -1988,6 +2090,18 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             List<FlatSpec> specs;
             lock (_flatSpecs) specs = _flatSpecs.ToList();
+
+            // Auto Flats Per Project: combos a missed pass left behind join tonight's.
+            List<FlatSpec> carried;
+            lock (_carryOverSpecs) carried = _carryOverSpecs.ToList();
+            if (carried.Count > 0) {
+                int added = 0;
+                foreach (var c in carried)
+                    if (!specs.Any(s => SameCombo(s, c))) { specs.Add(c); added++; }
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Flats: merged {added} carried-over combos from {_carryOverNight} into tonight's pass");
+            }
+
             if (specs.Count == 0) {
                 global::NINA.Core.Utility.Logger.Info("AstroPM | Flats: no captures recorded tonight — nothing to take flats for");
                 _flatsDone = true;
@@ -1997,6 +2111,21 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // Full Set of Flats: at every target/rotation captured tonight, also run the
             // wheel filters that were NOT shot — one pass builds a complete flat library.
             if (FlatsFullSet) specs = ExpandSpecsToFullWheel(specs);
+
+            // Auto Flats Per Project: keep only the combos whose project still needs flats
+            // (per the cloud ledger the desktop pushed + what this plugin has taken itself).
+            if (FlatsAutoPerProject) {
+                specs = ApplyAutoFlatsPolicy(specs);
+                if (specs.Count == 0) {
+                    global::NINA.Core.Utility.Logger.Info("AstroPM | Flats: every project already has the flats it needs — skipping the pass");
+                    Notification.ShowInformation("Astro PM: Flats skipped — all projects already have current flats.");
+                    _flatsDone = true;
+                    lock (_carryOverSpecs) _carryOverSpecs.Clear();
+                    _carryOverNight = "";
+                    SaveFlatStore(new List<FlatSpec>(), DateTime.UtcNow);
+                    return;
+                }
+            }
 
             // Several targets sharing a rotation+filter+camera combo produce byte-identical
             // flats, so only ONE physical capture is needed — dedupe here, remember which
@@ -2117,6 +2246,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         _imageSaveMediator.ImageSaved += saveHandler;
                     }
 
+                    bool comboOk = false;
                     try {
                         global::NINA.Core.Utility.Logger.Info(
                             $"AstroPM | Flats: running instructions for {spec.TargetName} {spec.FilterName} G{spec.Gain} O{spec.Offset} {spec.BinX}×{spec.BinY} @ {group.Key:F1}°");
@@ -2126,6 +2256,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         // survives a plain ResetProgress and it skips itself at 20/20.
                         ResetRunnerProgress(FlatsRunner);
                         await FlatsRunner.Run(progress, token);
+                        comboOk = true;
                     } catch (OperationCanceledException) {
                         throw;
                     } catch (Exception ex) {
@@ -2137,6 +2268,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
                     if (savedPaths != null)
                         CopyFlatsToDuplicateTargets(spec, savedPaths, dupTargets);
+
+                    // Ledger: this project (and every target the combo stood in for) now has
+                    // flats for this combo as of now — the Auto Flats decision reads it next time.
+                    if (comboOk) RecordFlatsTaken(spec, filter?.Name, dupTargets);
                 }
                 }
             }
@@ -2161,13 +2296,72 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
 
             _flatsDone = true;
-            new FlatSpecStore { NightDate = _nightDate, Specs = specs, FlatsCompletedUtc = DateTime.UtcNow }.Save();
+            lock (_carryOverSpecs) _carryOverSpecs.Clear();   // made up — nothing left to carry
+            _carryOverNight = "";
+            SaveFlatStore(specs, DateTime.UtcNow);
             LiveCommand = "Session Complete";
             LiveTarget = "";
             LiveFilter = "";
             LiveRotation = "";
             global::NINA.Core.Utility.Logger.Info($"AstroPM | Flats: complete — {specs.Count} combos processed");
             Notification.ShowSuccess($"Astro PM: Flat handling complete — {specs.Count} filter/rotation combos");
+        }
+
+        /// <summary>Auto Flats Per Project filter: drop every combo whose project already has
+        /// matching flats — in the desktop's cloud ledger (flats on disk in the project's local
+        /// folders) or in this plugin's own ledger — per the mode: Once Per Project = any match;
+        /// Time Based = a match newer than the interval. Filters are matched by the desktop
+        /// name AND the NINA wheel name, rotation mechanical-to-mechanical within 2°.</summary>
+        private List<FlatSpec> ApplyAutoFlatsPolicy(List<FlatSpec> specs) {
+            var mode = FlatsAutoMode;
+            int days = FlatsAutoIntervalDays;
+            var local = FlatsLedgerStore.Load();
+            var now = DateTime.UtcNow;
+            var keep = new List<FlatSpec>();
+            foreach (var spec in specs) {
+                FlatsLedgerData cloud = null;
+                if (!string.IsNullOrEmpty(spec.ProjectName))
+                    lock (_cloudLedgers) _cloudLedgers.TryGetValue(spec.ProjectName, out cloud);
+                string ninaName = null;
+                try { ninaName = ResolveNinaFilter(spec.FilterName)?.Name; } catch { }
+                bool any = FlatsAutoPolicy.FindCoverage(
+                    spec.ProjectName, spec.FilterName, ninaName, spec.MechanicalRotation,
+                    spec.Gain, spec.Offset, spec.BinX, cloud, local, out var newest, out var source);
+                bool covered = FlatsAutoPolicy.IsCovered(mode, days, any, newest, now, out var why);
+                var who = string.IsNullOrEmpty(spec.ProjectName) ? spec.TargetName : spec.ProjectName;
+                var rot = spec.MechanicalRotation.HasValue ? $"{spec.MechanicalRotation.Value:F1}° mech" : "no rotator";
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Flats/auto ({(mode == "TimeBased" ? $"every {days} d" : "once per project")}): {who} {spec.FilterName} G{spec.Gain} O{spec.Offset} {spec.BinX}×{spec.BinY} @ {rot} → {(covered ? "SKIP" : "TAKE")} — {why}{(any && !string.IsNullOrEmpty(source) ? $" [{source} ledger]" : "")}");
+                if (!covered) keep.Add(spec);
+            }
+            global::NINA.Core.Utility.Logger.Info($"AstroPM | Flats/auto: {keep.Count} of {specs.Count} combos still need flats");
+            return keep;
+        }
+
+        /// <summary>Write a completed combo into the plugin's flats ledger for its project and
+        /// for every duplicate target it stood in for (their files were copied).</summary>
+        private void RecordFlatsTaken(FlatSpec spec, string ninaFilterName, List<string> dupTargets) {
+            try {
+                var ledger = FlatsLedgerStore.Load();
+                var now = DateTime.UtcNow;
+                var filterName = string.IsNullOrWhiteSpace(ninaFilterName) ? spec.FilterName : ninaFilterName;
+                double? mech = spec.MechanicalRotation;
+                var projects = new List<string>();
+                if (!string.IsNullOrEmpty(spec.ProjectName)) projects.Add(spec.ProjectName);
+                if (dupTargets != null) {
+                    foreach (var t in dupTargets) {
+                        string p = null;
+                        lock (_flatSpecs) p = _flatSpecs.FirstOrDefault(s => string.Equals(s.TargetName, t, StringComparison.OrdinalIgnoreCase))?.ProjectName;
+                        if (string.IsNullOrEmpty(p)) lock (_carryOverSpecs) p = _carryOverSpecs.FirstOrDefault(s => string.Equals(s.TargetName, t, StringComparison.OrdinalIgnoreCase))?.ProjectName;
+                        if (!string.IsNullOrEmpty(p) && !projects.Contains(p, StringComparer.OrdinalIgnoreCase)) projects.Add(p);
+                    }
+                }
+                foreach (var p in projects)
+                    ledger.Record(p, filterName, mech, spec.Gain, spec.Offset, spec.BinX, spec.BinY, now);
+                ledger.Save();
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Warning($"AstroPM | Flats ledger write failed: {ex.Message}");
+            }
         }
 
         /// <summary>ResetProgress alone only resets item STATUSES — loop-bearing instructions

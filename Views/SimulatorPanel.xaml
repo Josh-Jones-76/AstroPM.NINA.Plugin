@@ -157,12 +157,37 @@
                               VerticalAlignment="Center"
                               ToolTip="At session complete, run the Flat Handling instructions in the Astro PM Instructions block — flats for exactly the filters, rotations, and camera settings used that night (or every wheel filter, when Full Set of Flats is also checked). Targets sharing an identical rotation + filter + camera combination are captured once, with the files copied into each target's folder. Mirrors the desktop app's simulator setting."/>
 
-                    <TextBlock Text="Full Set of Flats" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
-                               VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <CheckBox IsChecked="{Binding FlatsFullSet, Mode=TwoWay}"
-                              IsEnabled="{Binding FlatsEnabled}"
-                              VerticalAlignment="Center"
-                              ToolTip="Take flats for EVERY filter in the filter wheel at each target/rotation captured tonight — not just the filters shot. Useful for building a complete flat library in one pass. Mirrors the desktop app's simulator setting."/>
+                    <!-- Full Set + Auto Flats only appear once flats are on; the mode picker only
+                         once Auto is on; the interval only in Time Based mode (same as the desktop). -->
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding FlatsEnabled, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Full Set of Flats" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                                   VerticalAlignment="Center" Margin="12,0,6,0"/>
+                        <CheckBox IsChecked="{Binding FlatsFullSet, Mode=TwoWay}"
+                                  VerticalAlignment="Center"
+                                  ToolTip="Take flats for EVERY filter in the filter wheel at each target/rotation captured tonight — not just the filters shot. Useful for building a complete flat library in one pass. Mirrors the desktop app's simulator setting."/>
+
+                        <TextBlock Text="Auto Flats Per Project" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                                   VerticalAlignment="Center" Margin="12,0,6,0"/>
+                        <CheckBox IsChecked="{Binding FlatsAutoPerProject, Mode=TwoWay}"
+                                  VerticalAlignment="Center"
+                                  ToolTip="Take flats per project only when that project needs them, instead of after every session. Once Per Project: the morning after a project is imaged, flats are taken only for filter + rotation combinations it doesn't have flats for yet. Time Based: a project's flats are re-taken every N days from its last flat session. Either way, a night that ends under a safety hold makes its flats up the following morning. Mirrors the desktop app's simulator setting."/>
+
+                        <StackPanel Orientation="Horizontal" Visibility="{Binding FlatsAutoPerProject, Converter={StaticResource BoolToVis}}">
+                            <ComboBox Width="130" VerticalAlignment="Center" Margin="8,0,0,0"
+                                      ItemsSource="{Binding FlatsAutoModeOptions}"
+                                      DisplayMemberPath="Value" SelectedValuePath="Key"
+                                      SelectedValue="{Binding FlatsAutoMode, Mode=TwoWay}"/>
+                            <StackPanel Orientation="Horizontal" Visibility="{Binding FlatsAutoTimeBased, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="every" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                                           VerticalAlignment="Center" Margin="8,0,4,0"/>
+                                <ComboBox Width="52" VerticalAlignment="Center"
+                                          ItemsSource="{Binding FlatsAutoDaysOptions}"
+                                          SelectedItem="{Binding FlatsAutoIntervalDays, Mode=TwoWay}"/>
+                                <TextBlock Text="days" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                                           VerticalAlignment="Center" Margin="4,0,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
 
                 </WrapPanel>
 
