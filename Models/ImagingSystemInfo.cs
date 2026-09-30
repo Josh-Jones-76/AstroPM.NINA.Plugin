@@ -52,6 +52,14 @@ namespace AstroPM.NINA.Plugin.Models
         [JsonProperty("FilterSwitchTolerance")] public double FilterSwitchTolerance { get; set; } = 0.5;
         [JsonProperty("FlatsEnabled")] public bool FlatsEnabled { get; set; } = false;
         [JsonProperty("FlatsFullSet")] public bool FlatsFullSet { get; set; } = false;
+        // Auto Flats Per Project: with flats on, take a project's flats only when it needs them
+        // ("OncePerProject" = combos it has no flats for yet, the morning after it's imaged;
+        // "TimeBased" = every FlatsAutoIntervalDays from its last flat session). A night that
+        // ends under a safety hold makes its flats up the following morning. Off = every
+        // combo used, every night. Older desktops don't send these → defaults = off.
+        [JsonProperty("FlatsAutoPerProject")] public bool FlatsAutoPerProject { get; set; } = false;
+        [JsonProperty("FlatsAutoMode")] public string FlatsAutoMode { get; set; } = "OncePerProject";
+        [JsonProperty("FlatsAutoIntervalDays")] public int FlatsAutoIntervalDays { get; set; } = 7;
 
         // Site coordinates stamped in by the desktop at push time — used to warn when the
         // NINA profile's observatory location disagrees with the rig's site.

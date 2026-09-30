@@ -268,6 +268,36 @@ namespace AstroPM.NINA.Plugin.Models {
 
         [JsonProperty("moon_max_altitude")]
         public double MoonMaxAltitude { get; set; } = 5.0;
+
+        /// <summary>The project's flats ledger as the desktop sees it in the project's local
+        /// folders (null when the desktop had nothing to report). Auto Flats Per Project
+        /// merges this with the plugin's own flat_specs ledger to decide what still needs flats.</summary>
+        [JsonProperty("flats")]
+        public FlatsLedgerData Flats { get; set; }
+    }
+
+    /// <summary>Per-project flats ledger pushed by the desktop inside the constraints blob.</summary>
+    public class FlatsLedgerData {
+        /// <summary>When the desktop scanned (ISO 8601 UTC).</summary>
+        [JsonProperty("as_of")]
+        public string AsOf { get; set; }
+
+        [JsonProperty("sessions")]
+        public List<FlatSessionData> Sessions { get; set; } = new List<FlatSessionData>();
+    }
+
+    /// <summary>One flat set on disk: identity matches FlatSpec (filter + MECHANICAL rotator
+    /// angle + gain/offset/bin) so the plugin can compare like with like.</summary>
+    public class FlatSessionData {
+        [JsonProperty("filter")] public string Filter { get; set; } = "";
+        /// <summary>Mechanical rotator angle (ROTATANG) the flats were shot at; null = no rotator.</summary>
+        [JsonProperty("rot")] public double? RotationDeg { get; set; }
+        [JsonProperty("gain")] public int? Gain { get; set; }
+        [JsonProperty("offset")] public int? Offset { get; set; }
+        [JsonProperty("bin")] public int Binning { get; set; } = 1;
+        /// <summary>Latest capture time in the set (ISO 8601 UTC); null when no DATE-OBS.</summary>
+        [JsonProperty("last")] public string LastUtc { get; set; }
+        [JsonProperty("count")] public int Count { get; set; }
     }
 
     public class ApiListResponse {
