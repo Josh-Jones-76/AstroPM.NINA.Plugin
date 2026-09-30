@@ -265,6 +265,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 RaisePropertyChanged(nameof(FlatsEnabled));
                 RaisePropertyChanged(nameof(FlatsFullSet));
                 RaisePropertyChanged(nameof(FlatsStatusText));
+                // Flat Handling or Auto Flats switched off (app, Options refresh, Simulator
+                // panel): the make-up combos are no longer wanted — drop them now.
+                DropCarryOverIfDisabled("setting changed");
             };
 
             // Initialize Target so other plugins (e.g. SequencerPlus) don't get a null
@@ -793,6 +796,23 @@ namespace AstroPM.NINA.Plugin.Instructions {
             global::NINA.Core.Utility.Logger.Warning(
                 $"AstroPM | Flats: window missed — session ended {_sessionEndUtc:MMM d HH:mm} UTC ({age.TotalHours:F1} h ago); discarding {count} pending filter/rotation combos, flats will not be re-run");
             Notification.ShowWarning($"Astro PM: Flats window missed ({age.TotalHours:F0} h since session end) — {count} pending combos discarded.");
+        }
+
+        /// <summary>Carried-over combos exist only to be made up under Auto Flats Per Project.
+        /// If Flat Handling or Auto Flats has been switched off since they were parked, the
+        /// user has said they don't want them — discard them (logged) rather than let them
+        /// sit for up to three nights and spring back when the switch comes on again.</summary>
+        private void DropCarryOverIfDisabled(string reason) {
+            if (FlatsEnabled && FlatsAutoPerProject) return;
+            int n;
+            lock (_carryOverSpecs) { n = _carryOverSpecs.Count; _carryOverSpecs.Clear(); }
+            if (n == 0) return;
+            _carryOverNight = "";
+            List<FlatSpec> specs;
+            lock (_flatSpecs) specs = _flatSpecs.ToList();
+            SaveFlatStore(specs, _flatsDone ? DateTime.UtcNow : (DateTime?)null);
+            global::NINA.Core.Utility.Logger.Info(
+                $"AstroPM | Flats: dropped {n} carried-over combos — {(FlatsEnabled ? "Auto Flats Per Project" : "Flat Handling")} is off ({reason})");
         }
 
         private static bool SameCombo(FlatSpec a, FlatSpec b) =>
@@ -1823,6 +1843,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     _flatsDone = false;
                 }
             }
+            DropCarryOverIfDisabled("new night");
             // A new observing night: clear the checkmarks/progress last night's pass left
             // on the drop-zone instructions — including nested loop counters, which would
             // otherwise make Trained Flat Exposure skip itself tonight (20/20 from last night).
@@ -2093,7 +2114,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             // Auto Flats Per Project: combos a missed pass left behind join tonight's.
             List<FlatSpec> carried;
-            lock (_carryOverSpecs) carried = _carryOverSpecs.ToList();
+            lock (_carryOverSpecs) carried = FlatsAutoPerProject ? _carryOverSpecs.ToList() : new List<FlatSpec>();
             if (carried.Count > 0) {
                 int added = 0;
                 foreach (var c in carried)
