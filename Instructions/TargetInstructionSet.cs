@@ -1961,7 +1961,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     var template = g.First();
                     foreach (var f in wheel) {
                         if (string.IsNullOrEmpty(f?.Name)) continue;
-                        if (g.Any(s => string.Equals(s.FilterName, f.Name, StringComparison.OrdinalIgnoreCase))) continue;
+                        // Compare by the wheel filter each capture resolves to — the schedule's "R"/"G"
+                        // land on the wheel's "Red"/"Green", and a literal compare added them twice.
+                        if (g.Any(s => string.Equals(s.FilterName, f.Name, StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(ResolveNinaFilter(s.FilterName)?.Name, f.Name, StringComparison.OrdinalIgnoreCase))) continue;
                         result.Add(new FlatSpec {
                             TargetName = template.TargetName,
                             ProjectName = template.ProjectName,
