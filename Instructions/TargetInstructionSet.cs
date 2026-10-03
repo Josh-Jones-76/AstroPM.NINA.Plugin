@@ -1312,14 +1312,22 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 }
             }
 
+            // Custom horizon from the NINA profile — the engine planned against it, so the
+            // runtime checks honor it too (null = flat min-altitude only).
+            var customHorizon = HorizonProfile.LoadFromNinaProfile();
+
             // Check constraints — bypass viability when the wait was skipped (e.g. Skip Block)
-            if (!_skipWait && !IsTargetViable(block, latDeg, lonDeg)) {
+            if (!_skipWait && !IsTargetViable(block, latDeg, lonDeg, customHorizon)) {
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Target constraints failed, skipping: {block.TargetName}");
                 if (_blockSummaries != null && _currentBlockIndex < _blockSummaries.Count)
                     _blockSummaries[_currentBlockIndex].Status = "skipped";
                 _currentBlockIndex++;
                 return;
             }
+
+            // A block the user forced past its wait (Skip Wait) also skips the per-sub
+            // constraint check below — they've overridden the planner on purpose.
+            bool constraintsOverridden = _skipWait;
 
             // Reset skip flag after passing the wait/viability gate
             _skipWait = false;
@@ -1444,8 +1452,21 @@ namespace AstroPM.NINA.Plugin.Instructions {
             global::NINA.Core.Utility.Logger.Info(
                 $"AstroPM | Block {block.TargetName}: playback mode = {(sequential ? "Sequential" : "Time-Aware")}");
 
+            // Per-sub constraint check: the block-start gate alone let a late-running block keep
+            // imaging after its target sank below min altitude (10/3, Lion Nebula on Dome A —
+            // Sequential playback ~50 min behind plan, block end = session end at dawn). Re-check
+            // altitude/horizon/darkness before every sub so the block ends and the sequence
+            // falls through to flats / end-of-night instead.
+            bool StillViable(string when) {
+                if (constraintsOverridden || IsTargetViable(block, latDeg, lonDeg, customHorizon)) return true;
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Ending block {when}: {block.TargetName} no longer meets its constraints");
+                return false;
+            }
+
             while (DateTime.UtcNow < block.UtcEnd && !_skipBlock) {
                 token.ThrowIfCancellationRequested();
+                if (!StillViable("before next sub")) break;
 
                 int targetIndex;
                 if (sequential) {
@@ -1570,6 +1591,9 @@ namespace AstroPM.NINA.Plugin.Instructions {
                             $"AstroPM | Trigger error before exposure {block.TargetName} #{targetIndex + 1}: {ex.GetType().Name}: {ex.Message}");
                     }
                 }
+
+                // Triggers (autofocus, flip, recenter) can take minutes — re-check before exposing.
+                if (!StillViable("after pre-triggers")) break;
 
                 // Take the exposure
                 await exposureItem.Execute(progress, token);
@@ -1729,7 +1753,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
         }
 
-        private bool IsTargetViable(TargetBlock block, double latDeg, double lonDeg) {
+        private bool IsTargetViable(TargetBlock block, double latDeg, double lonDeg, HorizonProfile customHorizon = null) {
             var now = DateTime.UtcNow;
             if (now >= block.UtcEnd) {
                 global::NINA.Core.Utility.Logger.Info(
@@ -1753,10 +1777,18 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             bool isDark = sunAlt < c.SunAltitudeThreshold;
             bool aboveMinAlt = altitude >= c.MinTargetAltitude;
+            string horizonNote = "";
+            if (aboveMinAlt && customHorizon != null) {
+                // Same rule as SessionScheduler.BuildTargetProfiles: must clear the custom horizon too.
+                double az = AstroCalculator.TargetAzimuthAtTime(now, block.RaHours, block.DecDegrees, latDeg, lonDeg);
+                double hrzAlt = customHorizon.AltitudeAt(az);
+                aboveMinAlt = altitude >= hrzAlt;
+                horizonNote = $", horizon {hrzAlt:F1}° @ az {az:F0}°";
+            }
 
             if (!isDark || !aboveMinAlt)
                 global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Viability failed: {block.TargetName} — alt={altitude:F1}° (min {c.MinTargetAltitude}°), sun={sunAlt:F1}° (max {c.SunAltitudeThreshold}°)");
+                    $"AstroPM | Viability failed: {block.TargetName} — alt={altitude:F1}° (min {c.MinTargetAltitude}°{horizonNote}), sun={sunAlt:F1}° (max {c.SunAltitudeThreshold}°)");
 
             return isDark && aboveMinAlt;
         }
