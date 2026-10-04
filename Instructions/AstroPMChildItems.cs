@@ -396,29 +396,31 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 $"AstroPM | Readout mode {_readoutMode} ({modes[_readoutMode]}) for {_block.TargetName} {_filterName} #{_subNumber}");
         }
 
+        /// <summary>Why this sub can't run if it started at <paramref name="nowUtc"/>, or null if it
+        /// can. The block loop asks before the filter switch / dither / pre-triggers, so a sub that
+        /// can't fit doesn't buy a filter-change autofocus first (10/4 Dome A: SII switch + 3-min AF
+        /// with 80 s left in the block).</summary>
+        public string SkipReason(DateTime nowUtc) {
+            if (nowUtc >= _blockEndUtc) return "past block end";
+            if (nowUtc >= _sessionEndUtc) return "past session end";
+            if (nowUtc.AddSeconds(_exposureSec) > _blockEndUtc && !IsFinalBlock)
+                return $"would exceed block end by {(nowUtc.AddSeconds(_exposureSec) - _blockEndUtc).TotalSeconds:F0}s";
+            return null;
+        }
+
+        /// <summary>End-of-night grace: for the final block of the session there is no next block
+        /// waiting, so one last sub may run past the end rather than being cut. Self-limiting —
+        /// once it finishes, the "past block end" check stops any further exposures.</summary>
+        private bool IsFinalBlock => _blockEndUtc >= _sessionEndUtc.AddSeconds(-60);
+
         public override async Task Execute(IProgress<ApplicationStatus> progress, CancellationToken token) {
-            // Skip if past the block/session end
-            if (DateTime.UtcNow >= _blockEndUtc) {
+            var skip = SkipReason(DateTime.UtcNow);
+            if (skip != null) {
                 global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Exposure skipped (past block end): {_block.TargetName} {_filterName} #{_subNumber}");
-                return;
-            }
-            if (DateTime.UtcNow >= _sessionEndUtc) {
-                global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Exposure skipped (past session end): {_block.TargetName} {_filterName} #{_subNumber}");
+                    $"AstroPM | Exposure skipped ({skip}): {_block.TargetName} {_filterName} {_exposureSec:F0}s #{_subNumber}");
                 return;
             }
             if (DateTime.UtcNow.AddSeconds(_exposureSec) > _blockEndUtc) {
-                // End-of-night grace: for the final block of the session there is no next
-                // block waiting, so take one last sub that runs past the end rather than
-                // cutting it. Self-limiting — once it finishes, the "past block end" check
-                // above stops any further exposures. Interior blocks stay strict.
-                bool isFinalBlock = _blockEndUtc >= _sessionEndUtc.AddSeconds(-60);
-                if (!isFinalBlock) {
-                    global::NINA.Core.Utility.Logger.Info(
-                        $"AstroPM | Exposure skipped (would exceed block end by {(DateTime.UtcNow.AddSeconds(_exposureSec) - _blockEndUtc).TotalSeconds:F0}s): {_block.TargetName} {_filterName} {_exposureSec:F0}s #{_subNumber}");
-                    return;
-                }
                 global::NINA.Core.Utility.Logger.Info(
                     $"AstroPM | End-of-night grace: taking final sub exceeding session end by {(DateTime.UtcNow.AddSeconds(_exposureSec) - _blockEndUtc).TotalSeconds:F0}s: {_block.TargetName} {_filterName} {_exposureSec:F0}s #{_subNumber}");
             }

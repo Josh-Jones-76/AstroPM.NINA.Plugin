@@ -1579,6 +1579,16 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 // Pointing nextItem.Parent at us makes the flip and recenter use the real target RA/Dec.
                 exposureItem.AttachNewParent(this);
 
+                // A sub that can't fit the block shouldn't pay for a filter switch, dither and
+                // pre-triggers first — a new filter fires AutofocusAfterFilterChange (~3 min).
+                var preSkip = exposureItem.SkipReason(DateTime.UtcNow);
+                if (preSkip != null) {
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | Exposure skipped before filter switch ({preSkip}): {block.TargetName} {filterName} {exposureSec:F0}s #{targetIndex + 1}");
+                    lastExecutedIndex = targetIndex;
+                    continue;
+                }
+
                 // Switch filter before triggers so NINA's AutofocusAfterFilterChange
                 // sees the new filter on the physical wheel when it evaluates.
                 await exposureItem.SwitchFilterAsync(progress, token);
