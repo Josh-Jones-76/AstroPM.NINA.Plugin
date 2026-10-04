@@ -2270,9 +2270,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     LiveCommand = "Taking Flats";
                     LiveTarget = "Flat Handling";
                     LiveRotation = $"{group.Key:F1}°";
-                    global::NINA.Core.Utility.Logger.Info(
-                        $"AstroPM | Flats: rotator → mechanical {mech.Value:F1}° (PA {group.Key:F1}°)");
-                    await _rotatorMediator.MoveMechanical(mech.Value, token);
+                    await MoveRotatorForFlatsAsync(mech.Value, group.Key, token);
                 }
 
                 // Within a rotation, run each target's combos under that target's name so NINA's
@@ -2459,6 +2457,57 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
             foreach (var item in container.GetItemsSnapshot()) {
                 if (item is ISequenceContainer child) ResetConditionsRecursive(child);
+            }
+        }
+
+        /// <summary>Within this distance the rotator is already "there" for flats — no move is sent.
+        /// A near-zero move is what hung a Wanderer rotator for 38 min on 10/4 (driver never reported
+        /// the move finished); the light's mechanical position is stored to full precision, so the
+        /// flats target is usually the rotator's current position anyway.</summary>
+        private const double FlatsRotatorSkipToleranceDeg = 0.5;
+
+        /// <summary>Upper bound on a flats rotator move. A full 180° swing on a slow rotator is well
+        /// under this; past it the driver is assumed stuck and flats continue at the current angle.</summary>
+        private static readonly TimeSpan FlatsRotatorMoveTimeout = TimeSpan.FromMinutes(2);
+
+        /// <summary>Move the rotator to a combo's mechanical angle for flats, guarded against drivers
+        /// that never report completion: skips moves already within tolerance, and gives up (halting
+        /// the rotator) after <see cref="FlatsRotatorMoveTimeout"/> rather than blocking dawn flats.</summary>
+        private async Task MoveRotatorForFlatsAsync(float targetMech, double pa, CancellationToken token) {
+            var current = _rotatorMediator.GetInfo()?.MechanicalPosition;
+            if (current.HasValue && !float.IsNaN(current.Value)) {
+                double diff = Math.Abs(current.Value - targetMech) % 360.0;
+                if (diff > 180.0) diff = 360.0 - diff;
+                if (diff <= FlatsRotatorSkipToleranceDeg) {
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | Flats: rotator already at mechanical {current.Value:F2}° (target {targetMech:F2}°, PA {pa:F1}°) — no move needed");
+                    return;
+                }
+            }
+
+            global::NINA.Core.Utility.Logger.Info(
+                $"AstroPM | Flats: rotator → mechanical {targetMech:F2}° from {current?.ToString("F2") ?? "?"}° (PA {pa:F1}°)");
+
+            using (var moveCts = CancellationTokenSource.CreateLinkedTokenSource(token)) {
+                // NINA halts the rotator when this token cancels. The move is raced against a delay
+                // rather than relying on that cancellation alone, because a driver blocked inside its
+                // own Move call would never observe it.
+                var moveTask = _rotatorMediator.MoveMechanical(targetMech, moveCts.Token);
+                var finished = await Task.WhenAny(moveTask, Task.Delay(FlatsRotatorMoveTimeout, token));
+                token.ThrowIfCancellationRequested();
+                if (finished == moveTask) {
+                    await moveTask;
+                    return;
+                }
+
+                moveCts.Cancel();
+                _ = moveTask.ContinueWith(t => { _ = t.Exception; }, TaskScheduler.Default);
+                var now = _rotatorMediator.GetInfo()?.MechanicalPosition;
+                global::NINA.Core.Utility.Logger.Warning(
+                    $"AstroPM | Flats: rotator move to {targetMech:F2}° did not complete within {FlatsRotatorMoveTimeout.TotalMinutes:F0} min " +
+                    $"(now {now?.ToString("F2") ?? "?"}°) — rotator driver did not report the move finished; continuing flats at the current angle");
+                Notification.ShowWarning(
+                    $"Astro PM: rotator didn't finish moving to {targetMech:F1}° for flats — continuing at the current angle. Try reconnecting the rotator.");
             }
         }
 
