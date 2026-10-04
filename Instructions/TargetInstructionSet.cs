@@ -371,14 +371,35 @@ namespace AstroPM.NINA.Plugin.Instructions {
         // item" error and accumulates an UnknownSequenceItem fossil in the JSON. Strip
         // runtime children before save, and scrub fossils left by older builds after load.
 
+        // Same for the flats shim: during a flats pass the runners are parented to the
+        // runtime-only FlatsIsolationContainer, and NINA serializes each container's Parent.
+        // A save mid-pass (10/3 Dome A, 05:54 during Before Flats) wrote the shim into the
+        // startup sequence, so every load logged "unknown sequence container". Re-home the
+        // runners to us for the length of the save, then hand them back to the shim.
+        private List<SequentialContainer> _runnersOnShimDuringSave;
+
         [OnSerializing]
         private void OnSerializingStripRuntimeItems(StreamingContext context) {
             ScrubPlaceholders();
+            var shim = _flatsShim;
+            if (shim == null) return;
+            _runnersOnShimDuringSave = new List<SequentialContainer>();
+            foreach (var runner in new[] { FlatsSetupRunner, FlatsRunner, FlatsTeardownRunner }) {
+                if (runner != null && ReferenceEquals(runner.Parent, shim)) {
+                    runner.AttachNewParent(this);
+                    _runnersOnShimDuringSave.Add(runner);
+                }
+            }
         }
 
         [OnSerialized]
         private void OnSerializedRestorePlaceholder(StreamingContext context) {
             EnsurePlaceholder();
+            var moved = _runnersOnShimDuringSave;
+            _runnersOnShimDuringSave = null;
+            var shim = _flatsShim;
+            if (moved == null || shim == null) return;   // pass ended mid-save: stay home
+            foreach (var runner in moved) runner.AttachNewParent(shim);
         }
 
         [OnDeserialized]
