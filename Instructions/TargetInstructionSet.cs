@@ -2022,7 +2022,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
             var result = new List<FlatSpec>();
             var index = new Dictionary<string, FlatSpec>(StringComparer.OrdinalIgnoreCase);
             foreach (var s in specs) {
-                string key = $"{Math.Round(s.RotationDeg, 1)}|{s.FilterName}|{s.Gain}|{s.Offset}|{s.BinX}x{s.BinY}";
+                // Key on the wheel filter the name resolves to: one target's schedule says "G" while a
+                // Full Set synthesizes the wheel's "Green" for another — same glass, one capture.
+                string filterKey = ResolveNinaFilter(s.FilterName)?.Name ?? s.FilterName;
+                string key = $"{Math.Round(s.RotationDeg, 1)}|{filterKey}|{s.Gain}|{s.Offset}|{s.BinX}x{s.BinY}";
                 if (index.TryGetValue(key, out var primary)) {
                     if (!string.IsNullOrEmpty(s.TargetName)
                         && !string.Equals(primary.TargetName, s.TargetName, StringComparison.OrdinalIgnoreCase)) {
