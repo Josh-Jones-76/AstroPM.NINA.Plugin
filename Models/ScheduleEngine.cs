@@ -1168,8 +1168,16 @@ namespace AstroPM.NINA.Plugin.Models {
             for (int i = 0; i < sorted.Count; i++)
                 PaintTrace.AppendLine($"    [{i}] {sorted[i].Profile.DisplayName}: budget={budgets[i]/60:F1}m");
 
-            for (int i = 0; i < sorted.Count; i++) {
-                if (budgets[i] <= 0) continue;
+            // Paint the TIGHTEST targets first (fewest eligible slots per minute of budget) so a
+            // short-window target places its share before an all-night target consumes the
+            // overlap — desktop mirror (Dome B 10/7: NGC 6823 budget ≈ 170 min, got 60).
+            var paintOrder = Enumerable.Range(0, sorted.Count).Where(i => budgets[i] > 0).ToList();
+            if (!EngineExperiments.LegacyFairShareOrder) {
+                var eligible = paintOrder.ToDictionary(i => i,
+                    i => Enumerable.Range(0, matrix.Slots.Count).Count(s => slotEligible(sorted[i].RowIndex, s)));
+                paintOrder = paintOrder.OrderBy(i => eligible[i] - budgets[i] / 300.0).ThenBy(i => i).ToList();   // least slack first
+            }
+            foreach (int i in paintOrder) {
                 var row = sorted[i];
                 PaintChunks(matrix, row,
                     s => slotEligible(row.RowIndex, s),
@@ -1390,6 +1398,8 @@ namespace AstroPM.NINA.Plugin.Models {
             public static bool LegacyGapFill;
             /// <summary>Pre-10/7/26: Pass 0 judged exclusivity by altitude alone.</summary>
             public static bool LegacyExclusiveByAltitude;
+            /// <summary>Pre-10/7/26: fair-share passes painted in sort order, not tightest-first.</summary>
+            public static bool LegacyFairShareOrder;
         }
 
         /// <summary>"Some enabled exposure set can run here" — PickExposureSet's own candidate moon
