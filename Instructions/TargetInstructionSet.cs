@@ -519,6 +519,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _sessionEndUtc = DateTime.MinValue;
             _scheduleNightDate = DateTime.MinValue;
             _lastBuildAttemptUtc = DateTime.MinValue;   // manual reset always allows an immediate fetch
+            _blockProgress.Clear();
             _lastLog = null;
             _lastSlots = null;
             _lastProfiles = null;
@@ -888,6 +889,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _sessionEndUtc = DateTime.MinValue;
             _scheduleNightDate = DateTime.MinValue;
             _lastBuildAttemptUtc = DateTime.MinValue;   // a reset (manual or stale) always allows an immediate fetch
+            _blockProgress.Clear();
             Logger.Info("AstroPM | Schedule reset for new night");
         }
 
@@ -1228,6 +1230,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _lastProfiles = profiles;
             _blocks = ParseBlocks(log, profiles);
             _currentBlockIndex = 0;
+            _blockProgress.Clear();
 
             var endEntry = log.LastOrDefault(e => e.Command == "End");
             _sessionEndUtc = endEntry?.UtcTime ?? slots.Last().UtcStart.AddSeconds(300);
@@ -1264,6 +1267,20 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
 
         private volatile bool _executingBlock;
+
+        /// <summary>Per-block playback position, keyed by block index. The schedule and
+        /// _currentBlockIndex survive a sequence stop/start (Execute re-enters with
+        /// "continuing active session"), but the exposure loop's position used to be a
+        /// local — so Sequential playback walked the block from entry #1 again and re-shot
+        /// filters already done (10/7/26: both domes restarted ~05:10 after a filter-offset
+        /// run; Dome B went back to R #1 on Flaming Star with R/G/Ha captured, Dome A back
+        /// to G #1 on M45 P2). Cleared whenever the schedule is (re)built or reset.</summary>
+        private readonly Dictionary<int, BlockProgress> _blockProgress = new();
+
+        private sealed class BlockProgress {
+            public int LastExecutedIndex = -1;
+            public readonly Dictionary<string, int> FilterImageCount = new(StringComparer.OrdinalIgnoreCase);
+        }
 
         private async Task ExecuteNextBlockCore(IProgress<ApplicationStatus> progress, CancellationToken token) {
             double latDeg = _profileService.ActiveProfile.AstrometrySettings.Latitude;
@@ -1458,9 +1475,16 @@ namespace AstroPM.NINA.Plugin.Instructions {
             if (_blockSummaries != null && _currentBlockIndex < _blockSummaries.Count)
                 _blockSummaries[_currentBlockIndex].Status = "imaging...";
 
-            var filterImageCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-            int lastExecutedIndex = -1;
+            if (!_blockProgress.TryGetValue(_currentBlockIndex, out var blockProgress)) {
+                blockProgress = new BlockProgress();
+                _blockProgress[_currentBlockIndex] = blockProgress;
+            }
+            var filterImageCount = blockProgress.FilterImageCount;
+            int lastExecutedIndex = blockProgress.LastExecutedIndex;
+            if (lastExecutedIndex >= 0) {
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Resuming block {block.TargetName} after entry #{lastExecutedIndex + 1} of {actionEntries.Count} (sequence restarted mid-block)");
+            }
 
             // Playback mode (read once per block, so a resume after a hold honors the
             // current setting). Sequential: walk this block's entries strictly in order and
@@ -1586,6 +1610,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     global::NINA.Core.Utility.Logger.Info(
                         $"AstroPM | Exposure skipped before filter switch ({preSkip}): {block.TargetName} {filterName} {exposureSec:F0}s #{targetIndex + 1}");
                     lastExecutedIndex = targetIndex;
+                    blockProgress.LastExecutedIndex = targetIndex;
                     continue;
                 }
 
@@ -1643,6 +1668,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
                 previousExposure = exposureItem;
                 lastExecutedIndex = targetIndex;
+                blockProgress.LastExecutedIndex = targetIndex;
             }
 
             if (_skipBlock) {
