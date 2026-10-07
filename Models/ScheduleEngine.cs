@@ -666,52 +666,14 @@ namespace AstroPM.NINA.Plugin.Models {
 
             // Bonus / gap fill
             if (bonusEnabled) {
-                for (int s = 1; s < matrix.Slots.Count; s++) {
-                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0
-                        && !matrix.LockedSlot[s - 1]) {
-                        int ri = matrix.SlotAssignment[s - 1];
-                        if (matrix.CanImage[ri][s]) {
-                            matrix.SlotAssignment[s] = ri;
-                            matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s - 1];
-                        }
-                    }
-                }
-                for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
-                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0
-                        && !matrix.LockedSlot[s + 1]) {
-                        int ri = matrix.SlotAssignment[s + 1];
-                        if (matrix.CanImage[ri][s]) {
-                            matrix.SlotAssignment[s] = ri;
-                            matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s + 1];
-                        }
-                    }
-                }
+                AbsorbGaps(matrix);
             }
 
             DefragmentSlots(matrix);
             PruneSlivers(matrix);
 
             // Absorb pruned slots into adjacent targets
-            for (int s = 1; s < matrix.Slots.Count; s++) {
-                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0
-                    && !matrix.LockedSlot[s - 1]) {
-                    int ri = matrix.SlotAssignment[s - 1];
-                    if (matrix.CanImage[ri][s]) {
-                        matrix.SlotAssignment[s] = ri;
-                        matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s - 1];
-                    }
-                }
-            }
-            for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
-                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0
-                    && !matrix.LockedSlot[s + 1]) {
-                    int ri = matrix.SlotAssignment[s + 1];
-                    if (matrix.CanImage[ri][s]) {
-                        matrix.SlotAssignment[s] = ri;
-                        matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s + 1];
-                    }
-                }
-            }
+            AbsorbGaps(matrix);
         }
 
         // ─── PaintSlots ──────────────────────────────────────────────────────
@@ -758,6 +720,12 @@ namespace AstroPM.NINA.Plugin.Models {
                     bool multiple = false;
                     foreach (var row in activeRows) {
                         if (!matrix.CanImage[row.RowIndex][s]) continue;
+                        // Tier-aware: a slot the target has no moon-safe planned work for is
+                        // not its exclusive window (desktop mirror, lunar-cycle sweep 10/7/26).
+                        // Bonus-only capability still counts when the target is alone by altitude.
+                        var usable = row.UsableSlot;
+                        if (!EngineExperiments.LegacyExclusiveByAltitude
+                            && !(s < usable.Length && usable[s]) && !CanShootSomething(matrix, row.RowIndex, s)) continue;
                         if (soleCandidate < 0) { soleCandidate = row.RowIndex; }
                         else { multiple = true; break; }
                     }
@@ -990,26 +958,7 @@ namespace AstroPM.NINA.Plugin.Models {
 
             // Pass 4: Bonus / gap fill
             if (bonusEnabled) {
-                for (int s = 1; s < matrix.Slots.Count; s++) {
-                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0
-                        && !matrix.LockedSlot[s - 1]) {
-                        int ri = matrix.SlotAssignment[s - 1];
-                        if (matrix.CanImage[ri][s]) {
-                            matrix.SlotAssignment[s] = ri;
-                            matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s - 1];
-                        }
-                    }
-                }
-                for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
-                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0
-                        && !matrix.LockedSlot[s + 1]) {
-                        int ri = matrix.SlotAssignment[s + 1];
-                        if (matrix.CanImage[ri][s]) {
-                            matrix.SlotAssignment[s] = ri;
-                            matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s + 1];
-                        }
-                    }
-                }
+                AbsorbGaps(matrix);
             }
 
             // Defragment: merge A-B-A patterns into A-A-B to reduce target transitions
@@ -1018,26 +967,7 @@ namespace AstroPM.NINA.Plugin.Models {
             PruneSlivers(matrix);
 
             // Absorb pruned slots into adjacent targets
-            for (int s = 1; s < matrix.Slots.Count; s++) {
-                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0
-                    && !matrix.LockedSlot[s - 1]) {
-                    int ri = matrix.SlotAssignment[s - 1];
-                    if (matrix.CanImage[ri][s]) {
-                        matrix.SlotAssignment[s] = ri;
-                        matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s - 1];
-                    }
-                }
-            }
-            for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
-                if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0
-                    && !matrix.LockedSlot[s + 1]) {
-                    int ri = matrix.SlotAssignment[s + 1];
-                    if (matrix.CanImage[ri][s]) {
-                        matrix.SlotAssignment[s] = ri;
-                        matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s + 1];
-                    }
-                }
-            }
+            AbsorbGaps(matrix);
         }
 
         // ─── DefragmentSlots ─────────────────────────────────────────────────
@@ -1088,24 +1018,65 @@ namespace AstroPM.NINA.Plugin.Models {
 
                     // Both targets must be able to actually produce work in their
                     // swapped slots (tier-aware: moon safety, not just altitude)
+                    // B lands on the LAST bLen slots of the region — only those need to be
+                    // usable by B (desktop mirror).
+                    // Moved target B needs planned work on its new slots; absorbing target A only
+                    // needs to shoot something (bonus is fine) on the slots it takes over.
                     bool canSwap = true;
                     for (int s = bSlotStart; s <= bSlotEnd && canSwap; s++)
-                        if (!matrix.Rows[targetA].UsableSlot[s]) canSwap = false;
-                    for (int s = a2SlotStart; s <= a2SlotEnd && canSwap; s++)
+                        if (!(matrix.Rows[targetA].UsableSlot[s] || CanShootSomething(matrix, targetA, s))) canSwap = false;
+                    for (int s = bSlotStart + a2Len; s <= a2SlotEnd && canSwap; s++)
                         if (!matrix.Rows[targetB].UsableSlot[s]) canSwap = false;
+                    if (canSwap) {
+                        var altB0 = matrix.Rows[targetB].Profile.AltitudePerSlot;
+                        if (MeanAlt(altB0, bSlotStart + a2Len, a2SlotEnd) < MeanAlt(altB0, bSlotStart, bSlotEnd) - 10.0)
+                            canSwap = false;
+                    }
 
-                    if (!canSwap) continue;
+                    if (canSwap) {
+                        int regionStart = bSlotStart;
+                        for (int s = regionStart; s < regionStart + a2Len; s++)
+                            matrix.SlotAssignment[s] = targetA;
+                        for (int s = regionStart + a2Len; s < regionStart + a2Len + bLen; s++)
+                            matrix.SlotAssignment[s] = targetB;
+                        changed = true;
+                        break;
+                    }
 
-                    int regionStart = bSlotStart;
-                    for (int s = regionStart; s < regionStart + a2Len; s++)
-                        matrix.SlotAssignment[s] = targetA;
-                    for (int s = regionStart + a2Len; s < regionStart + a2Len + bLen; s++)
+                    // Other direction: B moves BEFORE A1 (A1 shifts right onto B's old slots and
+                    // joins A2) — needs B usable across its new span, A usable across B's old
+                    // span, no locked slots in A1, and B's sky there not much worse than where it
+                    // sat. Desktop mirror (lunar-cycle sweep 10/7/26).
+                    int a1SlotStart = blocks[i].Start, a1SlotEnd = blocks[i].End;
+                    bool canBefore = true;
+                    for (int s = a1SlotStart; s <= a1SlotEnd && canBefore; s++)
+                        if (matrix.LockedSlot[s]) canBefore = false;
+                    for (int s = a1SlotStart; s < a1SlotStart + bLen && canBefore; s++)
+                        if (s <= a1SlotEnd && !matrix.Rows[targetB].UsableSlot[s]) canBefore = false;
+                    for (int s = Math.Max(a1SlotStart + bLen, bSlotStart); s <= bSlotEnd && canBefore; s++)
+                        if (!(matrix.Rows[targetA].UsableSlot[s] || CanShootSomething(matrix, targetA, s))) canBefore = false;
+                    if (canBefore) {
+                        var altB = matrix.Rows[targetB].Profile.AltitudePerSlot;
+                        if (MeanAlt(altB, a1SlotStart, a1SlotStart + bLen - 1) < MeanAlt(altB, bSlotStart, bSlotEnd) - 10.0)
+                            canBefore = false;
+                    }
+                    if (!canBefore) continue;
+
+                    for (int s = a1SlotStart; s < a1SlotStart + bLen; s++)
                         matrix.SlotAssignment[s] = targetB;
-
+                    for (int s = a1SlotStart + bLen; s <= a2SlotEnd; s++)
+                        matrix.SlotAssignment[s] = targetA;
                     changed = true;
                     break;
                 }
             }
+        }
+
+        private static double MeanAlt(double[] alt, int from, int to) {
+            if (alt == null || from > to || to >= alt.Length || from < 0) return 0;
+            double sum = 0;
+            for (int s = from; s <= to; s++) sum += alt[s];
+            return sum / (to - from + 1);
         }
 
         private static void PaintPassFairShare(
@@ -1408,6 +1379,128 @@ namespace AstroPM.NINA.Plugin.Models {
             }
         }
 
+        /// <summary>A/B switches for engine behavior changes (mirror of the desktop engine's), so
+        /// the scenario audit can run old vs. new rules on the same build. Defaults = shipping.</summary>
+        internal static class EngineExperiments {
+            /// <summary>Pre-10/7/26: a chunk always painted from the start of its run.</summary>
+            public static bool LegacyChunkPlacement;
+            /// <summary>Pre-10/7/26: every visit cleared the target's filter cycle.</summary>
+            public static bool LegacyFilterCycleReset;
+            /// <summary>Pre-10/7/26: gap fill extended runs on altitude alone (CanImage).</summary>
+            public static bool LegacyGapFill;
+            /// <summary>Pre-10/7/26: Pass 0 judged exclusivity by altitude alone.</summary>
+            public static bool LegacyExclusiveByAltitude;
+        }
+
+        /// <summary>"Some enabled exposure set can run here" — PickExposureSet's own candidate moon
+        /// test, planned or completed (desktop mirror).</summary>
+        private static bool CanShootSomething(ScheduleMatrix matrix, int r, int s) {
+            if (!matrix.CanImage[r][s]) return false;
+            var prof = matrix.Rows[r].Profile;
+            var slot = matrix.Slots[s];
+            double sep = s < prof.MoonSepPerSlot.Length ? prof.MoonSepPerSlot[s] : 0;
+            foreach (var panel in prof.Target.Panels) {
+                if (prof.PanelIndex.HasValue && panel.PanelIndex != prof.PanelIndex.Value) continue;
+                foreach (var es in panel.ExposureSets) {
+                    if (!es.Enabled || es.ExposureLengthSec <= 0) continue;
+                    if (!es.HasMoonAvoidance || SessionScheduler.IsExposureSetMoonSafe(es, slot, sep, prof.Constraints)) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Extends painted runs into adjacent unassigned slots — forward from each run's
+        /// end, then backward from the next run's start. Bonus/gap fill: a slot goes to a
+        /// neighbor that is above the horizon (CanImage) AND moon-safe for at least one of its
+        /// filters, planned or completed (SlotMoonOk) — not on altitude alone (a No Moon or
+        /// Strict target would swallow moon-up slots it can't use), and not UsableSlot (needs
+        /// remaining planned work, which denies a neighbor its bonus time). Desktop mirror.</summary>
+        private static void AbsorbGaps(ScheduleMatrix matrix) {
+            // Two rounds: planned neighbors (UsableSlot) first, then bonus-capable ones
+            // (CanShootSomething) — desktop mirror.
+            bool Usable(int r, int s, bool planned) {
+                if (!matrix.CanImage[r][s]) return false;
+                if (EngineExperiments.LegacyGapFill) return !planned;
+                if (planned) {
+                    var u = matrix.Rows[r].UsableSlot;
+                    return s < u.Length && u[s];
+                }
+                return CanShootSomething(matrix, r, s);
+            }
+            foreach (bool planned in new[] { true, false }) {
+                for (int s = 1; s < matrix.Slots.Count; s++) {
+                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s - 1] >= 0 && !matrix.LockedSlot[s - 1]) {
+                        int ri = matrix.SlotAssignment[s - 1];
+                        if (Usable(ri, s, planned)) { matrix.SlotAssignment[s] = ri; matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s - 1]; }
+                    }
+                }
+                for (int s = matrix.Slots.Count - 2; s >= 0; s--) {
+                    if (matrix.SlotAssignment[s] < 0 && matrix.SlotAssignment[s + 1] >= 0 && !matrix.LockedSlot[s + 1]) {
+                        int ri = matrix.SlotAssignment[s + 1];
+                        if (Usable(ri, s, planned)) { matrix.SlotAssignment[s] = ri; matrix.SlotWorkHint[s] = matrix.SlotWorkHint[s + 1]; }
+                    }
+                }
+            }
+        }
+
+        /// <summary>A pick used only to ask "could this target image here?" (the walk's entry,
+        /// later-slot, fallback and bonus probes). PickExposureSet records the pick in the
+        /// target's FilterCycle as a side effect; the cycle now carries across a target's
+        /// visits, so every probe runs from a clean cycle (as before) and puts back whatever
+        /// the live cycle was. Null/non-null is decided before any cycle logic.</summary>
+        private static (ExposureSetData Es, string PanelLabel, int PanelIdx, int EsIdx) ProbePick(
+            TargetProfile p, int targetIdx, int slotIdx, ScheduleMatrix matrix, ScheduleSessionState state,
+            bool filterSwitchEnabled, int filterSwitchCount, HashSet<int> allowed, double filterSwitchTolerance,
+            bool includeCompleted = false) {
+            bool had = state.FilterCycle.TryGetValue(p, out var saved);
+            state.FilterCycle.Remove(p);
+            var r = SessionScheduler.PickExposureSet(p, targetIdx, slotIdx, matrix.Slots, state,
+                filterSwitchEnabled, filterSwitchCount, allowed,
+                includeCompleted: includeCompleted, filterSwitchTolerance: filterSwitchTolerance);
+            if (had) state.FilterCycle[p] = saved; else state.FilterCycle.Remove(p);
+            return r;
+        }
+
+        /// <summary>Where a chunk of <paramref name="len"/> slots lands inside a usable run
+        /// (desktop mirror). Extending the target's own block → butt up against it, whichever
+        /// side it is on. A fresh chunk → the window of the run where the target is highest
+        /// (max altitude sum), not the run start, so a target peaking later doesn't squat on
+        /// the dusk slots a setting-sooner target needs. Ties → earliest start.</summary>
+        private static int ChunkStart(ScheduleMatrix matrix, TargetRow row, int runStart, int runLen, int len) {
+            if (len >= runLen || EngineExperiments.LegacyChunkPlacement) return runStart;
+            int ri = row.RowIndex;
+            bool ownBefore = runStart > 0 && matrix.SlotAssignment[runStart - 1] == ri;
+            if (ownBefore) return runStart;
+            // No "own block on the right → paint from the run end" rule (see desktop).
+
+            var alt = row.Profile.AltitudePerSlot;
+            if (alt == null || alt.Length < runStart + runLen) return runStart;
+            double sum = 0;
+            for (int s = runStart; s < runStart + len; s++) sum += alt[s];
+            double best = sum;
+            int bestStart = runStart;
+            for (int start = runStart + 1; start + len <= runStart + runLen; start++) {
+                sum += alt[start + len - 1] - alt[start - 1];
+                if (sum > best + 1e-9) { best = sum; bestStart = start; }
+            }
+            if (bestStart == runStart) return runStart;
+
+            // A fresh chunk defaults to the run start; it moves to its best-altitude window
+            // ONLY when the dusk slots that vacates are needed by a setting-sooner target that
+            // has no block yet (desktop mirror — Dome B 10/6: NGC 6823 vs NGC 7331).
+            foreach (var other in matrix.Rows) {
+                if (other.RowIndex == ri || other.PreFiltered) continue;
+                if (other.LastUsableSlot >= row.LastUsableSlot) continue;
+                bool hasBlock = false;
+                for (int s = 0; s < matrix.SlotAssignment.Length && !hasBlock; s++)
+                    if (matrix.SlotAssignment[s] == other.RowIndex) hasBlock = true;
+                if (hasBlock) continue;
+                for (int s = runStart; s < bestStart; s++)
+                    if (s < other.UsableSlot.Length && other.UsableSlot[s]) return bestStart;
+            }
+            return runStart;
+        }
+
         private static void PaintChunks(
             ScheduleMatrix matrix, TargetRow row,
             Func<int, bool> slotFilter, SlotWorkType workHint, double maxWorkSec) {
@@ -1451,8 +1544,9 @@ namespace AstroPM.NINA.Plugin.Models {
                     && maxWorkSec >= row.MinChunkSec && workBudget >= row.MinChunkSec)
                     slotsToAssign = row.MinChunkSlots;
 
+                int chunkStart = ChunkStart(matrix, row, run.Start, run.Length, slotsToAssign);
                 for (int i = 0; i < slotsToAssign && i < run.Length; i++) {
-                    int s = run.Start + i;
+                    int s = chunkStart + i;
                     matrix.SlotAssignment[s] = row.RowIndex;
                     matrix.SlotWorkHint[s] = workHint;
                 }
@@ -1720,10 +1814,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 if (currentTarget != prof) {
                     var probeAllowed = prof.PanelIndex.HasValue
                         ? new HashSet<int> { prof.PanelIndex.Value } : (HashSet<int>)null;
-                    var probe = SessionScheduler.PickExposureSet(
-                        prof, targetIdx, s, matrix.Slots, state,
-                        FsFor(prof), filterSwitchCount, probeAllowed,
-                        filterSwitchTolerance: filterSwitchTolerance);
+                    var probe = ProbePick(prof, targetIdx, s, matrix, state, FsFor(prof), filterSwitchCount, probeAllowed, filterSwitchTolerance);
                     if (probe.Es == null && matrix.LockedSlot[s]) {
                         // Locked exo transit slot: never hand the window to another
                         // target — stay on the transit target (bonus imaging covers
@@ -1741,15 +1832,10 @@ namespace AstroPM.NINA.Plugin.Models {
                         // Scan forward to find the first slot in this run where the target CAN image
                         int firstViableSlot = -1;
                         for (int fs = s + 1; fs <= runEnd; fs++) {
-                            state.FilterCycle.Remove(prof);
-                            var laterProbe = SessionScheduler.PickExposureSet(
-                                prof, targetIdx, fs, matrix.Slots, state,
-                                FsFor(prof), filterSwitchCount,
-                                prof.PanelIndex.HasValue ? new HashSet<int> { prof.PanelIndex.Value } : null,
-                                filterSwitchTolerance: filterSwitchTolerance);
+                            var laterProbe = ProbePick(prof, targetIdx, fs, matrix, state, FsFor(prof), filterSwitchCount,
+                                prof.PanelIndex.HasValue ? new HashSet<int> { prof.PanelIndex.Value } : null, filterSwitchTolerance);
                             if (laterProbe.Es != null) { firstViableSlot = fs; break; }
                         }
-                        state.FilterCycle.Remove(prof);
 
                         // Determine how many leading slots to reassign
                         int reassignEnd = firstViableSlot >= 0 ? firstViableSlot : runEnd + 1;
@@ -1761,10 +1847,7 @@ namespace AstroPM.NINA.Plugin.Models {
                             var fp = matrix.Rows[r].Profile;
                             var fAllowed = fp.PanelIndex.HasValue
                                 ? new HashSet<int> { fp.PanelIndex.Value } : (HashSet<int>)null;
-                            var fPick = SessionScheduler.PickExposureSet(
-                                fp, r, s, matrix.Slots, state,
-                                FsFor(fp), filterSwitchCount, fAllowed,
-                                filterSwitchTolerance: filterSwitchTolerance);
+                            var fPick = ProbePick(fp, r, s, matrix, state, FsFor(fp), filterSwitchCount, fAllowed, filterSwitchTolerance);
                             if (fPick.Es != null) { fallbackRow = r; break; }
                         }
                         if (fallbackRow >= 0) {
@@ -1787,15 +1870,9 @@ namespace AstroPM.NINA.Plugin.Models {
                             int releaseEnd = reassignEnd;
                             if (bonusEnabled) {
                                 for (int fs = s; fs < reassignEnd; fs++) {
-                                    state.FilterCycle.Remove(prof);
-                                    var bonusProbe = SessionScheduler.PickExposureSet(
-                                        prof, targetIdx, fs, matrix.Slots, state,
-                                        FsFor(prof), filterSwitchCount, probeAllowed,
-                                        includeCompleted: true,
-                                        filterSwitchTolerance: filterSwitchTolerance);
+                                    var bonusProbe = ProbePick(prof, targetIdx, fs, matrix, state, FsFor(prof), filterSwitchCount, probeAllowed, filterSwitchTolerance, includeCompleted: true);
                                     if (bonusProbe.Es != null) { releaseEnd = fs; break; }
                                 }
-                                state.FilterCycle.Remove(prof);
                             }
                             // The leading slots are dead for this target. Before idling
                             // through them, offer them as BONUS time to another target that
@@ -1812,14 +1889,7 @@ namespace AstroPM.NINA.Plugin.Models {
                                     var bp = matrix.Rows[r].Profile;
                                     var bAllowed = bp.PanelIndex.HasValue
                                         ? new HashSet<int> { bp.PanelIndex.Value } : (HashSet<int>)null;
-                                    // Probe without disturbing that target's live filter cycle.
-                                    bool hadCycle = state.FilterCycle.TryGetValue(bp, out var savedCycle);
-                                    var bPick = SessionScheduler.PickExposureSet(
-                                        bp, r, s, matrix.Slots, state,
-                                        FsFor(bp), filterSwitchCount, bAllowed,
-                                        includeCompleted: true,
-                                        filterSwitchTolerance: filterSwitchTolerance);
-                                    if (hadCycle) state.FilterCycle[bp] = savedCycle; else state.FilterCycle.Remove(bp);
+                                    var bPick = ProbePick(bp, r, s, matrix, state, FsFor(bp), filterSwitchCount, bAllowed, filterSwitchTolerance, includeCompleted: true);
                                     if (bPick.Es != null) { bonusRow = r; break; }
                                 }
                             }
@@ -1856,9 +1926,9 @@ namespace AstroPM.NINA.Plugin.Models {
                         }
                     }
 
-                    // Probe and fallback calls modify FilterCycle as a side effect.
-                    // Reset it so the inner while starts with a clean cycle.
-                    state.FilterCycle.Remove(prof);
+                    // Probes put back the cycle they touched (ProbePick), so a repeat visit keeps
+                    // the batch its previous visit was cut off in. Legacy: every visit started clean.
+                    if (EngineExperiments.LegacyFilterCycleReset) state.FilterCycle.Remove(prof);
                 }
 
                 if (currentTarget != prof) {
@@ -1885,8 +1955,11 @@ namespace AstroPM.NINA.Plugin.Models {
                     currentPanel = null;
                     subsSinceDither = 0;
 
-                    // Reset filter cycle so each visit starts a fresh FilterSwitchCount batch
-                    state.FilterCycle.Remove(prof);
+                    // The filter cycle carries across this target's visits: a second visit finishes
+                    // the batch the first was cut off in, then rotates on — instead of restarting at
+                    // the top of the sorted list (10/6/26 Dome B: NGC 7331's second visit ran G x30
+                    // again while R was never taken all night). Desktop mirror.
+                    if (EngineExperiments.LegacyFilterCycleReset) state.FilterCycle.Remove(prof);
 
                     if (target.Panels.Count > 1 && !prof.PanelIndex.HasValue) {
                         foreach (var key in state.PanelTimeOnTarget.Keys
