@@ -1375,14 +1375,16 @@ namespace AstroPM.NINA.Plugin.Models {
                         if (!separated) { adjacentToGoodRun = true; break; }
                     }
                     if (!adjacentToGoodRun) {
-                        // A separated sub-min run is normally KEPT as an independent block
-                        // (e.g. a real moon-up session worth its own visit). Exception: a
-                        // TINY scrap — a fair-share leftover too short to justify its own
-                        // slew — folds into a neighbor that can cover the whole scrap. The
+                        // A separated sub-min run is KEPT as an independent block (e.g. a real
+                        // moon-up session worth its own visit) only when it clears the Min-Time
+                        // Tolerance floor — the same undershoot the user allows everywhere else.
+                        // Below the floor it's a fair-share leftover that doesn't justify its own
+                        // two slews, so it folds into a neighbor that can cover the whole run; the
                         // target keeps its full (>= MinChunk) run elsewhere, so it loses no
-                        // minimum; this just removes a wasteful 2-slew micro-visit.
-                        int foldMax = Math.Max(2, minChunk / 4);
-                        if (run.Length > foldMax || !NeighborCoversRun(run.Start, run.Length, r)) continue;
+                        // minimum. (10/6/26 Dome A: an 8-slot Lion run wedged between the two M45
+                        // panels survived the old "tiny scrap" cutoff of MinChunk/4 = 3 slots
+                        // despite a 9-slot floor at 25 % tolerance.)
+                        if (run.Length >= matrix.Rows[r].MinFloorSlots || !NeighborCoversRun(run.Start, run.Length, r)) continue;
                     }
 
                     bool canAbsorb = false;
