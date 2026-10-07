@@ -204,6 +204,8 @@ namespace AstroPM.NINA.Plugin.Models {
     }
 
     internal class ScheduleMatrix {
+        /// <summary>Rows whose assignments EnforceMinimumAllocations cleared tonight (their time could not meet the minimum).</summary>
+        public HashSet<int> ClearedRows { get; } = new HashSet<int>();
         public List<TimeSlot> Slots { get; set; } = new List<TimeSlot>();
         public List<TargetRow> Rows { get; set; } = new List<TargetRow>();
 
@@ -247,6 +249,11 @@ namespace AstroPM.NINA.Plugin.Models {
 
     internal static class ScheduleEngine {
         internal static System.Text.StringBuilder PaintTrace = new System.Text.StringBuilder();
+
+        /// <summary>Tagged line in the paint trace (the plugin's stand-in for the desktop EngineTrace.Log).</summary>
+        private static void Tr(string tag, string msg) {
+            PaintTrace.AppendLine($"{tag}: {msg}");
+        }
 
         private static void TraceSnapshot(ScheduleMatrix matrix, string label) {
             PaintTrace.AppendLine($"\n--- {label} ---");
@@ -562,6 +569,11 @@ namespace AstroPM.NINA.Plugin.Models {
             }
         }
 
+        /// <summary>An exoplanet transit target ignores filter moon rules for tonight's capture.</summary>
+        internal static bool ExoMoonExempt(TargetProfile prof) {
+            return !EngineExperiments.LegacyExoMoonRules && prof.FixedWindowStartUtc != null;
+        }
+
         // ─── PaintSlotsGreedy (ManualPriority strategy) ──────────────────────
 
         public static void PaintSlotsGreedy(
@@ -703,6 +715,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 double nonLaInSafe = Math.Min(row.RemainingNonLaSec, safeRemaining);
                 double nonLaLeft = row.RemainingNonLaSec - nonLaInSafe;
                 double accessibleSec = laInSafe + nonLaInSafe + Math.Min(nonLaLeft, unsafeSlots * 300.0);
+                Tr("PREFILTER", $"[{row.Profile.DisplayName}] minAlt={row.Profile.Constraints.MinTargetAltitude:F0}° safe={safeSlots} unsafe={unsafeSlots} LA={row.RemainingLaSec / 60:F0}m nonLA={row.RemainingNonLaSec / 60:F0}m accessible={accessibleSec / 60:F0}m floor={row.MinFloorSec / 60:F0}m filtered={accessibleSec < row.MinFloorSec}");
                 if (accessibleSec < row.MinFloorSec) { // Min-Time Tolerance floor, not the full minimum
                     for (int t = 0; t < row.TierWorkSec.Length; t++) row.TierWorkSec[t] = 0;
                     row.PreFiltered = true;
@@ -798,10 +811,71 @@ namespace AstroPM.NINA.Plugin.Models {
             // Cygnus Wall (sets before moonrise → exclusive) took the whole shared
             // window for Relaxed Ha/SII, while IC 348 (five dawn slots → flexible)
             // got no dark time at all for its No Moon RGB. Mirrors desktop ScheduleEngine.
+            Func<Func<TargetRow, double>> makeGlobalCapOuter = null;
             {
                 Func<int, int, bool> mdEligible = (ri, s) =>
                     matrix.MoonDown[s] && matrix.CanImage[ri][s] && matrix.SlotAssignment[s] < 0;
 
+                // Proportional-share ceiling, used by Pass 1A and Pass 1B: a target's share of the WHOLE night's
+                // usable supply in proportion to its remaining demand (never more than it can use), minus what
+                // it already holds. Moon-down time is scarce only for work that cannot run elsewhere; capping
+                // by the global share stops a No Moon target taking a whole moonless night from a target that
+                // could have shared it (desktop mirror; auditor #6/#7, 10/7/26).
+                Func<TargetRow, double> MakeGlobalCap() {
+                    if (EngineExperiments.LegacyExclusiveBudget) return null;
+                    var live = matrix.Rows.Where(r => !r.PreFiltered && !r.HasLockedWindow
+                                                      && r.RemainingLaSec + r.RemainingNonLaSec > 0).ToList();
+                    if (live.Count < 2) return null;
+                    int UsableCount(TargetRow r) {
+                        int n = 0;
+                        for (int s = 0; s < matrix.Slots.Count; s++) if (r.UsableSlot[s] && !matrix.LockedSlot[s]) n++;
+                        return n;
+                    }
+                    var union = new HashSet<int>();
+                    foreach (var r in live)
+                        for (int s = 0; s < matrix.Slots.Count; s++)
+                            if (r.UsableSlot[s] && !matrix.LockedSlot[s]) union.Add(s);
+                    double supplyAll = union.Count * 300.0;
+                    double Dem(TargetRow r) => Math.Min(r.RemainingLaSec + r.RemainingNonLaSec, UsableCount(r) * 300.0);
+                    double sumDem = live.Sum(Dem);
+                    int Painted(TargetRow r) {
+                        int n = 0;
+                        for (int s = 0; s < matrix.SlotAssignment.Length; s++) if (matrix.SlotAssignment[s] == r.RowIndex) n++;
+                        return n;
+                    }
+                    if (EngineExperiments.LegacyProportionalWeights)
+                        return r => sumDem <= 0 ? double.MaxValue
+                            : Math.Max(0, Math.Min(Dem(r), supplyAll * Dem(r) / sumDem) - Painted(r) * 300.0);
+
+                    // Shares are proportional to each target's WORK (remaining demand); a target's usable time is only a
+                    // CEILING on its share, and whatever a ceiling frees is redistributed to the others (water-filling).
+                    // Work still to place PLUS what is already painted: painting decrements TierWorkSec, and the painted
+                    // slots are subtracted from the entitlement below, so using the decremented work would count them
+                    // twice and shrink the entitlement of a target that holds a Pass-0 window.
+                    var work = live.ToDictionary(r => r, r => r.RemainingLaSec + r.RemainingNonLaSec
+                        + (EngineExperiments.LegacyCapDoubleCount ? 0 : Painted(r) * 300.0));
+                    var ceiling = live.ToDictionary(r => r, r => Math.Min(work[r], UsableCount(r) * 300.0));
+                    var floorSec = live.ToDictionary(r => r, r => EngineExperiments.LegacyNoExclusiveFloor ? 0.0 : ExclusiveSlotCount(matrix, live, r) * 300.0);
+                    var entitled = new Dictionary<TargetRow, double>();
+                    var active = live.ToList();
+                    double pool = supplyAll;
+                    while (active.Count > 0) {
+                        double sw = active.Sum(r => work[r]);
+                        if (sw <= 0) break;
+                        var capped = active.Where(r => pool * work[r] / sw > ceiling[r] + 1e-9).ToList();
+                        var floored = active.Where(r => pool * work[r] / sw < floorSec[r] - 1e-9 && !capped.Contains(r)).ToList();
+                        if (capped.Count == 0 && floored.Count == 0) {
+                            foreach (var r in active) entitled[r] = pool * work[r] / sw;
+                            break;
+                        }
+                        foreach (var r in capped) { entitled[r] = ceiling[r]; pool -= ceiling[r]; active.Remove(r); }
+                        foreach (var r in floored) { entitled[r] = floorSec[r]; pool -= floorSec[r]; active.Remove(r); }
+                    }
+                    return r => entitled.TryGetValue(r, out var e) ? Math.Max(0, e - Painted(r) * 300.0) : double.MaxValue;
+                }
+                makeGlobalCapOuter = MakeGlobalCap;
+
+                List<TargetRow> pass1aCapped = null;
                 // Pass 1a: moon-down-only work, shared by moon-down-only demand
                 {
                     var mdOnlyDemand = new Dictionary<int, double>();
@@ -813,9 +887,36 @@ namespace AstroPM.NINA.Plugin.Models {
                     var candidates = matrix.Rows.Where(r => mdOnlyDemand.ContainsKey(r.RowIndex)).ToList();
                     var sorted = ApplySortChain(candidates, moonDownSortChain);
                     PaintTrace.AppendLine($"Pass 1a moon-down-only work ({sorted.Count}): {string.Join(", ", sorted.Select(c => $"{c.Profile.DisplayName} MDonly={mdOnlyDemand[c.RowIndex] / 60:F0}m"))}");
+                    var capA = MakeGlobalCap();
+                    // A target that sets before the moon-up block can reach its proportional entitlement ONLY with
+                    // moon-down time: its moon-up usable run is shorter than a minimum block (or absent). Give those
+                    // targets the moon-down time their window needs first, soonest-setting first, before the rest of
+                    // the moon-down time is shared (auditor #472: T3 got 105 of 255 entitled min while the targets
+                    // that could also shoot later took its moon-down window).
+                    if (!EngineExperiments.LegacyPass1aNeed && capA != null) {
+                        var need = new Dictionary<int, double>();
+                        foreach (var r in sorted) {
+                            double moonUpSec = MoonUpUsableSlotCount(matrix, r) >= r.MinChunkSlots ? MoonUpUsableSlotCount(matrix, r) * 300.0 : 0;
+                            double n = Math.Min(mdOnlyDemand[r.RowIndex], Math.Max(0, capA(r) - moonUpSec));
+                            if (n >= r.MinChunkSec) need[r.RowIndex] = n;
+                        }
+                        if (need.Count > 0) {
+                            var needy = sorted.Where(r => need.ContainsKey(r.RowIndex)).OrderBy(r => r.LastUsableSlot).ToList();
+                            Tr("PASS1A", $"Window-limited (needs moon-down to reach its share): [{string.Join(", ", needy.Select(r => $"{r.Profile.DisplayName}({need[r.RowIndex] / 60:F0}m)"))}]");
+                            PaintPassFairShare(matrix, needy, mdEligible, SlotWorkType.LaPreferred, r => need[r.RowIndex], "PASS1A-NEED");
+                            capA = MakeGlobalCap();
+                        }
+                    }
+                    int HeldA(TargetRow r) {
+                        int n = 0;
+                        for (int s = 0; s < matrix.SlotAssignment.Length; s++) if (matrix.SlotAssignment[s] == r.RowIndex) n++;
+                        return n;
+                    }
                     PaintPassFairShare(matrix, sorted, mdEligible,
                         SlotWorkType.LaPreferred,
-                        r => mdOnlyDemand[r.RowIndex]);
+                        r => EngineExperiments.LegacyPass1aNeed ? mdOnlyDemand[r.RowIndex] : Math.Max(0, mdOnlyDemand[r.RowIndex] - HeldA(r) * 300.0),
+                        "PASS1A", capA);
+                    pass1aCapped = capA != null ? sorted : null;
                 }
                 TraceSnapshot(matrix, "After Pass 1a (moon-down-only work)");
 
@@ -832,12 +933,41 @@ namespace AstroPM.NINA.Plugin.Models {
                     PaintTrace.AppendLine($"Pass 1b exclusive ({exclusive.Count}): {string.Join(", ", exclusive.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
                     PaintTrace.AppendLine($"Pass 1b flexible ({flexible.Count}): {string.Join(", ", flexible.Select(c => $"{c.Profile.DisplayName} LA={c.RemainingLaSec/60:F0}m"))}");
 
+                    // "Exclusive" targets (no real moon-up window) get the moon-down pool first -
+                    // but only up to their proportional share of the WHOLE night, not of the
+                    // moon-down pool among themselves. Otherwise they spend moon-down time the
+                    // flexible targets need for most of their work (flexible targets can use
+                    // moon-up time too, but that pool is usually far smaller).
+                    Func<TargetRow, double> exclCap = exclusive.Count > 0 && flexible.Count > 0 ? MakeGlobalCap() : null;
                     PaintPassFairShare(matrix, exclusive, mdEligible,
                         SlotWorkType.LaPreferred,
-                        r => r.RemainingLaSec + r.RemainingNonLaSec);
+                        r => r.RemainingLaSec + r.RemainingNonLaSec,
+                        "PASS1B-EXCL", exclCap);
                     PaintPassFairShare(matrix, flexible, mdEligible,
                         SlotWorkType.LaPreferred,
-                        r => r.RemainingLaSec + r.RemainingNonLaSec);
+                        r => r.RemainingLaSec + r.RemainingNonLaSec,
+                        "PASS1B-FLEX");
+                    // Spill: moon-down slots the flexible targets couldn't reach go back to the
+                    // exclusive targets rather than sitting idle behind the cap.
+                    if (exclCap != null) {
+                        double Left(TargetRow r) {
+                            int n = 0;
+                            for (int s = 0; s < matrix.SlotAssignment.Length; s++) if (matrix.SlotAssignment[s] == r.RowIndex) n++;
+                            return Math.Max(0, r.RemainingLaSec + r.RemainingNonLaSec - n * 300.0);
+                        }
+                        PaintPassFairShare(matrix, exclusive, mdEligible,
+                            SlotWorkType.LaPreferred, Left, "PASS1B-EXCL-SPILL");
+                    }
+                }
+                // Spill: moon-down slots nobody else could use go back to the moon-down-only targets that were
+                // capped in Pass 1A, rather than sitting idle.
+                if (pass1aCapped != null) {
+                    double LeftA(TargetRow r) {
+                        int n = 0;
+                        for (int s = 0; s < matrix.SlotAssignment.Length; s++) if (matrix.SlotAssignment[s] == r.RowIndex) n++;
+                        return Math.Max(0, MoonDownOnlyWorkSec(matrix, r) - n * 300.0);
+                    }
+                    PaintPassFairShare(matrix, pass1aCapped, mdEligible, SlotWorkType.LaPreferred, LeftA, "PASS1A-SPILL");
                 }
             }
             TraceSnapshot(matrix, "After Pass 1 (moon-down LA)");
@@ -944,10 +1074,18 @@ namespace AstroPM.NINA.Plugin.Models {
                     TraceSnapshot(matrix, "After Pass 3a (window-exclusive pre-claim)");
                 }
 
+                // Moon-up time is split by each target's proportional entitlement over the WHOLE night, net of what it
+                // already holds from the moon-down passes - not by a local share of the moon-up supply alone. A target
+                // that is only up early (sets before the other's best time) otherwise gets a fraction of the one stretch
+                // it can use while the other target, already over its share, takes the rest (auditor #369-371, 10/7/26).
+                var p3Cap = EngineExperiments.LegacyPass3Entitlement ? null : makeGlobalCapOuter?.Invoke();
+                if (p3Cap != null) Tr("PASS3", $"entitlement left: [{string.Join(", ", sorted.Select(r => $"{r.Profile.DisplayName}={p3Cap(r) / 60:F0}m"))}]");
                 PaintPassFairShare(matrix, sorted,
                     (ri, s) => !matrix.MoonDown[s] && matrix.Rows[ri].UsableSlot[s] && matrix.SlotAssignment[s] < 0,
                     SlotWorkType.NonLaPreferred,
-                    r => accessibleWork.GetValueOrDefault(r.RowIndex));
+                    r => p3Cap == null ? accessibleWork.GetValueOrDefault(r.RowIndex)
+                                       : Math.Min(accessibleWork.GetValueOrDefault(r.RowIndex), p3Cap(r)),
+                    "PASS3");
             }
             TraceSnapshot(matrix, "After Pass 3 (moon-up)");
 
@@ -955,6 +1093,7 @@ namespace AstroPM.NINA.Plugin.Models {
             TraceSnapshot(matrix, "After EnforceMinimum");
             PruneSlivers(matrix);
             TraceSnapshot(matrix, "After PruneSlivers");
+            ReofferFreedSlots(matrix);
 
             // Pass 4: Bonus / gap fill
             if (bonusEnabled) {
@@ -968,6 +1107,18 @@ namespace AstroPM.NINA.Plugin.Models {
 
             // Absorb pruned slots into adjacent targets
             AbsorbGaps(matrix);
+            // Block consolidation: one contiguous block per target, earliest-closing window first; stubs below the
+            // minimum are dropped; boundaries move toward each target's proportional entitlement.
+            ConsolidateBlocks(matrix);
+            AbsorbGaps(matrix);
+            ReclaimBonusSlots(matrix);
+            BalanceBoundaries(matrix);
+            OptimizeBlockOrder(matrix);
+            AbsorbGaps(matrix);
+            DropSubFloorStubs(matrix);
+            ReofferFreedSlots(matrix);   // idle stretches long enough for a real visit go to whoever can use them
+            AbsorbGaps(matrix);
+            TraceSnapshot(matrix, "FINAL (after defrag + prune + absorb)");
         }
 
         // ─── DefragmentSlots ─────────────────────────────────────────────────
@@ -1055,6 +1206,22 @@ namespace AstroPM.NINA.Plugin.Models {
                         if (s <= a1SlotEnd && !matrix.Rows[targetB].UsableSlot[s]) canBefore = false;
                     for (int s = Math.Max(a1SlotStart + bLen, bSlotStart); s <= bSlotEnd && canBefore; s++)
                         if (!(matrix.Rows[targetA].UsableSlot[s] || CanShootSomething(matrix, targetA, s))) canBefore = false;
+                    // The target that shifts (A) must keep its PLANNED time: a bonus-capable slot is not worth a planned one
+                    // (stress 2T #3, 11-01: T1's only planned window was the early moon-down stretch; the merge slid it onto
+                    // slots where it could only shoot bonus, and it ended with 30 of 275 entitled minutes).
+                    if (canBefore && !EngineExperiments.LegacyDefragIgnoresPlanned) {
+                        int UsableCnt(int t, int lo, int hi) {
+                            int c = 0;
+                            for (int x = lo; x <= hi; x++) if (matrix.Rows[t].UsableSlot[x]) c++;
+                            return c;
+                        }
+                        int beforeA = UsableCnt(targetA, a1SlotStart, a1SlotEnd) + UsableCnt(targetA, a2SlotStart, a2SlotEnd);
+                        int afterA = UsableCnt(targetA, a1SlotStart + bLen, a2SlotEnd);
+                        if (afterA < beforeA - 2) {
+                            Tr("DEFRAG", $"A-B-A before-merge REJECTED: [{matrix.Rows[targetA].Profile.DisplayName}] would lose planned-usable slots ({beforeA} -> {afterA})");
+                            canBefore = false;
+                        }
+                    }
                     if (canBefore) {
                         var altB = matrix.Rows[targetB].Profile.AltitudePerSlot;
                         if (MeanAlt(altB, a1SlotStart, a1SlotStart + bLen - 1) < MeanAlt(altB, bSlotStart, bSlotEnd) - 10.0)
@@ -1072,6 +1239,554 @@ namespace AstroPM.NINA.Plugin.Models {
             }
         }
 
+        /// <summary>The fair share of the night, in SLOTS, for each target: proportional to its work, never above what it can use
+        /// (ceiling), never below the slots only it can image (floor) - AND never beyond what any GROUP of targets can use
+        /// together. Two targets that both need the same short stretch of sky cannot each have their proportional share of it:
+        /// the group's usable union is the limit, and the shortfall is shared in proportion to work (Hall's condition,
+        /// water-filled). Used by the engine's cap, block balancing and order search (desktop mirror).</summary>
+        internal static double[] FairEntitlements(double[] work, double[] ceil, double[] floor, bool[][] usable, int nS, double[] minVisit = null) {
+            // A target whose share is smaller than its minimum visit cannot be given a valid visit tonight: it gets nothing and
+            // its share goes to the others (the engine clears sub-minimum blocks the same way). A target whose whole remaining
+            // work is below its minimum visit is exempt (end-of-target completion). Repeated until stable.
+            if (minVisit != null && !EngineExperiments.LegacyNoMinVisitDrop) {
+                var w = (double[])work.Clone();
+                for (int it = 0; it < work.Length; it++) {
+                    var e = FairEntitlementsCore(w, ceil, floor, usable, nS);
+                    bool dropped = false;
+                    for (int i = 0; i < w.Length; i++)
+                        if (w[i] > 0 && e[i] < Math.Min(minVisit[i], work[i]) - 1e-9 && floor[i] <= 0) { w[i] = 0; dropped = true; }
+                    if (!dropped) return e;
+                }
+                return FairEntitlementsCore(w, ceil, floor, usable, nS);
+            }
+            return FairEntitlementsCore(work, ceil, floor, usable, nS);
+        }
+
+        private static double[] FairEntitlementsCore(double[] work, double[] ceil, double[] floor, bool[][] usable, int nS) {
+            // Nobody is owed more than the work it has left: an exclusive window larger than the work is not a floor above it.
+            floor = floor.Select((f, i) => Math.Min(f, Math.Min(ceil[i], work[i]))).ToArray();
+            int k = work.Length;
+            var ent = new double[k];
+            if (k == 0) return ent;
+            if (k > 10 || EngineExperiments.LegacyNoHall) {
+                // plain water-filling (ceiling + floor) without group limits
+                int cnt = 0;
+                for (int s = 0; s < nS; s++) {
+                    bool any = false;
+                    for (int i = 0; i < k; i++) if (usable[i][s]) { any = true; break; }
+                    if (any) cnt++;
+                }
+                var act = Enumerable.Range(0, k).ToList();
+                double pool = cnt;
+                while (act.Count > 0) {
+                    double sw = act.Sum(i => work[i]);
+                    if (sw <= 0) { foreach (int i in act) ent[i] = 0; break; }
+                    var capped = act.Where(i => pool * work[i] / sw > ceil[i] + 1e-9).ToList();
+                    var floored = act.Where(i => pool * work[i] / sw < floor[i] - 1e-9 && !capped.Contains(i)).ToList();
+                    if (capped.Count == 0 && floored.Count == 0) { foreach (int i in act) ent[i] = pool * work[i] / sw; break; }
+                    foreach (int i in capped) { ent[i] = ceil[i]; pool -= ceil[i]; act.Remove(i); }
+                    foreach (int i in floored) { ent[i] = floor[i]; pool -= floor[i]; act.Remove(i); }
+                }
+                return ent;
+            }
+            int full = (1 << k) - 1;
+            var slotMask = new int[nS];
+            for (int s = 0; s < nS; s++) for (int i = 0; i < k; i++) if (usable[i][s]) slotMask[s] |= 1 << i;
+            var U = new int[full + 1];
+            for (int m = 1; m <= full; m++) {
+                int c = 0;
+                for (int s = 0; s < nS; s++) if ((slotMask[s] & m) != 0) c++;
+                U[m] = c;
+            }
+            var frozen = new bool[k];
+            int left = k;
+            while (left > 0) {
+                double t = double.MaxValue;
+                int tight = 0;
+                for (int m = 1; m <= full; m++) {
+                    double actW = 0, frozenSum = 0;
+                    for (int i = 0; i < k; i++) if ((m >> i & 1) != 0) { if (frozen[i]) frozenSum += ent[i]; else actW += work[i]; }
+                    if (actW <= 0) continue;
+                    double tm = Math.Max(0, U[m] - frozenSum) / actW;
+                    if (tm < t) { t = tm; tight = m; }
+                }
+                for (int i = 0; i < k; i++)
+                    if (!frozen[i] && work[i] > 0 && ceil[i] / work[i] <= t + 1e-12) { t = ceil[i] / work[i]; tight = 1 << i; }
+                if (tight == 0) {
+                    for (int i = 0; i < k; i++) if (!frozen[i]) { ent[i] = 0; frozen[i] = true; }
+                    break;
+                }
+                bool anyFloor = false;
+                for (int i = 0; i < k; i++)
+                    if (!frozen[i] && t * work[i] < floor[i] - 1e-9) { ent[i] = floor[i]; frozen[i] = true; left--; anyFloor = true; }
+                if (anyFloor) continue;
+                for (int i = 0; i < k; i++)
+                    if (!frozen[i] && ((tight >> i & 1) != 0)) { ent[i] = t * work[i]; frozen[i] = true; left--; }
+                if (left > 0 && Enumerable.Range(0, k).All(i => frozen[i] || (tight >> i & 1) == 0) && tight == 0) break;
+            }
+            return ent;
+        }
+
+        /// <summary>Slots only this target can image (no other live target is usable there): its share can never be below
+        /// this, because nobody else can take that time.</summary>
+        private static int ExclusiveSlotCount(ScheduleMatrix matrix, List<TargetRow> live, TargetRow r) {
+            int n = 0;
+            for (int s = 0; s < matrix.Slots.Count; s++) {
+                if (!r.UsableSlot[s] || matrix.LockedSlot[s]) continue;
+                bool other = false;
+                foreach (var o in live) if (!ReferenceEquals(o, r) && o.UsableSlot[s]) { other = true; break; }
+                if (!other) n++;
+            }
+            return n;
+        }
+
+        /// <summary>Per-target proportional entitlement in SLOTS: each target's share of the night's usable supply in
+        /// proportion to its remaining work, capped by the time it can actually use, with freed time redistributed
+        /// (water-filling). Same definition the fair-share budgets use.</summary>
+        private static Dictionary<int, double> EntitlementSlots(ScheduleMatrix matrix) {
+            var live = matrix.Rows.Where(r => !r.PreFiltered && !r.HasLockedWindow && r.Profile.RemainingTotalSec > 0).ToList();
+            var ent = new Dictionary<int, double>();
+            if (live.Count == 0) return ent;
+            int nS = matrix.Slots.Count;
+            var usable = live.Select(r => Enumerable.Range(0, nS).Select(x => r.UsableSlot[x] && !matrix.LockedSlot[x]).ToArray()).ToArray();
+            var work = live.Select(r => r.Profile.RemainingTotalSec / 300.0).ToArray();
+            var ceil = live.Select((r, i) => Math.Min(work[i], usable[i].Count(x => x))).ToArray();
+            var floor = live.Select(r => EngineExperiments.LegacyNoExclusiveFloor ? 0.0 : (double)ExclusiveSlotCount(matrix, live, r)).ToArray();
+            var res = FairEntitlements(work, ceil, floor, usable, nS, live.Select(r => (double)Math.Max(1, r.MinFloorSlots)).ToArray());
+            for (int i = 0; i < live.Count; i++) ent[live[i].RowIndex] = res[i];
+            return ent;
+        }
+
+        /// <summary>A slot held by a target that can only shoot BONUS there, while another target has planned work it can do there, goes
+        /// to that other target (preferring the one already next to it, so no new visit is created). Planned work outranks bonus.
+        /// Never touches locked exoplanet slots.</summary>
+        private static void ReclaimBonusSlots(ScheduleMatrix matrix) {
+            if (EngineExperiments.LegacyNoReclaim) return;
+            int nS = matrix.Slots.Count;
+            for (int s = 0; s < nS; s++) {
+                int r = matrix.SlotAssignment[s];
+                if (r < 0 || matrix.LockedSlot[s]) continue;
+                if (s < matrix.Rows[r].UsableSlot.Length && matrix.Rows[r].UsableSlot[s]) continue;
+                int best = -1;
+                foreach (var o in matrix.Rows) {
+                    if (o.RowIndex == r || o.PreFiltered || o.HasLockedWindow || s >= o.UsableSlot.Length || !o.UsableSlot[s] || o.TotalWorkSec <= 0) continue;
+                    bool adjacent = (s > 0 && matrix.SlotAssignment[s - 1] == o.RowIndex) || (s + 1 < nS && matrix.SlotAssignment[s + 1] == o.RowIndex);
+                    if (adjacent) { best = o.RowIndex; break; }
+                    if (best < 0) best = o.RowIndex;
+                }
+                if (best >= 0) { matrix.SlotAssignment[s] = best; matrix.SlotWorkHint[s] = SlotWorkType.Any; }
+            }
+        }
+
+        /// <summary>Time freed by pruning / clearing sub-minimum blocks is offered to targets that got NOTHING tonight (and were
+        /// not themselves cleared) and can use it for at least their floor, before bonus fill hands it to a neighbour.</summary>
+        private static void ReofferFreedSlots(ScheduleMatrix matrix) {
+            if (EngineExperiments.LegacyNoReoffer) return;
+            int nS = matrix.Slots.Count;
+            var entR = EntitlementSlots(matrix);
+            for (int guard = 0; guard < 16; guard++) {
+                var held = new int[matrix.Rows.Count];
+                for (int s = 0; s < nS; s++) if (matrix.SlotAssignment[s] >= 0) held[matrix.SlotAssignment[s]]++;
+                int bestRow = -1, bestStart = -1, bestLen = 0;
+                double bestScore = double.MinValue;
+                foreach (var row in matrix.Rows) {
+                    int r = row.RowIndex;
+                    if (row.PreFiltered || row.HasLockedWindow || matrix.ClearedRows.Contains(r) || row.TotalWorkSec <= 0) continue;
+                    int floor = Math.Max(1, row.MinFloorSlots);
+                    for (int s = Math.Max(0, matrix.FirstUsableSlot); s <= matrix.LastUsableSlot && s < nS; s++) {
+                        if (matrix.SlotAssignment[s] >= 0 || !row.UsableSlot[s]) continue;
+                        int e = s;
+                        while (e + 1 < nS && matrix.SlotAssignment[e + 1] < 0 && row.UsableSlot[e + 1]) e++;
+                        int len = e - s + 1;
+                        // a target with no time tonight comes first, then the one furthest below its share; a stretch long enough for a real visit
+                        double score = (held[r] == 0 ? 1000 : 0) + (entR.TryGetValue(r, out var en) ? en - held[r] : 0) + len * 0.01;
+                        if (len >= floor && score > bestScore) { bestRow = r; bestStart = s; bestLen = len; bestScore = score; }
+                        s = e;
+                    }
+                }
+                if (bestRow < 0) return;
+                var take = Math.Min(bestLen, (int)Math.Ceiling(matrix.Rows[bestRow].TotalWorkSec / 300.0));
+                take = Math.Max(take, Math.Min(bestLen, Math.Max(1, matrix.Rows[bestRow].MinFloorSlots)));
+                Tr("REOFFER", $"[{matrix.Rows[bestRow].Profile.DisplayName}] gets freed slots {bestStart}-{bestStart + take - 1} offered to it");
+                for (int x = bestStart; x < bestStart + take; x++) { matrix.SlotAssignment[x] = bestRow; matrix.SlotWorkHint[x] = SlotWorkType.Any; }
+            }
+        }
+
+        /// <summary>A target visited twice whose SHORT visit is under its floor: that stub is not worth a slew there and back, so it
+        /// idles (the target keeps its other, real block). The yield step already did this where the neighbour could use the slots;
+        /// this covers a stub the neighbour cannot use.</summary>
+        private static void DropSubFloorStubs(ScheduleMatrix matrix) {
+            if (EngineExperiments.LegacyNoStubDrop) return;
+            int nS = matrix.Slots.Count;
+            foreach (var row in matrix.Rows) {
+                int r = row.RowIndex;
+                var runs = new List<(int S, int E)>();
+                for (int s = 0; s < nS; s++) {
+                    if (matrix.SlotAssignment[s] != r) continue;
+                    int e = s;
+                    while (e + 1 < nS && matrix.SlotAssignment[e + 1] == r) e++;
+                    runs.Add((s, e));
+                    s = e;
+                }
+                if (runs.Count < 2) continue;
+                int floor = Math.Max(1, row.MinFloorSlots);
+                foreach (var (S, E) in runs) {
+                    int len = E - S + 1;
+                    if (len >= floor || runs.Any(x => x != (S, E) && x.E - x.S + 1 >= floor) == false) continue;
+                    bool locked = false;
+                    for (int x = S; x <= E; x++) if (matrix.LockedSlot[x]) locked = true;
+                    if (locked) continue;
+                    Tr("STUBDROP", $"[{row.Profile.DisplayName}] stub slots {S}-{E} ({len * 5} min < floor {floor * 5}) idles - not worth a visit");
+                    for (int x = S; x <= E; x++) matrix.SlotAssignment[x] = -1;
+                }
+            }
+        }
+
+        /// <summary>Last resort for a plan that is still off the proportional entitlement: searches every ORDER of the night's
+        /// blocks (one contiguous block per target, k! orders, k &lt;= 5) with a small DP that picks each block's start and length
+        /// inside its usable window so the blocks land as close to each target's entitlement as possible (shortfalls cost double:
+        /// they are idle time too). The result replaces the plan only when it is clearly better (at least 3 slots less total
+        /// deviation) and does not drop the mean altitude by more than 3 degrees. Never touches exoplanet nights.</summary>
+        private static void OptimizeBlockOrder(ScheduleMatrix matrix) {
+            if (EngineExperiments.LegacyNoOptimize) return;
+            int nS = matrix.Slots.Count;
+            if (matrix.Rows.Count < 3 || matrix.Rows.Any(r => r.HasLockedWindow)) return;
+            for (int s = 0; s < nS; s++) if (matrix.LockedSlot[s]) return;
+            var ent = EntitlementSlots(matrix);
+            var rs = matrix.Rows.Where(r => ent.ContainsKey(r.RowIndex) && matrix.SlotAssignment.Contains(r.RowIndex)).Select(r => r.RowIndex).ToList();
+            int k = rs.Count;
+            if (k < 3 || k > 5 || rs.Count != matrix.SlotAssignment.Where(a => a >= 0).Distinct().Count()) return;
+
+            // convex, so a shortfall is SPREAD over the targets that share a squeezed window instead of landing on one of them
+            double Cost(int i, int len) { double e = ent[rs[i]]; double d = Math.Abs(len - e); return len < e ? 2 * d + 0.2 * d * d : d + 0.1 * d * d; }
+            var held = new int[k];
+            for (int s = 0; s < nS; s++) {
+                int a = matrix.SlotAssignment[s];
+                int ix = a >= 0 ? rs.IndexOf(a) : -1;
+                if (ix >= 0) held[ix]++;
+            }
+            double curCost = 0;
+            for (int i = 0; i < k; i++) curCost += Cost(i, held[i]);
+
+            // usable run length ending at each slot, per block
+            var run = new int[k][];
+            for (int i = 0; i < k; i++) {
+                run[i] = new int[nS + 1];
+                var u = matrix.Rows[rs[i]].UsableSlot;
+                for (int e = 1; e <= nS; e++) run[i][e] = (e - 1 < u.Length && u[e - 1]) ? run[i][e - 1] + 1 : 0;
+            }
+
+            double best = double.MaxValue;
+            int[] bestOrder = null, bestStart = null, bestLen = null;
+            var idx = Enumerable.Range(0, k).ToArray();
+            void Permute(int at) {
+                if (at == k) {
+                    var f = new double[k + 1][];
+                    var chLen = new int[k + 1][];
+                    var chPrev = new int[k + 1][];
+                    for (int i = 0; i <= k; i++) { f[i] = Enumerable.Repeat(double.MaxValue, nS + 1).ToArray(); chLen[i] = new int[nS + 1]; chPrev[i] = new int[nS + 1]; }
+                    for (int e = 0; e <= nS; e++) f[0][e] = 0;
+                    for (int i = 1; i <= k; i++) {
+                        int t = idx[i - 1];
+                        // prefix min of f[i-1] with argmin
+                        var gm = new double[nS + 1];
+                        var ga = new int[nS + 1];
+                        double bm = double.MaxValue;
+                        int ba = 0;
+                        // h[p] = f[i-1][p] - GAP*p, so the cost of leaving (st - p) unused slots between blocks (they would be absorbed by the
+                        // earlier block, unevenly) is added back as GAP*st
+                        for (int p = 0; p <= nS; p++) {
+                            double h = f[i - 1][p] == double.MaxValue ? double.MaxValue : f[i - 1][p] - 3.0 * p;
+                            if (h < bm) { bm = h; ba = p; }
+                            gm[p] = bm;
+                            ga[p] = ba;
+                        }
+                        int floor = Math.Max(1, matrix.Rows[rs[t]].MinFloorSlots);
+                        for (int e = 1; e <= nS; e++)
+                            for (int len = floor; len <= run[t][e]; len++) {
+                                int st = e - len;
+                                if (gm[st] == double.MaxValue) continue;
+                                double c = gm[st] + 3.0 * st + Cost(t, len) + (i == 1 ? 1.5 * Math.Max(0, st - Math.Max(0, matrix.FirstUsableSlot)) : 0);
+                                if (c < f[i][e]) { f[i][e] = c; chLen[i][e] = len; chPrev[i][e] = ga[st]; }
+                            }
+                    }
+                    double mn = double.MaxValue;
+                    int me = -1;
+                    for (int e = 0; e <= nS; e++) {
+                        double fe = f[k][e] == double.MaxValue ? double.MaxValue : f[k][e] + 1.5 * Math.Max(0, matrix.LastUsableSlot + 1 - e);
+                        if (fe < mn) { mn = fe; me = e; }
+                    }
+                    if (me < 0 || mn >= best) return;
+                    var st2 = new int[k];
+                    var ln2 = new int[k];
+                    int cur = me;
+                    for (int i = k; i >= 1; i--) { ln2[idx[i - 1]] = chLen[i][cur]; st2[idx[i - 1]] = cur - chLen[i][cur]; cur = chPrev[i][cur]; }
+                    best = mn;
+                    bestOrder = (int[])idx.Clone();
+                    bestStart = st2;
+                    bestLen = ln2;
+                    return;
+                }
+                for (int j = at; j < k; j++) {
+                    (idx[at], idx[j]) = (idx[j], idx[at]);
+                    Permute(at + 1);
+                    (idx[at], idx[j]) = (idx[j], idx[at]);
+                }
+            }
+            Permute(0);
+            if (bestOrder == null || best > curCost - 1) return;
+
+            double MeanAltOwned(Func<int, int> owner) {
+                double sum = 0;
+                int n = 0;
+                for (int s = 0; s < nS; s++) {
+                    int a = owner(s);
+                    if (a < 0) continue;
+                    var al = matrix.Rows[a].Profile.AltitudePerSlot;
+                    if (s < al.Length) { sum += al[s]; n++; }
+                }
+                return n > 0 ? sum / n : 0;
+            }
+            var newOwner = Enumerable.Repeat(-1, nS).ToArray();
+            for (int i = 0; i < k; i++) for (int s = bestStart[i]; s < bestStart[i] + bestLen[i]; s++) newOwner[s] = rs[i];
+            double altOld = MeanAltOwned(s => matrix.SlotAssignment[s]), altNew = MeanAltOwned(s => newOwner[s]);
+            if (altNew < altOld - 3) { Tr("OPTIMIZE", $"better fit found (cost {curCost:F1} -> {best:F1}) but mean altitude would drop {altOld - altNew:F1} deg - kept"); return; }
+
+            Tr("OPTIMIZE", $"cost {curCost:F1} -> {best:F1}: " + string.Join("  ", Enumerable.Range(0, k).OrderBy(i => bestStart[i]).Select(i => $"[{matrix.Rows[rs[i]].Profile.DisplayName}]={bestStart[i]}-{bestStart[i] + bestLen[i] - 1}")));
+            Array.Fill(matrix.SlotAssignment, -1);
+            for (int s = 0; s < nS; s++) if (newOwner[s] >= 0) { matrix.SlotAssignment[s] = newOwner[s]; matrix.SlotWorkHint[s] = SlotWorkType.Any; }
+        }
+
+        /// <summary>Moves the boundary between two ADJACENT blocks toward the proportional entitlement: a target below its
+        /// share takes slots from a neighbour that is above its share (when it can use them and the neighbour keeps its
+        /// minimum). Pruned slivers and gap absorption hand leftover slots to whichever block happens to sit before the gap,
+        /// not to the one that is short; this undoes that. Never touches locked exoplanet slots.</summary>
+        private static void BalanceBoundaries(ScheduleMatrix matrix) {
+            if (EngineExperiments.LegacyNoBalance) return;
+            int nS = matrix.Slots.Count;
+            if (matrix.Rows.Count < 2 || matrix.Rows.Any(r => r.HasLockedWindow)) return;
+            for (int s = 0; s < nS; s++) if (matrix.LockedSlot[s]) return;
+            var ent = EntitlementSlots(matrix);
+            if (ent.Count < 2) return;
+            // Held = slots where the target can do PLANNED work: a bonus-only slot is not part of its share (stress 2T #3: a target
+            // whose planned window was half given away still "held" 55 slots because 27 of them were bonus-only).
+            int Count(int r) {
+                int c = 0;
+                for (int s = 0; s < nS; s++)
+                    if (matrix.SlotAssignment[s] == r && (EngineExperiments.LegacyDefragIgnoresPlanned || (s < matrix.Rows[r].UsableSlot.Length && matrix.Rows[r].UsableSlot[s]))) c++;
+                return c;
+            }
+            Tr("BALANCE", $"entitlement vs held (slots): {string.Join("  ", ent.Select(kv => $"[{matrix.Rows[kv.Key].Profile.DisplayName}] ent={kv.Value:F1} held={Count(kv.Key)}"))}");
+            bool Usable(int r, int s) => s >= 0 && s < nS && s < matrix.Rows[r].UsableSlot.Length && matrix.Rows[r].UsableSlot[s];
+            for (int pass = 0; pass < 12; pass++) {
+                bool moved = false;
+                for (int s = 0; s + 1 < nS; s++) {
+                    int A = matrix.SlotAssignment[s], B = matrix.SlotAssignment[s + 1];
+                    if (A < 0 || B < 0 || A == B || !ent.ContainsKey(A) || !ent.ContainsKey(B)) continue;
+                    double defA = ent[A] - Count(A), defB = ent[B] - Count(B);
+                    if (defA >= 1 && defB <= -1) {                       // A extends right into B
+                        int k = (int)Math.Min(Math.Floor(defA), Math.Floor(-defB));
+                        k = Math.Min(k, Count(B) - matrix.Rows[B].MinFloorSlots);
+                        int run = 0;
+                        while (s + 1 + run < nS && matrix.SlotAssignment[s + 1 + run] == B) run++;
+                        int floorB = matrix.Rows[B].MinFloorSlots;
+                        int kY = (int)Math.Min(Math.Floor(defA), run);
+                        while (kY > 0 && !Enumerable.Range(s + 1, kY).All(x => Usable(A, x))) kY--;
+                        int leftB = run - kY;
+                        if (!EngineExperiments.LegacyNoYield && kY > 0 && kY > Math.Min(k, run - floorB) && leftB < floorB && Count(B) - run >= floorB) {
+                            for (int x = s + 1; x <= s + kY; x++) matrix.SlotAssignment[x] = A;
+                            for (int x = s + kY + 1; x <= s + run; x++) matrix.SlotAssignment[x] = -1;
+                            Tr("BALANCE", $"[{matrix.Rows[A].Profile.DisplayName}] runs {kY} slot(s) longer; [{matrix.Rows[B].Profile.DisplayName}] stub of {leftB} slot(s) (< floor {floorB}) left idle");
+                            moved = true;
+                        } else {
+                            k = Math.Min(k, run - floorB);     // the donor's remaining block must still meet its floor
+                            while (k > 0 && !Enumerable.Range(s + 1, k).All(x => Usable(A, x))) k--;
+                            if (k > 0) { for (int x = s + 1; x <= s + k; x++) matrix.SlotAssignment[x] = A; moved = true; }
+                        }
+                    } else if (defB >= 1 && defA <= -1) {                // B extends left into A
+                        int k = (int)Math.Min(Math.Floor(defB), Math.Floor(-defA));
+                        k = Math.Min(k, Count(A) - matrix.Rows[A].MinFloorSlots);
+                        int run = 0;
+                        while (s - run >= 0 && matrix.SlotAssignment[s - run] == A) run++;
+                        int floorA = matrix.Rows[A].MinFloorSlots;
+                        // Yield: the stub left behind would be under the donor's floor, so it is not worth a visit - B takes
+                        // what it can use and the rest of the stub idles (the donor has another block elsewhere). B should
+                        // start as early as it can (#386/#387: T2's 30-min stub held 3 slots T1 could have started on).
+                        int kY = (int)Math.Min(Math.Floor(defB), run);
+                        while (kY > 0 && !Enumerable.Range(s - kY + 1, kY).All(x => Usable(B, x))) kY--;
+                        int leftA = run - kY;
+                        if (!EngineExperiments.LegacyNoYield && kY > 0 && kY > Math.Min(k, run - floorA) && leftA < floorA && Count(A) - run >= floorA) {
+                            for (int x = s - kY + 1; x <= s; x++) matrix.SlotAssignment[x] = B;
+                            for (int x = s - run + 1; x <= s - kY; x++) matrix.SlotAssignment[x] = -1;
+                            Tr("BALANCE", $"[{matrix.Rows[B].Profile.DisplayName}] starts {kY} slot(s) earlier; [{matrix.Rows[A].Profile.DisplayName}] stub of {leftA} slot(s) (< floor {floorA}) left idle");
+                            moved = true;
+                        } else {
+                            k = Math.Min(k, run - floorA);
+                            while (k > 0 && !Enumerable.Range(s - k + 1, k).All(x => Usable(B, x))) k--;
+                            if (k > 0) { for (int x = s - k + 1; x <= s; x++) matrix.SlotAssignment[x] = B; moved = true; }
+                        }
+                    }
+                    if (moved) break;
+                }
+                if (!moved) moved = CascadeBoundaries(matrix, ent, Count, Usable);
+                if (!moved) break;
+            }
+        }
+
+        /// <summary>Chain version of the boundary move: a target below its share and a target above it that are not
+        /// neighbours still trade time - every block between them slides over by the same number of slots (each must be
+        /// able to use the slots it gains). Needs one contiguous block per target between the two.</summary>
+        private static bool CascadeBoundaries(ScheduleMatrix matrix, Dictionary<int, double> ent, Func<int, int> count, Func<int, int, bool> usable) {
+            int nS = matrix.Slots.Count;
+            var blocks = new List<(int R, int S, int E)>();
+            for (int s = 0; s < nS; s++) {
+                int a = matrix.SlotAssignment[s];
+                if (a < 0) continue;
+                if (blocks.Count > 0 && blocks[blocks.Count - 1].R == a && blocks[blocks.Count - 1].E == s - 1) blocks[blocks.Count - 1] = (a, blocks[blocks.Count - 1].S, s);
+                else blocks.Add((a, s, s));
+            }
+            if (blocks.GroupBy(b => b.R).Any(g => g.Count() > 1)) return false;
+            for (int i = 0; i < blocks.Count; i++)
+                for (int j = 0; j < blocks.Count; j++) {
+                    if (i == j || Math.Abs(i - j) < 2) continue;                       // neighbours are handled pairwise
+                    int U = blocks[i].R, O = blocks[j].R;
+                    if (!ent.ContainsKey(U) || !ent.ContainsKey(O)) continue;
+                    double defU = ent[U] - count(U), defO = ent[O] - count(O);
+                    if (defU < 1 || defO > -1) continue;
+                    bool touching = true;
+                    for (int t = Math.Min(i, j); t < Math.Max(i, j); t++) if (blocks[t].E + 1 != blocks[t + 1].S) touching = false;
+                    if (!touching) continue;
+                    int k = (int)Math.Min(Math.Floor(defU), Math.Floor(-defO));
+                    int oLen = blocks[j].E - blocks[j].S + 1;
+                    k = Math.Min(k, oLen - matrix.Rows[O].MinFloorSlots);
+                    if (i < j) {                                                        // slide everything between right
+                        while (k > 0) {
+                            bool ok = true;
+                            for (int t = i; t < j && ok; t++)
+                                for (int x = blocks[t].E + 1; x <= blocks[t].E + k; x++) if (!usable(blocks[t].R, x)) { ok = false; break; }
+                            if (ok) break;
+                            k--;
+                        }
+                        if (k <= 0) continue;
+                        for (int t = i; t < j; t++)
+                            for (int x = blocks[t].E + 1; x <= blocks[t].E + k; x++) matrix.SlotAssignment[x] = blocks[t].R;
+                    } else {                                                            // slide everything between left
+                        while (k > 0) {
+                            bool ok = true;
+                            for (int t = i; t > j && ok; t--)
+                                for (int x = blocks[t].S - k; x < blocks[t].S; x++) if (!usable(blocks[t].R, x)) { ok = false; break; }
+                            if (ok) break;
+                            k--;
+                        }
+                        if (k <= 0) continue;
+                        for (int t = i; t > j; t--)
+                            for (int x = blocks[t].S - k; x < blocks[t].S; x++) matrix.SlotAssignment[x] = blocks[t].R;
+                    }
+                    return true;
+                }
+            return false;
+        }
+
+        /// <summary>Re-lays the night out as ONE contiguous block per target. A visit is worth its slew only if it is a
+        /// real block, so: targets whose total is under their minimum floor are dropped for tonight; the rest keep their
+        /// slot budget but are placed earliest-deadline-first (the target whose window closes first goes first, so a
+        /// setting target gets its whole window and nobody is interleaved); then each block boundary moves toward the
+        /// proportional entitlement (a target under its share extends into a neighbour that is over, where it is usable).
+        /// Only runs when the painted plan has a split target or a sub-floor stub; falls back to the painted plan if any
+        /// target cannot be placed as one contiguous usable block.</summary>
+        private static void ConsolidateBlocks(ScheduleMatrix matrix) {
+            if (EngineExperiments.LegacyNoConsolidate) return;
+            int nRows = matrix.Rows.Count, nS = matrix.Slots.Count;
+            if (nRows < 2) return;
+            if (matrix.Rows.Any(r => r.HasLockedWindow)) return;           // exoplanet nights keep their fixed windows
+            for (int s = 0; s < nS; s++) if (matrix.LockedSlot[s]) return;
+
+            var n = new int[nRows];
+            var runs = new int[nRows];
+            for (int s = 0; s < nS; s++) {
+                int a = matrix.SlotAssignment[s];
+                if (a >= 0) n[a]++;
+            }
+            for (int r = 0; r < nRows; r++) {
+                int len = 0;
+                for (int s = 0; s <= nS; s++) {
+                    bool mine = s < nS && matrix.SlotAssignment[s] == r;
+                    if (mine) len++;
+                    else if (len > 0) { runs[r]++; len = 0; }
+                }
+            }
+            bool needs = false;
+            for (int r = 0; r < nRows; r++)
+                if (n[r] > 0 && (runs[r] > 1 || n[r] < matrix.Rows[r].MinFloorSlots)) needs = true;
+            if (!needs) return;
+
+            for (int r = 0; r < nRows; r++)
+                if (n[r] > 0 && n[r] < matrix.Rows[r].MinFloorSlots) {
+                    Tr("CONSOL", $"[{matrix.Rows[r].Profile.DisplayName}] only {n[r]} slots (< floor {matrix.Rows[r].MinFloorSlots}) - dropped for tonight");
+                    n[r] = 0;
+                }
+            var active = Enumerable.Range(0, nRows).Where(r => n[r] > 0).ToList();
+            if (active.Count == 0) return;
+
+            int Deadline(int r) { for (int s = nS - 1; s >= 0; s--) if (matrix.Rows[r].UsableSlot[s]) return s; return -1; }
+            int Release(int r) { for (int s = 0; s < nS; s++) if (matrix.Rows[r].UsableSlot[s]) return s; return nS; }
+            bool Fits(int r, int p, int len) {
+                if (p < 0 || p + len > nS) return false;
+                for (int s = p; s < p + len; s++) if (!matrix.Rows[r].UsableSlot[s]) return false;
+                return true;
+            }
+
+            var start = new int[nRows];
+            var order = new List<int>();
+            var remaining = active.ToList();
+            int pos = Math.Max(0, matrix.FirstUsableSlot);
+            while (remaining.Count > 0 && pos < nS) {
+                int best = -1;
+                foreach (int r in remaining) {
+                    if (!Fits(r, pos, n[r])) continue;
+                    if (best < 0 || Deadline(r) < Deadline(best) || (Deadline(r) == Deadline(best) && Release(r) < Release(best))) best = r;
+                }
+                if (best < 0) { pos++; continue; }
+                start[best] = pos;
+                order.Add(best);
+                remaining.Remove(best);
+                pos += n[best];
+            }
+            if (remaining.Count > 0) {
+                Tr("CONSOL", $"cannot place [{string.Join(", ", remaining.Select(r => matrix.Rows[r].Profile.DisplayName))}] as one contiguous usable block - keeping the painted plan");
+                return;
+            }
+
+            // Move boundaries toward the proportional entitlement (slots).
+            var ent = EntitlementSlots(matrix);
+            for (int pass = 0; pass < 6; pass++) {
+                bool moved = false;
+                for (int k = 0; k + 1 < order.Count; k++) {
+                    int A = order[k], B = order[k + 1];
+                    int endA = start[A] + n[A];
+                    if (endA != start[B]) continue;                          // not touching: nothing to trade
+                    double defA = ent.GetValueOrDefault(A) - n[A], defB = ent.GetValueOrDefault(B) - n[B];
+                    if (defA >= 1 && defB <= -1) {                          // A extends right into B
+                        int shift = (int)Math.Min(Math.Floor(defA), Math.Floor(-defB));
+                        shift = Math.Min(shift, n[B] - matrix.Rows[B].MinFloorSlots);
+                        while (shift > 0 && !Fits(A, endA, shift)) shift--;
+                        if (shift > 0) { n[A] += shift; n[B] -= shift; start[B] += shift; moved = true; }
+                    } else if (defB >= 1 && defA <= -1) {                   // B extends left into A
+                        int shift = (int)Math.Min(Math.Floor(defB), Math.Floor(-defA));
+                        shift = Math.Min(shift, n[A] - matrix.Rows[A].MinFloorSlots);
+                        while (shift > 0 && !Fits(B, start[B] - shift, shift)) shift--;
+                        if (shift > 0) { n[B] += shift; n[A] -= shift; start[B] -= shift; moved = true; }
+                    }
+                }
+                if (!moved) break;
+            }
+
+            Array.Fill(matrix.SlotAssignment, -1);
+            foreach (int r in order)
+                for (int s = start[r]; s < start[r] + n[r]; s++) { matrix.SlotAssignment[s] = r; matrix.SlotWorkHint[s] = SlotWorkType.Any; }
+            Tr("CONSOL", "one block each: " + string.Join("  ", order.Select(r => $"[{matrix.Rows[r].Profile.DisplayName}]={start[r]}-{start[r] + n[r] - 1}")));
+        }
+
         private static double MeanAlt(double[] alt, int from, int to) {
             if (alt == null || from > to || to >= alt.Length || from < 0) return 0;
             double sum = 0;
@@ -1084,7 +1799,9 @@ namespace AstroPM.NINA.Plugin.Models {
             List<TargetRow> sorted,
             Func<int, int, bool> slotEligible,
             SlotWorkType workHint,
-            Func<TargetRow, double> demandFunc) {
+            Func<TargetRow, double> demandFunc,
+            string traceLabel = "FAIRSHARE",
+            Func<TargetRow, double> budgetCap = null) {
 
             if (sorted.Count == 0) return;
 
@@ -1109,12 +1826,12 @@ namespace AstroPM.NINA.Plugin.Models {
             for (int i = 0; i < sorted.Count; i++) {
                 int existing = 0;
                 for (int s = 0; s < matrix.SlotAssignment.Length; s++)
-                    if (matrix.SlotAssignment[s] == sorted[i].RowIndex) existing++;
+                    if (matrix.SlotAssignment[s] == sorted[i].RowIndex && (EngineExperiments.LegacyCountBonusAsBlock || (s < sorted[i].UsableSlot.Length && sorted[i].UsableSlot[s]))) existing++;
                 effectiveMins[i] = existing >= sorted[i].MinChunkSlots
                     ? 0 : Math.Min(sorted[i].MinChunkSec, demands[i]);
             }
 
-            PaintTrace.AppendLine($"  FairShare: supply={totalSupply/60:F0}m demand={totalDemand/60:F0}m eligibleSlots={uniqueEligible.Count}");
+            PaintTrace.AppendLine($"  FairShare[{traceLabel}]: supply={totalSupply/60:F0}m demand={totalDemand/60:F0}m eligibleSlots={uniqueEligible.Count}");
             for (int i = 0; i < sorted.Count; i++) {
                 int existing = 0;
                 for (int s = 0; s < matrix.SlotAssignment.Length; s++)
@@ -1164,6 +1881,30 @@ namespace AstroPM.NINA.Plugin.Models {
                     }
                 }
             }
+            // Optional per-target ceiling (never below the minimum block): lets a pass that serves
+            // only part of the field (Pass 1B's "exclusive" targets) stop short of its group-local
+            // proportional share when that exceeds what the whole night entitles it to.
+            if (budgetCap != null) {
+                double before = budgets.Sum();
+                for (int i = 0; i < sorted.Count; i++)
+                    budgets[i] = Math.Min(budgets[i], Math.Max(effectiveMins[i], budgetCap(sorted[i])));
+                // Water-filling: minutes a cap trimmed go to the targets that still have room under THEIR cap (and their
+                // demand), in proportion to that room, so the pass still hands out the whole supply.
+                if (!EngineExperiments.LegacyProportionalWeights) {
+                    for (int iter = 0; iter < 4; iter++) {
+                        double freed = before - budgets.Sum();
+                        if (freed <= 1) break;
+                        var room = new double[sorted.Count];
+                        for (int i = 0; i < sorted.Count; i++)
+                            room[i] = Math.Max(0, Math.Min(Math.Max(effectiveMins[i], budgetCap(sorted[i])), demands[i]) - budgets[i]);
+                        double sumRoom = room.Sum();
+                        if (sumRoom <= 1) break;
+                        double give = Math.Min(freed, sumRoom);
+                        for (int i = 0; i < sorted.Count; i++) budgets[i] += give * room[i] / sumRoom;
+                    }
+                }
+            }
+
             PaintTrace.AppendLine($"  Branch: {branch}");
             for (int i = 0; i < sorted.Count; i++)
                 PaintTrace.AppendLine($"    [{i}] {sorted[i].Profile.DisplayName}: budget={budgets[i]/60:F1}m");
@@ -1290,6 +2031,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     for (int s = 0; s < matrix.SlotAssignment.Length; s++)
                         if (matrix.SlotAssignment[s] == r && !matrix.LockedSlot[s])
                             matrix.SlotAssignment[s] = -1;
+                    matrix.ClearedRows.Add(r);
                 } else if (assigned + extended < matrix.Rows[r].MinChunkSlots) {
                     PaintTrace.AppendLine($"MINENF: [{matrix.Rows[r].Profile.DisplayName}] {assigned + extended} slots < min {matrix.Rows[r].MinChunkSlots} but >= tolerance floor {matrix.Rows[r].MinFloorSlots} — kept");
                 }
@@ -1400,6 +2142,59 @@ namespace AstroPM.NINA.Plugin.Models {
             public static bool LegacyExclusiveByAltitude;
             /// <summary>Pre-10/7/26: fair-share passes painted in sort order, not tightest-first.</summary>
             public static bool LegacyFairShareOrder;
+            /// <summary>Pre-10/7/26: Pass 1B's exclusive targets split the whole moon-down pool
+            /// among themselves, ahead of the flexible targets.</summary>
+            public static bool LegacyExclusiveBudget = false;
+            /// <summary>Pre-10/7/26: proportional shares were weighted by usable-capped demand, so a target with a
+            /// longer window got a bigger slice for the same workload.</summary>
+            public static bool LegacyProportionalWeights = false;
+            /// <summary>Pre-10/7/26: no block consolidation - interleaved visits and sub-floor stubs stay as painted.</summary>
+            public static bool LegacyNoConsolidate = false;
+            /// <summary>Pre-10/7/26: bonus-only slots stayed with their holder even when another target had planned work there.</summary>
+            public static bool LegacyNoReclaim = false;
+            /// <summary>Pre-10/7/26: bonus-only slots (Pass 0 dawn claims) counted as the target's minimum block when deciding whether to give it a planned stretch.</summary>
+            public static bool LegacyCountBonusAsBlock = false;
+            /// <summary>Pre-10/7/26: a share smaller than the target's minimum visit was still "owed" to it.</summary>
+            public static bool LegacyNoMinVisitDrop = false;
+            /// <summary>Pre-10/7/26: the A-B-A before-merge let the shifted target trade planned-usable slots for bonus-only ones.</summary>
+            public static bool LegacyDefragIgnoresPlanned = false;
+            /// <summary>Pre-10/7/26: the next filter was the next one in the sorted loop, even after the rotation had been paused.</summary>
+            public static bool LegacyNoLruRotation = false;
+            /// <summary>Pre-10/7/26: slots freed by clearing/pruning sub-minimum blocks were not offered to targets that got no time.</summary>
+            public static bool LegacyNoReoffer = false;
+            /// <summary>Pre-10/7/26: a sub-floor second visit stayed in the plan.</summary>
+            public static bool LegacyNoStubDrop = false;
+            /// <summary>Pre-10/7/26: a walk-time reassignment (fallback / bonus target) took a whole run without checking the new owner stays above its minimum altitude.</summary>
+            public static bool LegacyReassignNoAltCheck = false;
+            /// <summary>Pre-10/7/26: a target opened on the top of its own sort order even when the wheel was already on an equally-ranked filter.</summary>
+            public static bool LegacyNoWheelStart = false;
+            /// <summary>Pre-10/7/26: the entitlement ignored limits shared by a GROUP of targets squeezed into the same stretch of sky.</summary>
+            public static bool LegacyNoHall = false;
+            /// <summary>Pre-10/7/26: no order search - blocks kept the order painting left, so a neighbour that could not use a slot blocked every trade.</summary>
+            public static bool LegacyNoOptimize = false;
+            /// <summary>Pre-10/7/26: a target whose stub is under its floor kept it even when the neighbour could use the slots.</summary>
+            public static bool LegacyNoYield = false;
+            /// <summary>Pre-10/7/26: the proportional entitlement ignored slots only one target can use (exclusive windows).</summary>
+            public static bool LegacyNoExclusiveFloor = false;
+            /// <summary>Pre-10/7/26: a leftover smaller than the tolerance got its own short batch instead of finishing in the current one.</summary>
+            public static bool LegacyNoTailFold = false;
+            /// <summary>Pre-10/7/26: adjacent blocks kept whatever boundary painting/gap absorption left, regardless of entitlement.</summary>
+            public static bool LegacyNoBalance = false;
+            /// <summary>Pre-10/7/26: the proportional cap used work AFTER painting yet also subtracted painted time (double count).</summary>
+            public static bool LegacyCapDoubleCount = false;
+            /// <summary>Pre-10/7/26: the walk could start a different filter for a frame or two at the end of a block / the night.</summary>
+            public static bool LegacyTailHold = false;
+            /// <summary>Pre-10/7/26: when the filter being cycled finished its work, the rotation restarted at the top of the sort order.</summary>
+            public static bool LegacyCycleResume = false;
+            /// <summary>Pre-10/7/26: Pass 1A shared moon-down time by moon-down demand only, with no first claim for targets whose window needs it.</summary>
+            public static bool LegacyPass1aNeed = false;
+            /// <summary>Pre-10/7/26: Pass 3 split moon-up time by a local share of the moon-up supply, ignoring the whole-night entitlement.</summary>
+            public static bool LegacyPass3Entitlement = false;
+            /// <summary>Pre-10/7/26: exoplanet transit captures were still judged by per-filter moon rules.</summary>
+            public static bool LegacyExoMoonRules = false;
+            /// <summary>Pre-10/7/26: "No Moon" filters were judged by the profile's phase-width formula, so they could be
+            /// shot with the moon up when far enough away; now they need the moon DOWN, as the profile describes.</summary>
+            public static bool LegacyNoMoonFormula = false;
         }
 
         /// <summary>"Some enabled exposure set can run here" — PickExposureSet's own candidate moon
@@ -1413,7 +2208,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 if (prof.PanelIndex.HasValue && panel.PanelIndex != prof.PanelIndex.Value) continue;
                 foreach (var es in panel.ExposureSets) {
                     if (!es.Enabled || es.ExposureLengthSec <= 0) continue;
-                    if (!es.HasMoonAvoidance || SessionScheduler.IsExposureSetMoonSafe(es, slot, sep, prof.Constraints)) return true;
+                    if (!es.HasMoonAvoidance || ExoMoonExempt(prof) || SessionScheduler.IsExposureSetMoonSafe(es, slot, sep, prof.Constraints)) return true;
                 }
             }
             return false;
@@ -1542,8 +2337,10 @@ namespace AstroPM.NINA.Plugin.Models {
                         && matrix.SlotAssignment[run.Start + run.Length] == ri);
                 if (!adjacentToOwn && run.Length < row.MinChunkSlots) {
                     int alreadyPainted = 0;
+                    // Count only slots where the target can do PLANNED work: bonus-only slots it was handed at dawn (Pass 0) are not a
+                    // "block" that satisfies its minimum (desktop mirror).
                     for (int s2 = 0; s2 < matrix.SlotAssignment.Length; s2++)
-                        if (matrix.SlotAssignment[s2] == ri) alreadyPainted++;
+                        if (matrix.SlotAssignment[s2] == ri && (EngineExperiments.LegacyCountBonusAsBlock || (s2 < row.UsableSlot.Length && row.UsableSlot[s2]))) alreadyPainted++;
                     if (alreadyPainted >= row.MinChunkSlots)
                         continue;
                 }
@@ -1832,6 +2629,8 @@ namespace AstroPM.NINA.Plugin.Models {
                         global::NINA.Core.Utility.Logger.Info(
                             $"AstroPM | Walk: [{prof.DisplayName}] entry probe failed at LOCKED slot {s} — keeping transit window");
                     } else if (probe.Es == null) {
+                        Tr("WALK-PROBE", $"[{prof.DisplayName}] entry probe FAILED at slot {s} — no usable filter (moon alt {matrix.Slots[s].MoonAltDeg:F1}, MoonDown={matrix.MoonDown[s]}, target alt {(s < prof.AltitudePerSlot.Length ? prof.AltitudePerSlot[s] : 0):F0}, planned usable={(s < matrix.Rows[rowIdx].UsableSlot.Length && matrix.Rows[rowIdx].UsableSlot[s])})");
+
                         // Find where this target's contiguous run ends
                         int runEnd = s;
                         for (int fs = s + 1; fs <= matrix.LastUsableSlot; fs++) {
@@ -1860,10 +2659,20 @@ namespace AstroPM.NINA.Plugin.Models {
                             var fPick = ProbePick(fp, r, s, matrix, state, FsFor(fp), filterSwitchCount, fAllowed, filterSwitchTolerance);
                             if (fPick.Es != null) { fallbackRow = r; break; }
                         }
+                        // A fallback that would get only a few leading slots - fewer than its own floor - and is not already
+                        // the owner of the slot before them would just add a stub visit (and a slew each way): leave them idle.
+                        if (!EngineExperiments.LegacyNoStubDrop && fallbackRow >= 0
+                            && reassignEnd - s < Math.Max(1, matrix.Rows[fallbackRow].MinFloorSlots)
+                            && !(s > 0 && matrix.SlotAssignment[s - 1] == fallbackRow)
+                            && Enumerable.Range(0, matrix.SlotAssignment.Length).Any(x => x >= reassignEnd && matrix.SlotAssignment[x] == fallbackRow)) {
+                            Tr("STUBDROP", $"[{matrix.Rows[fallbackRow].Profile.DisplayName}] would get only {reassignEnd - s} leading slot(s) of [{prof.DisplayName}] (< floor {matrix.Rows[fallbackRow].MinFloorSlots}) - left idle instead");
+                            fallbackRow = -1;
+                        }
                         if (fallbackRow >= 0) {
                             // Only reassign the leading unviable slots, not the entire run
                             for (int fs = s; fs < reassignEnd; fs++) {
                                 if (matrix.LockedSlot[fs]) break; // never give away exo transit slots
+                                if (!EngineExperiments.LegacyReassignNoAltCheck && !matrix.CanImage[fallbackRow][fs]) break;   // the new owner must be above its minimum altitude there
                                 matrix.SlotAssignment[fs] = fallbackRow;
                             }
 
@@ -1903,11 +2712,24 @@ namespace AstroPM.NINA.Plugin.Models {
                                     if (bPick.Es != null) { bonusRow = r; break; }
                                 }
                             }
+                            // A bonus target that would get only a few slots - fewer than its own floor - and is not already the owner of
+                            // the slot before them would just add a stub visit: leave them idle instead.
+                            if (!EngineExperiments.LegacyNoStubDrop && bonusRow >= 0) {
+                                int bonusLen = 0;
+                                for (int fs = s; fs < releaseEnd; fs++) { if (matrix.LockedSlot[fs] || !matrix.CanImage[bonusRow][fs]) break; bonusLen++; }
+                                if (bonusLen < Math.Max(1, matrix.Rows[bonusRow].MinFloorSlots)
+                                    && !(s > 0 && matrix.SlotAssignment[s - 1] == bonusRow)
+                                    && Enumerable.Range(0, matrix.SlotAssignment.Length).Any(x => (x < s || x >= releaseEnd) && matrix.SlotAssignment[x] == bonusRow)) {
+                                    Tr("STUBDROP", $"[{matrix.Rows[bonusRow].Profile.DisplayName}] would get only {bonusLen} bonus slot(s) (< floor {matrix.Rows[bonusRow].MinFloorSlots}) - left idle instead");
+                                    bonusRow = -1;
+                                }
+                            }
                             if (bonusRow >= 0) {
                                 global::NINA.Core.Utility.Logger.Info(
                                     $"AstroPM | Walk: [{prof.DisplayName}] no planned work anywhere at slot {s} — slots {s}–{releaseEnd - 1} → [{matrix.Rows[bonusRow].Profile.DisplayName}] for bonus imaging");
                                 for (int fs = s; fs < releaseEnd; fs++) {
                                     if (matrix.LockedSlot[fs]) break;
+                                    if (!EngineExperiments.LegacyReassignNoAltCheck && !matrix.CanImage[bonusRow][fs]) break;
                                     matrix.SlotAssignment[fs] = bonusRow;
                                 }
                                 rowIdx = bonusRow;
@@ -1931,6 +2753,27 @@ namespace AstroPM.NINA.Plugin.Models {
                                     lastAssignedRow = -1;
                                     s = released - 1;
                                     continue;
+                                }
+                            } else {
+                                // Staying for bonus imaging only makes sense as a real visit: a short tail (under this target's floor)
+                                // after the walk has already left it would cost a slew back for a few bonus subs - idle instead.
+                                int tailLen = runEnd - s + 1;
+                                if (!EngineExperiments.LegacyNoStubDrop && tailLen < Math.Max(1, row.MinFloorSlots)
+                                    && !(s > 0 && matrix.SlotAssignment[s - 1] == rowIdx && currentTarget == prof)
+                                    && Enumerable.Range(0, matrix.SlotAssignment.Length).Any(x => (x < s || x > runEnd) && matrix.SlotAssignment[x] == rowIdx)) {
+                                    int released2 = s;
+                                    for (int fs = s; fs <= runEnd; fs++) {
+                                        if (matrix.LockedSlot[fs]) break;
+                                        matrix.SlotAssignment[fs] = -1;
+                                        released2 = fs + 1;
+                                    }
+                                    if (released2 > s) {
+                                        Tr("STUBDROP", $"[{prof.DisplayName}] bonus tail of {tailLen} slot(s) (< floor {row.MinFloorSlots}) at slot {s} - left idle");
+                                        waitStart = currentUtc;
+                                        lastAssignedRow = -1;
+                                        s = released2 - 1;
+                                        continue;
+                                    }
                                 }
                             }
                         }
@@ -2023,6 +2866,28 @@ namespace AstroPM.NINA.Plugin.Models {
                         filterSwitchTolerance: filterSwitchTolerance,
                         targetRemainingSec: targetRemainingSec);
 
+                    // Tail hold: a switch to a DIFFERENT filter that cannot fit the filter-switch tolerance before this
+                    // block (or the night) ends is not worth the filter change - stay on the filter we are on for the
+                    // last frame(s) instead (a Bonus frame if that filter already finished its plan).
+                    if (!EngineExperiments.LegacyTailHold && pick.Es != null && lastEs != null && !ReferenceEquals(pick.Es, lastEs)
+                        && target.Panels.Any(pn => pn.ExposureSets.Contains(lastEs))   // lastEs must belong to THIS target (it survives a slew)
+                        && FsFor(prof) && filterSwitchCount > 0
+                        && (state.RemainingForEs(targetIdx, lastPanelIdx, lastEsIdx, lastEs) > 0 || bonusEnabled)) {
+                        int minSubsTail = Math.Max(1, (int)Math.Ceiling(filterSwitchCount * filterSwitchTolerance));
+                        double runwayTail = Math.Min(targetRemainingSec, (nightEnd - currentUtc).TotalSeconds);
+                        int fitTail = (int)(runwayTail / pick.Es.ExposureLengthSec);
+                        int needTail = Math.Min(minSubsTail, Math.Max(1, state.RemainingForEs(targetIdx, pick.PanelIdx, pick.EsIdx, pick.Es)));
+                        var tailSlot = currentSlotIdx >= 0 && currentSlotIdx < matrix.Slots.Count ? matrix.Slots[currentSlotIdx] : null;
+                        double tailSep = currentSlotIdx >= 0 && currentSlotIdx < prof.MoonSepPerSlot.Length ? prof.MoonSepPerSlot[currentSlotIdx] : 0;
+                        bool lastOk = tailSlot != null && (!lastEs.HasMoonAvoidance || ExoMoonExempt(prof)
+                            || SessionScheduler.IsExposureSetMoonSafe(lastEs, tailSlot, tailSep, prof.Constraints));
+                        if (fitTail < needTail && lastOk) {
+                            Tr("WALK-TAILHOLD", $"[{prof.DisplayName}] slot {currentSlotIdx}: {pick.Es.FilterName} would get only {fitTail} sub(s) (< {needTail}) - staying on {lastEs.FilterName}");
+                            pick = (lastEs, lastPanelLabel, lastPanelIdx, lastEsIdx);
+                            state.FilterCycle[prof] = (lastEs.FilterName, lastPanelLabel, filterSwitchCount);
+                        }
+                    }
+
                     if (pick.Es == null && bonusEnabled)
                     {
                         // Bonus imaging runs the REGULAR pick over completed sets, so the
@@ -2042,7 +2907,7 @@ namespace AstroPM.NINA.Plugin.Models {
                                 ? matrix.Slots[currentSlotIdx] : null;
                             double gapMoonSep = currentSlotIdx >= 0 && currentSlotIdx < prof.MoonSepPerSlot.Length
                                 ? prof.MoonSepPerSlot[currentSlotIdx] : 0;
-                            bool gapMoonOk = !lastEs.HasMoonAvoidance || (gapSlot != null
+                            bool gapMoonOk = !lastEs.HasMoonAvoidance || ExoMoonExempt(prof) || (gapSlot != null
                                 && SessionScheduler.IsExposureSetMoonSafe(lastEs, gapSlot, gapMoonSep, prof.Constraints));
                             if (gapMoonOk)
                                 pick = (lastEs, lastPanelLabel, lastPanelIdx, lastEsIdx);
@@ -2103,6 +2968,8 @@ namespace AstroPM.NINA.Plugin.Models {
                     string command = isBonus ? "Bonus" : "Image";
 
                     int subNum = state.NextSub(prof);
+                    state.WheelFilter = es.FilterName;
+                    state.LastShotSeq[(prof, es.FilterName)] = ++state.ShotCounter;
                     string bin = es.BinningX == es.BinningY ? $"{es.BinningX}" : $"{es.BinningX}×{es.BinningY}";
 
                     double alt = currentSlotIdx >= 0 && currentSlotIdx < prof.AltitudePerSlot.Length
@@ -2114,7 +2981,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     var esSlot = currentSlotIdx >= 0 && currentSlotIdx < matrix.Slots.Count
                         ? matrix.Slots[currentSlotIdx] : null;
                     bool isMoonSafe = esSlot != null
-                        && SessionScheduler.IsExposureSetMoonSafe(es, esSlot, esMoonSep, prof.Constraints);
+                        && (ExoMoonExempt(prof) || SessionScheduler.IsExposureSetMoonSafe(es, esSlot, esMoonSep, prof.Constraints));
                     bool isDarkSafe = currentSlotIdx >= 0 && currentSlotIdx < matrix.Slots.Count
                         && matrix.Slots[currentSlotIdx].SunAltDeg < prof.Constraints.SunAltitudeThreshold;
                     double reqSep = 0;
@@ -2293,7 +3160,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     double valMoonSep = entry.SlotIndex < matchRow.Profile.MoonSepPerSlot.Length
                         ? matchRow.Profile.MoonSepPerSlot[entry.SlotIndex] : 0;
                     var valSlot = matrix.Slots[entry.SlotIndex];
-                    bool esSafe = SessionScheduler.IsExposureSetMoonSafe(laEs, valSlot, valMoonSep, matchRow.Profile.Constraints);
+                    bool esSafe = ExoMoonExempt(matchRow.Profile) || SessionScheduler.IsExposureSetMoonSafe(laEs, valSlot, valMoonSep, matchRow.Profile.Constraints);
                     if (!esSafe)
                         warnings.Add(new ScheduleWarning {
                             Severity = "error",

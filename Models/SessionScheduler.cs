@@ -88,6 +88,12 @@ namespace AstroPM.NINA.Plugin.Models {
         public Dictionary<int, int> EmittedSubsByEsIdx = new Dictionary<int, int>();
         public Dictionary<TargetProfile, (string FilterName, string PanelLabel, int SubsOnFilter)> FilterCycle
             = new Dictionary<TargetProfile, (string, string, int)>();
+        /// <summary>The filter the wheel is on right now (the last sub shot, on any target). A target starting its first visit
+        /// prefers it among equally-ranked filters, so a slew does not also cost a filter change.</summary>
+        public string WheelFilter;
+        /// <summary>When each filter of each target was last shot (walk order) - the rotation resumes with the one that has waited longest.</summary>
+        public Dictionary<(TargetProfile, string), long> LastShotSeq = new Dictionary<(TargetProfile, string), long>();
+        public long ShotCounter;
         public Dictionary<TargetProfile, int> SubCounter = new Dictionary<TargetProfile, int>();
         public Dictionary<(TargetProfile, string), double> PanelTimeOnTarget
             = new Dictionary<(TargetProfile, string), double>();
@@ -360,6 +366,14 @@ namespace AstroPM.NINA.Plugin.Models {
                     if (exoWinStart == null) continue;
                 }
 
+                // A transit is time-critical and cannot be rescheduled, so tonight's exoplanet
+                // capture ignores every moon rule: all slots count as moon-safe for all tiers.
+                if (exoWinStart != null && !ScheduleEngine.EngineExperiments.LegacyExoMoonRules) {
+                    for (int i = 0; i < slots.Count; i++) moonOk[i] = true;
+                    for (int t = 0; t < tierSlotSafe.Length; t++)
+                        for (int i = 0; i < slots.Count; i++) tierSlotSafe[t][i] = true;
+                }
+
                 var orderedPanels = target.Panels.OrderBy(p => p.PanelIndex).ToList();
                 if (mosaicPanelPreference && orderedPanels.Count > 1) {
                     for (int pi = 0; pi < orderedPanels.Count; pi++) {
@@ -490,7 +504,7 @@ namespace AstroPM.NINA.Plugin.Models {
                     if (!es.Enabled) continue; // disabled filter line — never schedule it (even bonus fill)
                     int rem = state.RemainingForEs(targetIdx, pi, ei, es);
                     if (rem <= 0 && !includeCompleted) continue;
-                    if (es.HasMoonAvoidance && !IsExposureSetMoonSafe(es, slot, moonSepDeg, projectConstraints)) continue;
+                    if (es.HasMoonAvoidance && !ScheduleEngine.ExoMoonExempt(target) && !IsExposureSetMoonSafe(es, slot, moonSepDeg, projectConstraints)) continue;
                     candidates.Add((es, pl, pi, ei, rem, es.HasMoonAvoidance));
                 }
             }
@@ -587,7 +601,7 @@ namespace AstroPM.NINA.Plugin.Models {
                 double sec = 0;
                 for (int k = slotIdx; k < slots.Count; k++) {
                     double sep = k < target.MoonSepPerSlot.Length ? target.MoonSepPerSlot[k] : 0;
-                    if (!IsExposureSetMoonSafe(es, slots[k], sep, target.Constraints)) break;
+                    if (!ScheduleEngine.ExoMoonExempt(target) && !IsExposureSetMoonSafe(es, slots[k], sep, target.Constraints)) break;
                     sec += 300.0;
                 }
                 return sec;
@@ -628,17 +642,27 @@ namespace AstroPM.NINA.Plugin.Models {
                 return 0;
             }
 
-            panelCandidates.Sort((a, b) => {
+            bool wheelStart = !ScheduleEngine.EngineExperiments.LegacyNoWheelStart && state.WheelFilter != null
+                && !state.FilterCycle.ContainsKey(target);
+            Comparison<(ExposureSetData Es, string PanelLabel, int PanelIdx, int EsIdx, int Remaining, bool IsLunar)> candidateOrder = (a, b) => {
                 int hCmp = headroomSec[a.Es].CompareTo(headroomSec[b.Es]);
                 if (hCmp != 0) return hCmp;
                 double aR = RestrictivenessFor(a.Es);
                 double bR = RestrictivenessFor(b.Es);
                 int reqCmp = preferRelaxed ? aR.CompareTo(bR) : bR.CompareTo(aR);
                 if (reqCmp != 0) return reqCmp;
+                // First pick on a target (no cycle yet): among filters equally ranked above, start on the one already in the
+                // wheel - no filter change (and no autofocus-on-filter-change) at the slew. Auditor #368/#369: T1 ended on
+                // OIII and T2 opened with R. The rotation that follows is unchanged (wraps through the same loop).
+                if (wheelStart) {
+                    bool aW = a.Es.FilterName == state.WheelFilter, bW = b.Es.FilterName == state.WheelFilter;
+                    if (aW != bW) return aW ? -1 : 1;
+                }
                 int remCmp = StartRemaining(b.Es).CompareTo(StartRemaining(a.Es)); // most remaining first
                 if (remCmp != 0) return remCmp;
                 return defOrder[a.Es].CompareTo(defOrder[b.Es]);
-            });
+            };
+            panelCandidates.Sort(candidateOrder);
 
             void ResetPanelTimersIfChanged(string newPanel) {
                 if (isMultiPanel && activePanel != null && newPanel != activePanel)
@@ -660,6 +684,21 @@ namespace AstroPM.NINA.Plugin.Models {
                     return fit >= Math.Min(minSubsTol, c.Remaining);
                 }
 
+                // A FINISHED enabled exposure set of this target on the given filter (the cycle's filter that dropped out
+                // of the candidates because it completed its planned work).
+                ExposureSetData FinishedEsOnFilter(string filterName) {
+                    for (int fpi = 0; fpi < panels.Count; fpi++) {
+                        var fsets = panels[fpi].ExposureSets;
+                        for (int fei = 0; fei < fsets.Count; fei++) {
+                            var e2 = fsets[fei];
+                            if (e2.Enabled && e2.FilterName == filterName && state.RemainingForEs(targetIdx, fpi, fei, e2) <= 0)
+                                return e2;
+                        }
+                    }
+                    return null;
+                }
+
+                ExposureSetData exhaustedCycleEs = null;
                 if (state.FilterCycle.TryGetValue(target, out var cycle)) {
                     // Continue current filter if under count and it still has work on this panel
                     if (cycle.SubsOnFilter < filterSwitchCount) {
@@ -669,7 +708,28 @@ namespace AstroPM.NINA.Plugin.Models {
                             state.FilterCycle[target] = (cycle.FilterName, same.PanelLabel, cycle.SubsOnFilter + 1);
                             return (same.Es, same.PanelLabel, same.PanelIdx, same.EsIdx);
                         }
+                        // Filter was in cycle but no longer a candidate (moon safety / completed)
+                        exhaustedCycleEs = ScheduleEngine.EngineExperiments.LegacyCycleResume ? null
+                            : FinishedEsOnFilter(cycle.FilterName);
                     } else {
+                        // The filter the batch count just ended on may be FINISHED (e.g. it folded its leftovers in): the rotation
+                        // then continues from its place in the loop rather than restarting at the top (auditor #421).
+                        if (!ScheduleEngine.EngineExperiments.LegacyCycleResume
+                            && !panelCandidates.Any(c => c.Es.FilterName == cycle.FilterName))
+                            exhaustedCycleEs = FinishedEsOnFilter(cycle.FilterName);
+                        // Tail fold: a filter whose leftover is smaller than the tolerance is finished in THIS batch
+                        // (R 25 instead of R 20 now + R 5 later) - a separate batch for a few subs is not worth a filter
+                        // change. Auditor #448-450: R 5, G 5, B 5, OIII 5 slivers after the 20-sub batches.
+                        if (!ScheduleEngine.EngineExperiments.LegacyNoTailFold) {
+                            var foldSame = panelCandidates.FirstOrDefault(c => c.Es.FilterName == cycle.FilterName);
+                            if (foldSame.Es != null && foldSame.Remaining > 0 && foldSame.Remaining < minSubsTol
+                                && FitsTolerance(foldSame)) {
+                                ScheduleEngine.PaintTrace.AppendLine($"PICK-FOLD: [{target.DisplayName}] slot {slotIdx}: {cycle.FilterName} has only {foldSame.Remaining} sub(s) left (< {minSubsTol}) - finishing them in this batch");
+                                ResetPanelTimersIfChanged(foldSame.PanelLabel);
+                                state.FilterCycle[target] = (cycle.FilterName, foldSame.PanelLabel, cycle.SubsOnFilter + 1);
+                                return (foldSame.Es, foldSame.PanelLabel, foldSame.PanelIdx, foldSame.EsIdx);
+                            }
+                        }
                         // Tolerance check: before switching, see if any other filter has
                         // enough runway (target time AND its own safe window)
                         var nextCandidates = panelCandidates.Where(c => c.Es.FilterName != cycle.FilterName).ToList();
@@ -690,7 +750,17 @@ namespace AstroPM.NINA.Plugin.Models {
                 // relaxed→strict). Advance to the NEXT filter after the current one,
                 // wrapping around — so every tier gets its turn before the loop restarts.
                 var pick = panelCandidates[0];
-                if (state.FilterCycle.TryGetValue(target, out var prev2)
+                if (exhaustedCycleEs != null && panelCandidates.Count > 1) {
+                    // The filter the rotation was on finished its planned work: carry on from ITS place in the loop
+                    // (next filter after it in the same sort order) instead of restarting at the top - otherwise the
+                    // finishing filter's neighbours are skipped (R G B [done] -> OIII, R skipped; auditor #601-603).
+                    // Carry on with the filter that has waited longest (never shot first); ties keep the sorted order.
+                    long Waited(ExposureSetData wes) => state.LastShotSeq.TryGetValue((target, wes.FilterName), out var q) ? q : -1;
+                    var lruResume = panelCandidates.Where(c => FitsTolerance(c)).OrderBy(c => Waited(c.Es)).ToList();
+                    if (lruResume.Count > 0) pick = lruResume[0];
+                    ScheduleEngine.PaintTrace.AppendLine($"PICK-RESUME: [{target.DisplayName}] slot {slotIdx}: {exhaustedCycleEs.FilterName} finished - rotation resumes at {pick.Es.FilterName} (waited longest)");
+                }
+                else if (state.FilterCycle.TryGetValue(target, out var prev2)
                     && prev2.SubsOnFilter >= filterSwitchCount && panelCandidates.Count > 1) {
                     int curIdx = panelCandidates.FindIndex(c => c.Es.FilterName == prev2.FilterName);
                     if (curIdx >= 0) {
@@ -702,6 +772,24 @@ namespace AstroPM.NINA.Plugin.Models {
                         for (int step = 1; step < panelCandidates.Count; step++) {
                             var cand = panelCandidates[(curIdx + step) % panelCandidates.Count];
                             if (FitsTolerance(cand)) { next = cand; break; }
+                        }
+
+                        // Among filters ranked EQUALLY with the next one (same headroom, same restrictiveness) take the one that has
+                        // waited longest. In an unbroken rotation that is exactly the next filter in the loop; after a pause
+                        // (RGB paused for a moon-up Ha/SII stretch) it resumes where the rotation left off instead of restarting
+                        // at the top of the sort order (stress #284: G B R G B R G ... then G again before B and R).
+                        if (!ScheduleEngine.EngineExperiments.LegacyNoLruRotation && !ReferenceEquals(next.Es, cur.Es)) {
+                            long Waited2(ExposureSetData wes) => state.LastShotSeq.TryGetValue((target, wes.FilterName), out var q2) ? q2 : -1;
+                            double nH = headroomSec.GetValueOrDefault(next.Es, double.MaxValue), nR = RestrictivenessFor(next.Es);
+                            var tied = panelCandidates.Where(c => !ReferenceEquals(c.Es, cur.Es)
+                                && headroomSec.GetValueOrDefault(c.Es, double.MaxValue) == nH && RestrictivenessFor(c.Es) == nR && FitsTolerance(c)).ToList();
+                            if (tied.Count > 1) {
+                                var lruTied = tied.OrderBy(c => Waited2(c.Es)).First();
+                                if (!ReferenceEquals(lruTied.Es, next.Es)) {
+                                    ScheduleEngine.PaintTrace.AppendLine($"PICK-LRU: [{target.DisplayName}] slot {slotIdx}: {lruTied.Es.FilterName} has waited longer than {next.Es.FilterName} - rotation continues with it");
+                                    next = lruTied;
+                                }
+                            }
                         }
 
                         if (ReferenceEquals(next.Es, cur.Es)) {
@@ -793,43 +881,62 @@ namespace AstroPM.NINA.Plugin.Models {
             if (!es.HasMoonAvoidance) return "—";
 
             // Only consider profiles actually assigned to this project's exposure
-            // sets — not every profile applies to every target.
-            var assigned = new List<(string Name, double Sep, double Width, double Relax, double MinAlt, double MaxAlt, double MaxIllum)>();
+            // sets — not every profile applies to every target. Custom (user-named)
+            // profiles are judged with their own values; "Project Default" (an exposure
+            // set that avoids the moon without a named profile) is judged with the
+            // project's own moon constraints (desktop mirror).
+            var toCheck = new List<(string Name, ObservingConstraints C)>();
             if (project != null) {
+                bool usesProjectDefault = false;
                 foreach (var pn in project.Panels) {
                     foreach (var pEs in pn.ExposureSets) {
                         var mp = pEs.MoonAvoidanceProfile;
-                        if (mp == null) continue;
-                        if (assigned.Any(a => a.Name == mp.Name)) continue;
-                        assigned.Add((mp.Name, mp.MoonSeparationDeg, mp.MoonAvoidanceWidthDays,
-                            mp.MoonRelaxScale, mp.MoonMinAltitude, mp.MoonMaxAltitude, mp.MaxMoonIlluminationPct));
+                        if (mp == null) {
+                            if (pEs.AvoidLunar) usesProjectDefault = true;
+                            continue;
+                        }
+                        if (toCheck.Any(a => string.Equals(a.Name, mp.Name, StringComparison.OrdinalIgnoreCase))) continue;
+                        toCheck.Add((mp.Name, new ObservingConstraints {
+                            MoonAvoidanceEnabled = true,
+                            MinMoonSeparationDeg = mp.MoonSeparationDeg,
+                            MoonAvoidanceWidthDays = mp.MoonAvoidanceWidthDays,
+                            MoonRelaxScale = mp.MoonRelaxScale,
+                            MinMoonAltitude = mp.MoonMinAltitude,
+                            MaxMoonAltitude = mp.MoonMaxAltitude,
+                            MaxMoonIlluminationPct = mp.MaxMoonIlluminationPct,
+                        }));
                     }
                 }
+                if (usesProjectDefault)
+                    toCheck.Add(("Project Default", project.ToObservingConstraints()));
+            } else {
+                foreach (var p in BuiltInProfiles)
+                    toCheck.Add((p.Name, new ObservingConstraints {
+                        MoonAvoidanceEnabled = true,
+                        MinMoonSeparationDeg = p.Sep,
+                        MoonAvoidanceWidthDays = p.Width,
+                        MoonRelaxScale = p.Relax,
+                        MinMoonAltitude = p.MinAlt,
+                        MaxMoonAltitude = p.MaxAlt,
+                        MaxMoonIlluminationPct = p.MaxIllum,
+                    }));
             }
-            var pool = assigned.Count > 0 ? assigned.ToArray() : BuiltInProfiles;
 
             if (slot.MoonAltDeg <= 0)
-                return string.Join(", ", pool.Select(p => p.Name));
+                return string.Join(", ", toCheck.Select(p => p.Name));
 
             var accepted = new List<string>();
-            foreach (var p in pool) {
-                var c = new ObservingConstraints {
-                    MoonAvoidanceEnabled = true,
-                    MinMoonSeparationDeg = p.Sep,
-                    MoonAvoidanceWidthDays = p.Width,
-                    MoonRelaxScale = p.Relax,
-                    MinMoonAltitude = p.MinAlt,
-                    MaxMoonAltitude = p.MaxAlt,
-                    MaxMoonIlluminationPct = p.MaxIllum,
-                };
-                if (slot.MoonAltDeg <= c.MaxMoonAltitude)
-                    accepted.Add(p.Name);
+            foreach (var (name, c) in toCheck) {
+                if (!c.MoonAvoidanceEnabled)
+                    accepted.Add(name);
+                else if (slot.MoonAltDeg <= c.MaxMoonAltitude)
+                    accepted.Add(name);
                 else if (slot.MoonIllumPct <= c.MaxMoonIlluminationPct)
-                    accepted.Add(p.Name);
+                    accepted.Add(name);
                 else {
                     var reqSep = AstroCalculator.RequiredMoonSeparation(slot.UtcStart, slot.MoonAltDeg, c);
                     if (moonSepDeg >= reqSep)
-                        accepted.Add(p.Name);
+                        accepted.Add(name);
                 }
             }
             return accepted.Count > 0 ? string.Join(", ", accepted) : "None";
@@ -845,6 +952,12 @@ namespace AstroPM.NINA.Plugin.Models {
 
             // Moon below horizon — always safe
             if (slot.MoonAltDeg <= 0) return true;
+
+            // "No Moon" means the moon is DOWN (the built-in profile's own description). The phase-width formula below
+            // would otherwise let a No Moon filter run with the moon up whenever the target is far from it (auditor #458).
+            if (!ScheduleEngine.EngineExperiments.LegacyNoMoonFormula
+                && es.MoonAvoidanceProfile != null && TierClassifier.IsNoMoonProfile(es.MoonAvoidanceProfile))
+                return false;
 
             // Build constraints from the ES's profile, or fall back to project-level
             ObservingConstraints c;
