@@ -2075,7 +2075,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
             if (result.Count < specs.Count)
                 global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Flats: {specs.Count} combos collapse to {result.Count} physical captures (identical rotation/filter/camera across targets); files will be copied to the duplicate targets");
+                    $"AstroPM | Flats: {specs.Count} combos collapse to {result.Count} physical captures (identical rotation/filter/camera across targets); "
+                    + (AstroPMSettings.Load().FlatsCopyToTargets ? "files will be copied to the duplicate targets" : "Copy Flats to Each Target is off - one shared set, no copies"));
             return result;
         }
 
@@ -2348,7 +2349,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
                     List<string> savedPaths = null;
                     List<string> dupTargets = null;
                     EventHandler<ImageSavedEventArgs> saveHandler = null;
-                    if (_flatsCopyMap != null && _flatsCopyMap.TryGetValue(spec, out dupTargets) && dupTargets.Count > 0) {
+                    if (_flatsCopyMap != null && _flatsCopyMap.TryGetValue(spec, out dupTargets) && dupTargets.Count > 0
+                        && AstroPMSettings.Load().FlatsCopyToTargets) {
                         savedPaths = new List<string>();
                         var sink = savedPaths;
                         saveHandler = (o, args) => {

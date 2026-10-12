@@ -63,6 +63,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private bool _flatsEnabled;
         private bool _flatsFullSet;
         private bool _flatsAutoPerProject;
+        private bool _flatsCopyToTargets = true;
         private string _flatsAutoMode = "OncePerProject";
         private int _flatsAutoIntervalDays = 7;
         private string _strategyDescription = "";
@@ -168,6 +169,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _flatsEnabled = settings.FlatsEnabled;
             _flatsFullSet = settings.FlatsFullSet;
             _flatsAutoPerProject = settings.FlatsAutoPerProject;
+            _flatsCopyToTargets = settings.FlatsCopyToTargets;
             _flatsAutoMode = settings.FlatsAutoMode == "TimeBased" ? "TimeBased" : "OncePerProject";
             _flatsAutoIntervalDays = settings.FlatsAutoIntervalDays > 0 ? settings.FlatsAutoIntervalDays : 7;
             _bonusImagesEnabled = settings.BonusEnabled;
@@ -447,6 +449,12 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         public bool FlatsFullSet {
             get => _flatsFullSet;
             set { _flatsFullSet = value; OnPropertyChanged(); SaveSimSettings(); }
+        }
+
+        /// <summary>Copy a shared flat capture into each other target's folder (mirrors the desktop).</summary>
+        public bool FlatsCopyToTargets {
+            get => _flatsCopyToTargets;
+            set { _flatsCopyToTargets = value; OnPropertyChanged(); SaveSimSettings(); }
         }
 
         /// <summary>Auto Flats Per Project (mirrors the desktop). Only shown with flats enabled.</summary>
@@ -963,6 +971,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _flatsEnabled = settings.FlatsEnabled; OnPropertyChanged(nameof(FlatsEnabled));
             _flatsFullSet = settings.FlatsFullSet; OnPropertyChanged(nameof(FlatsFullSet));
             _flatsAutoPerProject = settings.FlatsAutoPerProject; OnPropertyChanged(nameof(FlatsAutoPerProject));
+            _flatsCopyToTargets = settings.FlatsCopyToTargets; OnPropertyChanged(nameof(FlatsCopyToTargets));
             _flatsAutoMode = settings.FlatsAutoMode == "TimeBased" ? "TimeBased" : "OncePerProject";
             OnPropertyChanged(nameof(FlatsAutoMode)); OnPropertyChanged(nameof(FlatsAutoTimeBased));
             _flatsAutoIntervalDays = settings.FlatsAutoIntervalDays > 0 ? settings.FlatsAutoIntervalDays : 7;
@@ -990,6 +999,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.FlatsEnabled = _flatsEnabled;
             settings.FlatsFullSet = _flatsFullSet;
             settings.FlatsAutoPerProject = _flatsAutoPerProject;
+            settings.FlatsCopyToTargets = _flatsCopyToTargets;
             settings.FlatsAutoMode = _flatsAutoMode;
             settings.FlatsAutoIntervalDays = _flatsAutoIntervalDays;
             settings.BonusEnabled = _bonusImagesEnabled;

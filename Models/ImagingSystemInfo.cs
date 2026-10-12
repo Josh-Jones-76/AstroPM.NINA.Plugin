@@ -52,6 +52,9 @@ namespace AstroPM.NINA.Plugin.Models
         [JsonProperty("FilterSwitchTolerance")] public double FilterSwitchTolerance { get; set; } = 0.5;
         [JsonProperty("FlatsEnabled")] public bool FlatsEnabled { get; set; } = false;
         [JsonProperty("FlatsFullSet")] public bool FlatsFullSet { get; set; } = false;
+        // Copy a shared flat capture into every other target's folder. Older desktops don't
+        // send it → default on (the behavior before the option existed).
+        [JsonProperty("FlatsCopyToTargets")] public bool FlatsCopyToTargets { get; set; } = true;
         // Auto Flats Per Project: with flats on, take a project's flats only when it needs them
         // ("OncePerProject" = combos it has no flats for yet, the morning after it's imaged;
         // "TimeBased" = every FlatsAutoIntervalDays from its last flat session). A night that

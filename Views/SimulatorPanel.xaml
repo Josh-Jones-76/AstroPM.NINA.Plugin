@@ -155,7 +155,7 @@
                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <CheckBox IsChecked="{Binding FlatsEnabled, Mode=TwoWay}"
                               VerticalAlignment="Center"
-                              ToolTip="At session complete, run the Flat Handling instructions in the Astro PM Instructions block — flats for exactly the filters, rotations, and camera settings used that night (or every wheel filter, when Full Set of Flats is also checked). Targets sharing an identical rotation + filter + camera combination are captured once, with the files copied into each target's folder. Mirrors the desktop app's simulator setting."/>
+                              ToolTip="At session complete, run the Flat Handling instructions in the Astro PM Instructions block — flats for exactly the filters, rotations, and camera settings used that night (or every wheel filter, when Full Set of Flats is also checked). Targets sharing an identical rotation + filter + camera combination are captured once, with the files copied into each target's folder (unless Copy Flats to Each Target is off). Mirrors the desktop app's simulator setting."/>
 
                     <!-- Full Set + Auto Flats only appear once flats are on; the mode picker only
                          once Auto is on; the interval only in Time Based mode (same as the desktop). -->
@@ -165,6 +165,12 @@
                         <CheckBox IsChecked="{Binding FlatsFullSet, Mode=TwoWay}"
                                   VerticalAlignment="Center"
                                   ToolTip="Take flats for EVERY filter in the filter wheel at each target/rotation captured tonight — not just the filters shot. Useful for building a complete flat library in one pass. Mirrors the desktop app's simulator setting."/>
+
+                        <TextBlock Text="Copy Flats to Each Target" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                                   VerticalAlignment="Center" Margin="12,0,6,0"/>
+                        <CheckBox IsChecked="{Binding FlatsCopyToTargets, Mode=TwoWay}"
+                                  VerticalAlignment="Center"
+                                  ToolTip="Targets sharing an identical rotation + filter + camera combination have their flats shot once. On (default): the files are also copied into each of those targets' folders, so every target folder is self-contained for stacking. Off: one shared set only, saved under the first target, with no duplicate files. Mirrors the desktop app's simulator setting."/>
 
                         <TextBlock Text="Auto Flats Per Project" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                    VerticalAlignment="Center" Margin="12,0,6,0"/>

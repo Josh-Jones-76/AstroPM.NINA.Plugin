@@ -32,6 +32,7 @@ namespace AstroPM.NINA.Plugin
         private bool _flatsEnabled;
         private bool _flatsFullSet;
         private bool _flatsAutoPerProject;
+        private bool _flatsCopyToTargets = true;
         private string _flatsAutoMode = "OncePerProject";
         private int _flatsAutoIntervalDays = 7;
         private bool _offlineMode;
@@ -209,6 +210,16 @@ namespace AstroPM.NINA.Plugin
         {
             get => _flatsFullSet;
             set { if (_flatsFullSet != value) { _flatsFullSet = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>When several targets share an identical rotation + filter + camera combo,
+        /// the flats are shot once. On (default) = the saved files are also copied into each
+        /// other target's folder so every target folder is self-contained; off = one shared
+        /// set only, no duplicate files.</summary>
+        public bool FlatsCopyToTargets
+        {
+            get => _flatsCopyToTargets;
+            set { if (_flatsCopyToTargets != value) { _flatsCopyToTargets = value; OnPropertyChanged(); } }
         }
 
         /// <summary>Auto Flats Per Project: with flats on, take a project's flats only when it
