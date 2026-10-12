@@ -1450,7 +1450,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             for (var c = Parent as SequenceContainer; c != null; c = c.Parent as SequenceContainer) {
                 foreach (var trigger in c.GetTriggersSnapshot()) {
                     if (trigger is AstroPMBeforeTargetTrigger beforeTarget)
-                        await beforeTarget.Fire(block, progress, token);
+                        await beforeTarget.Fire(block, this, progress, token);
                 }
             }
 
@@ -1682,7 +1682,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 foreach (var trigger in c.GetTriggersSnapshot()) {
                     if (trigger is AstroPMAfterTargetTrigger afterTarget) {
                         try {
-                            await afterTarget.Fire(block, progress, token);
+                            await afterTarget.Fire(block, this, progress, token);
                         } catch (Exception ex) {
                             global::NINA.Core.Utility.Logger.Warning(
                                 $"AstroPM | After Target trigger error for {block.TargetName}: {ex.Message}");

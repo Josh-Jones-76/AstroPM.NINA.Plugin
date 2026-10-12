@@ -142,14 +142,18 @@ namespace AstroPM.NINA.Plugin.Instructions {
             return false;
         }
 
-        internal async Task Fire(TargetBlock block, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        internal async Task Fire(TargetBlock block, ISequenceContainer context, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (TriggerRunner.GetItemsSnapshot().Count == 0) return;
 
             // Fire on every block — i.e. every time AstroPM arrives on a target (after
             // slew/center/rotate, before guiding). No dedup by target name: a re-slew to
             // the same object is still a new block and should run the instructions again.
             Logger.Info($"AstroPM | Before Target trigger firing (on target): {block.TargetName}");
-            if (Parent != null) TriggerRunner.AttachNewParent(Parent);
+            // Attach to the Astro PM container (the IDeepSkyObjectContainer holding the live
+            // target), not the trigger's own Parent: the trigger usually sits ABOVE us (outer
+            // container / Global Triggers), and third-party instructions that walk Parent looking
+            // for the target (Ground Station's $$TARGET_NAME$$, image savers) would never reach it.
+            TriggerRunner.AttachNewParent(context ?? Parent);
             // Reset child status to CREATED before running. We call TriggerRunner.Run()
             // directly (not via NINA's SequenceTrigger.Run), which bypasses the framework's
             // per-fire reset — without this, items stay FINISHED after the first fire and
@@ -203,11 +207,12 @@ namespace AstroPM.NINA.Plugin.Instructions {
             return false;
         }
 
-        internal async Task Fire(TargetBlock block, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        internal async Task Fire(TargetBlock block, ISequenceContainer context, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (TriggerRunner.GetItemsSnapshot().Count == 0) return;
 
             Logger.Info($"AstroPM | After Target trigger firing: {block.TargetName}");
-            if (Parent != null) TriggerRunner.AttachNewParent(Parent);
+            // Attach to the Astro PM container so the target is resolvable — see Before Target.
+            TriggerRunner.AttachNewParent(context ?? Parent);
             // Reset child status to CREATED before running — see Before Target trigger for why.
             TriggerRunner.ResetProgress();
             await TriggerRunner.Run(progress, token);
