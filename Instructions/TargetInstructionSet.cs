@@ -1354,6 +1354,63 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // runtime checks honor it too (null = flat min-altitude only).
             var customHorizon = HorizonProfile.LoadFromNinaProfile();
 
+            // Rise-wait: a block whose start gate fails only because the target hasn't quite
+            // cleared min altitude / the custom horizon yet (still rising), or the sun hasn't
+            // quite reached the darkness threshold (still setting), waits for it inside the block
+            // window instead of throwing the whole block away. 10/12 (Redding, SFRO): mosaic
+            // Panel 3 block started at alt 24.5° vs min 25° rising — the old gate skipped it and
+            // NINA idled until the next block. A target that won't clear before UtcEnd (setting,
+            // dawn) still skips as before.
+            if (!_skipWait && DateTime.UtcNow < block.UtcEnd
+                && !CheckViabilityAt(block, DateTime.UtcNow, latDeg, lonDeg, customHorizon, out _, out _, out string gateDetail)) {
+                var clearAt = ProjectViableTime(block, latDeg, lonDeg, customHorizon);
+                if (clearAt == null) {
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | {block.TargetName} fails constraints ({gateDetail}) and won't clear before block end {block.UtcEnd:HH:mm} UTC — not waiting");
+                } else {
+                    CheckViabilityAt(block, DateTime.UtcNow, latDeg, lonDeg, customHorizon, out bool altOk, out bool darkOk, out _);
+                    string waitingFor = !altOk && !darkOk ? $"{block.TargetName} to rise above min alt and the sun to set"
+                                      : !altOk ? $"{block.TargetName} to rise above min alt"
+                                      : "the sun to set below the darkness threshold";
+                    global::NINA.Core.Utility.Logger.Info(
+                        $"AstroPM | Waiting for {waitingFor} ({gateDetail}) — projected clear at {clearAt:HH:mm} UTC, block ends {block.UtcEnd:HH:mm} UTC; re-checking every 30s");
+                    if (_blockSummaries != null && _currentBlockIndex < _blockSummaries.Count)
+                        _blockSummaries[_currentBlockIndex].Status = !altOk ? "waiting for altitude..." : "waiting for dark...";
+
+                    var waitStart = DateTime.UtcNow;
+                    while (!_skipWait && !_skipBlock && DateTime.UtcNow < block.UtcEnd - MinRiseWaitRemaining
+                           && !CheckViabilityAt(block, DateTime.UtcNow, latDeg, lonDeg, customHorizon, out _, out _, out _)) {
+                        token.ThrowIfCancellationRequested();
+                        var remaining = clearAt.Value - DateTime.UtcNow;
+                        progress?.Report(new ApplicationStatus {
+                            Status = remaining.TotalSeconds > 0
+                                ? $"Astro PM: Waiting ~{Math.Ceiling(remaining.TotalMinutes):F0} min for {waitingFor}..."
+                                : $"Astro PM: Waiting for {waitingFor}..."
+                        });
+                        UpdateLiveStatus("Wait", block);
+                        // Poll in short slices so Skip Block / Skip Wait respond promptly; the
+                        // constraint itself is re-evaluated every ~30 s.
+                        for (int i = 0; i < 6 && !_skipWait && !_skipBlock; i++)
+                            await Task.Delay(TimeSpan.FromSeconds(5), token);
+                    }
+
+                    if (_skipBlock) {
+                        global::NINA.Core.Utility.Logger.Info($"AstroPM | Rise-wait for {block.TargetName} ended by Skip Block");
+                        FinishBlock(block, skipped: true);
+                        _currentBlockIndex++;
+                        return;
+                    }
+                    if (_skipWait) {
+                        global::NINA.Core.Utility.Logger.Info($"AstroPM | Rise-wait skipped for block: {block.TargetName}");
+                    } else {
+                        bool cleared = CheckViabilityAt(block, DateTime.UtcNow, latDeg, lonDeg, customHorizon, out _, out _, out string nowDetail);
+                        global::NINA.Core.Utility.Logger.Info(cleared
+                            ? $"AstroPM | {block.TargetName} cleared constraints after {(DateTime.UtcNow - waitStart).TotalMinutes:F1} min wait ({nowDetail}) — running block for the rest of its window (until {block.UtcEnd:HH:mm} UTC)"
+                            : $"AstroPM | {block.TargetName} rise-wait ran out of block window ({nowDetail})");
+                    }
+                }
+            }
+
             // Check constraints — bypass viability when the wait was skipped (e.g. Skip Block)
             if (!_skipWait && !IsTargetViable(block, latDeg, lonDeg, customHorizon)) {
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Target constraints failed, skipping: {block.TargetName}");
@@ -1818,36 +1875,57 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 return false;
             }
 
+            bool viable = CheckViabilityAt(block, now, latDeg, lonDeg, customHorizon, out _, out _, out string detail);
+            if (!viable)
+                global::NINA.Core.Utility.Logger.Info($"AstroPM | Viability failed: {block.TargetName} — {detail}");
+            return viable;
+        }
+
+        /// <summary>Altitude/horizon/darkness test at an arbitrary instant (no logging, no block-end
+        /// check) — shared by the live gate and the rise-wait projection so both use one rule.</summary>
+        private static bool CheckViabilityAt(TargetBlock block, DateTime utc, double latDeg, double lonDeg,
+                HorizonProfile customHorizon, out bool altitudeOk, out bool darkOk, out string detail) {
+            altitudeOk = true; darkOk = true; detail = "";
             if (block.Profile == null) return true;
 
-            double altitude = AstroCalculator.TargetAltitudeAtTime(now, block.RaHours, block.DecDegrees, latDeg, lonDeg);
-            double sunAlt = AstroCalculator.SunAltitudeAtTime(now, latDeg, lonDeg);
+            double altitude = AstroCalculator.TargetAltitudeAtTime(utc, block.RaHours, block.DecDegrees, latDeg, lonDeg);
+            double sunAlt = AstroCalculator.SunAltitudeAtTime(utc, latDeg, lonDeg);
 
             var c = block.Profile.Constraints;
             if (c == null) {
-                bool viable = altitude > 10 && sunAlt < -6;
-                if (!viable)
-                    global::NINA.Core.Utility.Logger.Info(
-                        $"AstroPM | Viability failed: {block.TargetName} — alt={altitude:F1}° (min 10°), sun={sunAlt:F1}° (max -6°)");
-                return viable;
+                altitudeOk = altitude > 10;
+                darkOk = sunAlt < -6;
+                detail = $"alt={altitude:F1}° (min 10°), sun={sunAlt:F1}° (max -6°)";
+                return altitudeOk && darkOk;
             }
 
-            bool isDark = sunAlt < c.SunAltitudeThreshold;
-            bool aboveMinAlt = altitude >= c.MinTargetAltitude;
+            darkOk = sunAlt < c.SunAltitudeThreshold;
+            altitudeOk = altitude >= c.MinTargetAltitude;
             string horizonNote = "";
-            if (aboveMinAlt && customHorizon != null) {
+            if (altitudeOk && customHorizon != null) {
                 // Same rule as SessionScheduler.BuildTargetProfiles: must clear the custom horizon too.
-                double az = AstroCalculator.TargetAzimuthAtTime(now, block.RaHours, block.DecDegrees, latDeg, lonDeg);
+                double az = AstroCalculator.TargetAzimuthAtTime(utc, block.RaHours, block.DecDegrees, latDeg, lonDeg);
                 double hrzAlt = customHorizon.AltitudeAt(az);
-                aboveMinAlt = altitude >= hrzAlt;
+                altitudeOk = altitude >= hrzAlt;
                 horizonNote = $", horizon {hrzAlt:F1}° @ az {az:F0}°";
             }
+            detail = $"alt={altitude:F1}° (min {c.MinTargetAltitude}°{horizonNote}), sun={sunAlt:F1}° (max {c.SunAltitudeThreshold}°)";
+            return altitudeOk && darkOk;
+        }
 
-            if (!isDark || !aboveMinAlt)
-                global::NINA.Core.Utility.Logger.Info(
-                    $"AstroPM | Viability failed: {block.TargetName} — alt={altitude:F1}° (min {c.MinTargetAltitude}°{horizonNote}), sun={sunAlt:F1}° (max {c.SunAltitudeThreshold}°)");
+        private static readonly TimeSpan MinRiseWaitRemaining = TimeSpan.FromMinutes(2);
 
-            return isDark && aboveMinAlt;
+        /// <summary>When a block's start-time gate fails only on altitude/horizon (target still
+        /// rising) or darkness (sun still setting), find the first minute inside the block window
+        /// at which it passes. Null = it won't clear in time (setting target, dawn, etc.) — the
+        /// caller then skips the block as before. Needs at least MinRiseWaitRemaining of window
+        /// left after clearing so we don't slew for a sliver.</summary>
+        private static DateTime? ProjectViableTime(TargetBlock block, double latDeg, double lonDeg, HorizonProfile customHorizon) {
+            var latest = block.UtcEnd - MinRiseWaitRemaining;
+            for (var t = DateTime.UtcNow.AddMinutes(1); t <= latest; t = t.AddMinutes(1)) {
+                if (CheckViabilityAt(block, t, latDeg, lonDeg, customHorizon, out _, out _, out _)) return t;
+            }
+            return null;
         }
 
         /// <summary>Offline/Vacation Mode: count a freshly-captured LIGHT frame against the cached target so
