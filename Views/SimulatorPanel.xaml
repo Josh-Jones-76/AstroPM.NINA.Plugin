@@ -326,6 +326,23 @@
             </Grid>
         </Border>
 
+        <!-- ═══ Capture-ledger info: subs NINA shot that the desktop hasn't counted yet ═══ -->
+        <Border Background="#2EF59E0B" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="4"
+                Padding="12,9" Margin="0,0,0,8"
+                Visibility="{Binding HasLedgerBanner, Converter={StaticResource BoolToVis}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Path Grid.Column="0" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Top"
+                      Margin="0,1,10,0" Fill="#F59E0B"
+                      Data="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
+                <TextBlock Grid.Column="1" Text="{Binding LedgerBanner}" TextWrapping="Wrap"
+                           FontSize="12" LineHeight="17" Foreground="{DynamicResource PrimaryBrush}"/>
+            </Grid>
+        </Border>
+
         <!-- ═══ Step 2: Nightly Targets ═══ -->
         <StackPanel Orientation="Horizontal"
                     Visibility="{Binding HasResults, Converter={StaticResource BoolToVis}}">

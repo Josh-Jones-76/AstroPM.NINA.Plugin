@@ -134,6 +134,49 @@ namespace AstroPM.NINA.Plugin.Services
             }
         }
 
+        /// <summary>Ledger adds that land on the passed targets, one row per exposure set (sets
+        /// with no pending adds are left out). Matches by <see cref="SetKey"/>, so it works on
+        /// either the raw or the ledger-applied list. Read-only — the reconcile rules are
+        /// untouched; this only lets the UI say why its counts differ from the desktop's.</summary>
+        public static List<PendingAdd> PendingLedgerAddsFor(IEnumerable<ProjectTarget> targets)
+        {
+            var result = new List<PendingAdd>();
+            if (targets == null) return result;
+            Dictionary<string, int> adds;
+            lock (FileLock)
+            {
+                var wrapper = ReadRaw();
+                if (wrapper?.Ledger == null || wrapper.Ledger.Count == 0) return result;
+                adds = wrapper.Ledger.Where(e => e.LocalAdds > 0 && e.Key != null)
+                    .GroupBy(e => e.Key).ToDictionary(g => g.Key, g => g.Sum(e => e.LocalAdds));
+            }
+            if (adds.Count == 0) return result;
+            foreach (var t in targets)
+            {
+                if (t?.Panels == null) continue;
+                foreach (var p in t.Panels)
+                {
+                    if (p?.ExposureSets == null) continue;
+                    foreach (var es in p.ExposureSets)
+                    {
+                        var key = SetKey(t, p, es);
+                        if (!adds.TryGetValue(key, out var n)) continue;
+                        adds.Remove(key);   // Apply credits only the first set with a key
+                        result.Add(new PendingAdd { Target = t, Panel = p, Set = es, Adds = n });
+                    }
+                }
+            }
+            return result;
+        }
+
+        public class PendingAdd
+        {
+            public ProjectTarget Target { get; set; }
+            public PanelData Panel { get; set; }
+            public ExposureSetData Set { get; set; }
+            public int Adds { get; set; }
+        }
+
         // ── internals ──
 
         private static List<LedgerEntry> PruneLedger(List<LedgerEntry> ledger, List<ProjectTarget> fresh)

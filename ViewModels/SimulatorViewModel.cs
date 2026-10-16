@@ -402,6 +402,15 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         }
         public bool HasWarning => !string.IsNullOrEmpty(_warningBanner);
 
+        // Amber info line: subs NINA captured that the desktop hasn't counted yet (capture
+        // ledger). They count as done here, so this sim can differ from the desktop's.
+        private string _ledgerBanner;
+        public string LedgerBanner {
+            get => _ledgerBanner;
+            set { _ledgerBanner = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasLedgerBanner)); }
+        }
+        public bool HasLedgerBanner => !string.IsNullOrEmpty(_ledgerBanner);
+
         public bool HasResults {
             get => _hasResults;
             set { _hasResults = value; OnPropertyChanged(); }
@@ -745,6 +754,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             // desktop-app changes (strategy, dither, etc.). Mutates `settings`, saves, and raises
             // ExternallyChanged → ReloadSettings, so the bound controls + this run use fresh values.
             WarningBanner = null;
+            LedgerBanner = null;
             if (!settings.OfflineMode) {
                 WarningBanner = await ImagingSystemSettingsService.ApplySelectedFromCloudAsync(
                     settings, _apiService, _latitude, _longitude);
@@ -819,6 +829,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                     p.ExposureSets != null && p.ExposureSets.Any(es => es.Remaining > 0)));
 
             StatusText = $"Fetched {totalFetched} targets ({withExposures} with exposures, {withRemaining} with remaining work). Simulating...";
+            LedgerBanner = BuildLedgerBanner();
 
             await Task.Run(() => RunSimulation());
 
@@ -909,14 +920,20 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         }
 
         private List<ProjectTarget> FilterTargets() {
-            var settings = AstroPMSettings.Load();
-            var targets = _allTargets.Where(t =>
+            return RigTargets().Where(t =>
                 t.Panels != null && t.Panels.Any(p =>
                     p.ExposureSets != null && p.ExposureSets.Any(es =>
-                        SessionScheduler.EffectiveRemainingSubs(es, _overshootPercent) > 0)));
+                        SessionScheduler.EffectiveRemainingSubs(es, _overshootPercent) > 0)))
+                .ToList();
+        }
+
+        /// <summary>Active targets for this rig (location/telescope/camera from the universal
+        /// settings), whether or not they have work left.</summary>
+        private List<ProjectTarget> RigTargets() {
+            var settings = AstroPMSettings.Load();
 
             // Always filter to Active status
-            targets = targets.Where(t => string.Equals(t.Status, "Active", StringComparison.OrdinalIgnoreCase));
+            var targets = _allTargets.Where(t => string.Equals(t.Status, "Active", StringComparison.OrdinalIgnoreCase));
 
             // Use universal settings for location/telescope
             if (!string.IsNullOrEmpty(settings.LocationFilter))
@@ -927,6 +944,48 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 targets = targets.Where(t => string.Equals(t.CameraName, settings.CameraFilter, StringComparison.OrdinalIgnoreCase));
 
             return targets.ToList();
+        }
+
+        /// <summary>Banner text naming the rig's targets whose counts include capture-ledger
+        /// adds (subs NINA shot that the desktop hasn't scanned yet), or null when there are none.
+        /// Also names targets that have no work left only because of those adds.</summary>
+        private string BuildLedgerBanner() {
+            List<TargetCacheService.PendingAdd> pending;
+            try { pending = TargetCacheService.PendingLedgerAddsFor(RigTargets()); }
+            catch { return null; }
+            if (pending.Count == 0) return null;
+
+            var byTarget = pending
+                .GroupBy(a => a.Target.TargetName ?? a.Target.ProjectName ?? "?", StringComparer.OrdinalIgnoreCase)
+                .Select(g => new { Name = g.Key, Adds = g.Sum(a => a.Adds), Rows = g.ToList() })
+                .OrderByDescending(g => g.Adds)
+                .ToList();
+            int total = byTarget.Sum(g => g.Adds);
+
+            // A target drops out only because of the ledger when, with the adds taken back
+            // out, some set would still have work, yet no set has work with them in.
+            var droppedOut = new List<string>();
+            foreach (var g in byTarget) {
+                var targets = g.Rows.Select(a => a.Target).Distinct().ToList();
+                bool hasWorkNow = targets.Any(t => t.Panels.Any(p => p.ExposureSets != null &&
+                    p.ExposureSets.Any(es => SessionScheduler.EffectiveRemainingSubs(es, _overshootPercent) > 0)));
+                if (hasWorkNow) continue;
+                bool hadCloudWork = g.Rows.Any(a => {
+                    a.Set.AcceptedCount -= a.Adds;
+                    try { return SessionScheduler.EffectiveRemainingSubs(a.Set, _overshootPercent) > 0; }
+                    finally { a.Set.AcceptedCount += a.Adds; }
+                });
+                if (hadCloudWork) droppedOut.Add(g.Name);
+            }
+
+            var list = string.Join(", ", byTarget.Select(g => $"{g.Name} {g.Adds}"));
+            var text = $"{total} sub{(total == 1 ? "" : "s")} captured by NINA {(total == 1 ? "isn't" : "aren't")} counted by the desktop app yet ({list}). "
+                     + "The schedule treats them as done";
+            text += droppedOut.Count > 0
+                ? $", so {string.Join(", ", droppedOut)} {(droppedOut.Count == 1 ? "has" : "have")} no work left here. "
+                : ". ";
+            text += "Open those projects in Astro PM desktop to rescan and sync.";
+            return text;
         }
 
         private void RebuildFilters() {
