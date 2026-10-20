@@ -134,10 +134,18 @@ namespace AstroPM.NINA.Plugin.Services {
             }
             int days = Math.Max(1, intervalDays);
             if (!newestUtc.HasValue) { why = $"flats on record but undated — re-taking (every {days} d)"; return false; }
-            var age = nowUtc - newestUtc.Value;
-            if (age.TotalDays < days) { why = $"flats from {newestUtc.Value:MMM d} ({age.TotalDays:F1} d ago) within {days} d"; return true; }
-            why = $"flats from {newestUtc.Value:MMM d} ({age.TotalDays:F1} d ago) older than {days} d";
+            // Count imaging nights, not raw hours: flats shot at dawn are a few minutes short of
+            // 24 h old at the next dawn, so "every 1 d" would skip a night. Nights are local
+            // noon-to-noon, so a dusk and a dawn session in the same night count as the same night.
+            int nightsAgo = NightsBetween(newestUtc.Value, nowUtc);
+            if (nightsAgo < days) { why = $"flats from {newestUtc.Value:MMM d} ({nightsAgo} night(s) ago) within {days} d"; return true; }
+            why = $"flats from {newestUtc.Value:MMM d} ({nightsAgo} night(s) ago) — due every {days} d";
             return false;
+        }
+
+        private static int NightsBetween(DateTime thenUtc, DateTime nowUtc) {
+            DateTime NightOf(DateTime utc) => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime().AddHours(-12).Date;
+            return Math.Max(0, (int)Math.Round((NightOf(nowUtc) - NightOf(thenUtc)).TotalDays));
         }
     }
 }
