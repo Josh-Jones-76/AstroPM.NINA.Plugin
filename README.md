@@ -47,4 +47,10 @@ Both Debug and Release output stay inside the project folder (`bin\Debug\` and `
 
 ## License
 
-[MIT](LICENSE) © 2026 Astro PM
+Copyright © 2026 Astro PM
+
+This plugin is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). If you modify it and distribute it, or run a modified version as a network service, you must make your source available under the same license.
+
+Versions 1.7.1.0 and earlier were released under the MIT License. Those releases stay MIT; every later release is AGPL-3.0.
+
+The Astro PM desktop application is separate commercial software and is not covered by this license. For commercial licensing of this code, contact [Astro PM](https://astro-pm.com).
