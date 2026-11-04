@@ -2330,6 +2330,15 @@ namespace AstroPM.NINA.Plugin.Instructions {
             _flatsCopyMap = new Dictionary<FlatSpec, List<string>>();
             specs = DedupeSpecsAcrossTargets(specs, _flatsCopyMap);
 
+            // NINA's TakeExposure finds $$TARGETNAME$$ by walking Parent links up to the nearest
+            // IDeepSkyObjectContainer. Parent is serialized as a JSON reference, so a flat
+            // instruction can load still pointing at a container it no longer sits in (11/3 BobT:
+            // plugin set 'NGC 7331', every flat saved as an old 'Ghost of Cassiopeia').
+            // Re-link each item to the container that actually holds it before the pass.
+            RepairParentLinks(FlatsSetupRunner);
+            RepairParentLinks(FlatsRunner);
+            RepairParentLinks(FlatsTeardownRunner);
+
             // Guider down + trigger blackout for the whole pass (see FlatsIsolationContainer).
             await StopGuidingForFlats(token);
             _flatsShim = new FlatsIsolationContainer { Target = Target, NighttimeData = NighttimeData };
@@ -2343,6 +2352,36 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 FlatsSetupRunner?.AttachNewParent(this);
                 FlatsRunner?.AttachNewParent(this);
                 FlatsTeardownRunner?.AttachNewParent(this);
+            }
+        }
+
+        /// <summary>Point every item (and condition/trigger) in the box at the container that
+        /// actually holds it, recursively. Logs each stale link it fixes, naming the target the
+        /// stale parent chain would have resolved to.</summary>
+        private void RepairParentLinks(ISequenceContainer container) {
+            if (container == null) return;
+            try {
+                foreach (var item in container.GetItemsSnapshot()) {
+                    if (!ReferenceEquals(item.Parent, container)) {
+                        string staleTarget = null;
+                        for (var p = item.Parent; p != null; p = p.Parent) {
+                            if (p is IDeepSkyObjectContainer dso) { staleTarget = dso.Target?.TargetName; break; }
+                        }
+                        global::NINA.Core.Utility.Logger.Warning(
+                            $"AstroPM | Flats: repaired stale parent link on {item.Name} (was {item.Parent?.GetType().Name ?? "null"}"
+                            + (staleTarget != null ? $", target '{staleTarget}'" : "") + ")");
+                        item.AttachNewParent(container);
+                    }
+                    if (item is ISequenceContainer sub) RepairParentLinks(sub);
+                }
+                if (container is SequenceContainer sc) {
+                    foreach (var c in sc.Conditions.ToList())
+                        if (!ReferenceEquals(c.Parent, container)) c.AttachNewParent(container);
+                    foreach (var t in sc.Triggers.ToList())
+                        if (!ReferenceEquals(t.Parent, container)) t.AttachNewParent(container);
+                }
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Warning($"AstroPM | Flats: parent-link repair failed: {ex.Message}");
             }
         }
 
