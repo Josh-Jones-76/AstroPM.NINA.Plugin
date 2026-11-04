@@ -282,11 +282,6 @@
                                                    Margin="12,0,0,5">
                                             <Run FontWeight="SemiBold" Text="Viability Checks"/><Run Text=" — Automatically skips targets that are below minimum altitude or when the sun is too high, so no time is wasted on targets that can't be imaged."/>
                                         </TextBlock>
-                                        <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
-                                                   Foreground="{DynamicResource PrimaryBrush}" Opacity="0.85"
-                                                   Margin="12,0,0,0">
-                                            <Run FontWeight="SemiBold" Text="Block Skip &amp; Advance"/><Run Text=" — Skip the current target on the fly and move straight to the next block — useful when weather or conditions change mid-session."/>
-                                        </TextBlock>
 
                                     </StackPanel>
                                 </ScrollViewer>
@@ -522,13 +517,13 @@
                         </TextBlock>
                         <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
                                    Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
-                                   Text="2. Create an account and set up your equipment profiles and observatory locations" />
+                                   Text="2. Start a trial or activate your license, then set up your sites, telescopes, cameras and imaging systems" />
                         <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
                                    Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
                                    Text="3. Build your imaging projects with targets, mosaic layouts, and exposure plans" />
                         <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
                                    Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7"
-                                   Text="4. Go to Settings > NINA Sync to generate your sync token" />
+                                   Text="4. In Astro PM, open Settings &gt; License &amp; Activation and click Copy next to Sync Token" />
                     </StackPanel>
                     <TextBlock TextWrapping="Wrap" FontSize="11" LineHeight="17"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.7" Margin="0,0,0,6"

@@ -333,7 +333,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
         /// Simulator panel.</summary>
         public string FlatsStatusText {
             get {
-                if (!FlatsEnabled) return "Flats: Off  (enable in Astro PM app or Simulator panel)";
+                if (!FlatsEnabled) return "Flats: Off  (enable in the Astro PM app's NINA Nightly Simulator)";
                 var s = FlatsFullSet ? "Flats: Enabled · Full Filter Set" : "Flats: Enabled";
                 if (FlatsAutoPerProject)
                     s += FlatsAutoMode == "TimeBased" ? $" · Auto per project every {FlatsAutoIntervalDays} d" : " · Auto once per project";

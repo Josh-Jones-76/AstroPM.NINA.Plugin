@@ -356,7 +356,7 @@
                                      this instruction set had its own local toggle. -->
                                 <Border Margin="16,0,0,0" VerticalAlignment="Center" CornerRadius="3"
                                         Background="#22007ACC" Padding="7,1"
-                                        ToolTip="Read-only status. Flats are controlled by 'Enable Flats Sequence' and 'Full Set of Flats' in the Astro PM desktop app (per imaging system, synced to this rig) or the plugin's Simulator panel — not here.">
+                                        ToolTip="Read-only status. Flats are controlled in the Astro PM desktop app's NINA Nightly Simulator (FLAT HANDLING: Enable Flats Sequence, Full Set of Flats, Copy Flats to Each Target, Auto Flats Per Project), per imaging system and synced to this rig. The plugin's own Simulator can change them only in Offline / Vacation Mode.">
                                     <TextBlock Text="{Binding FlatsStatusText}" FontSize="10"
                                                Foreground="{DynamicResource PrimaryBrush}"/>
                                 </Border>                                <TextBlock Text="{Binding FlatsSummary}" FontSize="10"

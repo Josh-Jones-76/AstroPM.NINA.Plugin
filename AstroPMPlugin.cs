@@ -24,7 +24,7 @@ using NINA.Profile.Interfaces;
 [assembly: AssemblyMetadata("LicenseURL", "https://github.com/Josh-Jones-76/AstroPM.NINA.Plugin/blob/main/LICENSE")]
 [assembly: AssemblyMetadata("Homepage", "https://astro-pm.com")]
 [assembly: AssemblyMetadata("Repository", "https://github.com/Josh-Jones-76/AstroPM.NINA.Plugin")]
-[assembly: AssemblyMetadata("Tags", "Sync,Targets,Framing,StarLog,Cloud")]
+[assembly: AssemblyMetadata("Tags", "Sync,Targets,Framing,AstroPM,Cloud")]
 [assembly: AssemblyMetadata("FeaturedImageURL", "https://astro-pm.com/downloads/AstroPM-Logo-Icon-500x500.png")]
 [assembly: AssemblyMetadata("MinimumApplicationVersion", "3.0.0.9001")]
 
