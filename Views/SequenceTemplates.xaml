@@ -565,13 +565,13 @@
     </DataTemplate>
 
     <!-- ════════════════════════════════════════════════════════════ -->
-    <!--  Before Target Change Instructions                          -->
+    <!--  After Slew/Center On Target Instructions (class: AstroPMBeforeTargetTrigger) -->
     <!-- ════════════════════════════════════════════════════════════ -->
     <DataTemplate DataType="{x:Type local:AstroPMBeforeTargetTrigger}">
         <nina:SequenceBlockView>
             <nina:SequenceBlockView.SequenceItemContent>
                 <StackPanel Orientation="Vertical" Margin="0,2">
-                    <TextBlock Text="Runs after slew/center/rotate on each new target, before guiding and imaging" FontSize="10" FontStyle="Italic"
+                    <TextBlock Text="Runs every time Astro PM arrives on a target: after slew/center/rotate, before guiding and imaging" FontSize="10" FontStyle="Italic"
                                Foreground="{DynamicResource PrimaryBrush}" Opacity="0.5" Margin="0,0,0,4"/>
                     <Border MinHeight="35" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                         <Grid Background="{StaticResource BackgroundBrush}" DataContext="{Binding TriggerRunner}">
@@ -592,7 +592,7 @@
     <DataTemplate x:Key="AstroPM.NINA.Plugin.Instructions.AstroPMBeforeTargetTrigger_Mini">
         <mini:MiniSequenceItem>
             <mini:MiniSequenceItem.SequenceItemContent>
-                <TextBlock Text="Astro PM Before Target Change Instructions" />
+                <TextBlock Text="Astro PM After Slew/Center On Target Instructions" />
             </mini:MiniSequenceItem.SequenceItemContent>
         </mini:MiniSequenceItem>
     </DataTemplate>

@@ -105,8 +105,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
         public override string ToString() => "Astro PM After Each Exposure Instructions";
     }
 
-    [ExportMetadata("Name", "Astro PM Before Target Change Instructions")]
-    [ExportMetadata("Description", "Runs contained instructions once AstroPM has slewed, centered and rotated on a new target, before guiding and imaging start")]
+    // Displayed as "After Slew/Center On Target Instructions" (was "Before Target Change Instructions" — the old
+    // name read as if it ran before the slew). Class name kept so saved sequences still load.
+    [ExportMetadata("Name", "Astro PM After Slew/Center On Target Instructions")]
+    [ExportMetadata("Description", "Runs contained instructions every time AstroPM arrives on a target — after slew, center and rotate, before guiding and imaging start (e.g. autofocus)")]
     [ExportMetadata("Icon", "SlewToRaDecSVG")]
     [ExportMetadata("Category", "Astro PM Tools")]
     [Export(typeof(ISequenceTrigger))]
@@ -148,7 +150,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
             // Fire on every block — i.e. every time AstroPM arrives on a target (after
             // slew/center/rotate, before guiding). No dedup by target name: a re-slew to
             // the same object is still a new block and should run the instructions again.
-            Logger.Info($"AstroPM | Before Target trigger firing (on target): {block.TargetName}");
+            Logger.Info($"AstroPM | On Target trigger firing: {block.TargetName}");
             // Attach to the Astro PM container (the IDeepSkyObjectContainer holding the live
             // target), not the trigger's own Parent: the trigger usually sits ABOVE us (outer
             // container / Global Triggers), and third-party instructions that walk Parent looking
@@ -167,7 +169,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
         }
 
         public override object Clone() => new AstroPMBeforeTargetTrigger(this);
-        public override string ToString() => "Astro PM Before Target Change Instructions";
+        public override string ToString() => "Astro PM After Slew/Center On Target Instructions";
     }
 
     [ExportMetadata("Name", "Astro PM After Target Change Instructions")]
