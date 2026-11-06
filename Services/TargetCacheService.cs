@@ -169,6 +169,31 @@ namespace AstroPM.NINA.Plugin.Services
             return result;
         }
 
+        /// <summary>Drops the ledger entries for the given set keys (user's "Clear" on the
+        /// simulator banner). Needed because the acquired-moved signal can't see a desktop
+        /// scan whose net count lands back on the baseline — e.g. sync + Delete Rejected that
+        /// leaves exactly as many subs as before the night — so those adds would otherwise
+        /// carry forward forever. Returns the number of adds removed.</summary>
+        public static int ClearLedgerAdds(IEnumerable<string> keys)
+        {
+            if (keys == null) return 0;
+            var set = new HashSet<string>(keys.Where(k => k != null));
+            if (set.Count == 0) return 0;
+            lock (FileLock)
+            {
+                var wrapper = ReadRaw();
+                if (wrapper?.Ledger == null || wrapper.Ledger.Count == 0) return 0;
+                var removed = wrapper.Ledger.Where(e => e.Key != null && set.Contains(e.Key)).ToList();
+                if (removed.Count == 0) return 0;
+                wrapper.Ledger = wrapper.Ledger.Except(removed).ToList();
+                WriteRaw(wrapper);
+                int adds = removed.Sum(e => e.LocalAdds);
+                foreach (var e in removed)
+                    global::NINA.Core.Utility.Logger.Info($"AstroPM | Capture ledger: {e.Key} — {e.LocalAdds} local adds cleared by user (cloud acquired {e.BaselineAcquired})");
+                return adds;
+            }
+        }
+
         public class PendingAdd
         {
             public ProjectTarget Target { get; set; }

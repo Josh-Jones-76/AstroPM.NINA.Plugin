@@ -190,6 +190,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             DatePrevCommand = new RelayCommand(async _ => { SelectedDate = SelectedDate.AddDays(-1); await RunSimulationAsync(); }, _ => !IsSimulating);
             DateNextCommand = new RelayCommand(async _ => { SelectedDate = SelectedDate.AddDays(1); await RunSimulationAsync(); }, _ => !IsSimulating);
             DateTodayCommand = new RelayCommand(async _ => { SelectedDate = Tonight(); await RunSimulationAsync(); }, _ => !IsSimulating);
+            ClearLedgerCommand = new RelayCommand(async _ => await ClearLedgerAsync(), _ => !IsSimulating);
 
             RefreshCacheStatus();
         }
@@ -686,6 +687,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         public ICommand DatePrevCommand { get; }
         public ICommand DateNextCommand { get; }
         public ICommand DateTodayCommand { get; }
+        public ICommand ClearLedgerCommand { get; }
 
         // ── Events ──
 
@@ -951,9 +953,12 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         /// Also names targets that have no work left only because of those adds.</summary>
         private string BuildLedgerBanner() {
             List<TargetCacheService.PendingAdd> pending;
+            _ledgerBannerKeys = new List<string>();
+            _ledgerBannerSummary = null;
             try { pending = TargetCacheService.PendingLedgerAddsFor(RigTargets()); }
             catch { return null; }
             if (pending.Count == 0) return null;
+            _ledgerBannerKeys = pending.Select(a => TargetCacheService.SetKey(a.Target, a.Panel, a.Set)).Distinct().ToList();
 
             var byTarget = pending
                 .GroupBy(a => a.Target.TargetName ?? a.Target.ProjectName ?? "?", StringComparer.OrdinalIgnoreCase)
@@ -979,13 +984,39 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             }
 
             var list = string.Join(", ", byTarget.Select(g => $"{g.Name} {g.Adds}"));
+            _ledgerBannerSummary = $"{total} sub{(total == 1 ? "" : "s")} ({list})";
             var text = $"{total} sub{(total == 1 ? "" : "s")} captured by NINA {(total == 1 ? "isn't" : "aren't")} counted by the desktop app yet ({list}). "
                      + "The schedule treats them as done";
             text += droppedOut.Count > 0
                 ? $", so {string.Join(", ", droppedOut)} {(droppedOut.Count == 1 ? "has" : "have")} no work left here. "
                 : ". ";
-            text += "Open those projects in Astro PM desktop to rescan and sync.";
+            text += "Open those projects in Astro PM desktop to rescan and sync. "
+                  + "If the desktop has already counted them (for example after deleting rejected subs), click Clear.";
             return text;
+        }
+
+        private List<string> _ledgerBannerKeys = new List<string>();
+        private string _ledgerBannerSummary;
+
+        /// <summary>Drops the ledger adds named in the banner, then reruns the simulation so the
+        /// schedule goes back to the cloud's counts.</summary>
+        private async Task ClearLedgerAsync() {
+            var keys = _ledgerBannerKeys?.ToList() ?? new List<string>();
+            if (keys.Count == 0) return;
+            var answer = MessageBox.Show(
+                $"Clear {_ledgerBannerSummary ?? "these subs"} from NINA's capture tally?\n\n"
+                + "Do this only when the desktop app has already counted these frames — for example "
+                + "after Sync Images followed by Delete Rejected. The schedule will go back to the "
+                + "desktop's counts and plan these subs again if they really weren't counted.",
+                "Astro PM — Clear uncounted subs", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer != MessageBoxResult.Yes) return;
+
+            TargetCacheService.ClearLedgerAdds(keys);
+            // The in-memory list still carries the old adds; reload from the cache so an
+            // offline rerun (fetch fails, _allTargets kept) doesn't keep showing them.
+            var cache = TargetCacheService.Load();
+            if (cache?.Targets != null) _allTargets = cache.Targets;
+            await RunSimulationAsync();
         }
 
         private void RebuildFilters() {

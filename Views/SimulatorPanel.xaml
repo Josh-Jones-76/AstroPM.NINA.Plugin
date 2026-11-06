@@ -334,12 +334,16 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Path Grid.Column="0" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Top"
                       Margin="0,1,10,0" Fill="#F59E0B"
                       Data="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
                 <TextBlock Grid.Column="1" Text="{Binding LedgerBanner}" TextWrapping="Wrap"
                            FontSize="12" LineHeight="17" Foreground="{DynamicResource PrimaryBrush}"/>
+                <Button Grid.Column="2" Content="Clear" Command="{Binding ClearLedgerCommand}"
+                        VerticalAlignment="Center" Margin="12,0,0,0" Padding="12,3" MinWidth="64"
+                        ToolTip="The desktop already counted these frames (e.g. after Delete Rejected) — drop NINA's own tally and use the desktop's counts"/>
             </Grid>
         </Border>
 
