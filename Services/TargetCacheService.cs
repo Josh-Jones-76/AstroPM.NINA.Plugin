@@ -29,6 +29,11 @@ namespace AstroPM.NINA.Plugin.Services
     /// from a fetch keeps its entry (different writers save different subsets: the Options
     /// browser saves every status, the nightly fetch only Active, Refresh only this rig),
     /// with a 90-day age limit for hygiene.
+    ///
+    /// Desktops from 1.7.5 also send a per-set "counted_through_utc" (every frame saved before
+    /// it was synced and scanned). When present it replaces the acquired-moved test: each add
+    /// carries its capture time and exactly the adds before the stamp are dropped. That closes
+    /// the gap where a sync + Delete Rejected lands the count back on the baseline.
     /// </summary>
     public static class TargetCacheService
     {
@@ -116,8 +121,11 @@ namespace AstroPM.NINA.Plugin.Services
                     entry = new LedgerEntry { Key = key, BaselineAcquired = raw?.AcquiredCount ?? -1 };
                     wrapper.Ledger.Add(entry);
                 }
-                entry.LocalAdds++;
-                entry.LastCaptureUtc = DateTime.UtcNow;
+                var nowUtc = DateTime.UtcNow;
+                entry.CaptureTimesUtc = EffectiveCaptureTimes(entry);
+                entry.CaptureTimesUtc.Add(nowUtc);
+                entry.LocalAdds = entry.CaptureTimesUtc.Count;
+                entry.LastCaptureUtc = nowUtc;
                 WriteRaw(wrapper);
                 global::NINA.Core.Utility.Logger.Info(
                     $"AstroPM | Capture ledger: {target?.TargetName}/{panel?.Label} {es?.FilterName} {es?.ExposureLengthSec:F0}s → +{entry.LocalAdds} since the desktop last counted (cloud acquired {entry.BaselineAcquired})");
@@ -224,6 +232,27 @@ namespace AstroPM.NINA.Plugin.Services
                     kept.Add(entry);   // not part of this writer's subset — keep as is
                     continue;
                 }
+                if (set.CountedThroughUtc.HasValue)
+                {
+                    // The desktop says its counts include every frame saved before this time.
+                    // Drop exactly the adds it covers, whether or not the count moved — a
+                    // sync followed by Delete Rejected can land back on the same number.
+                    var through = AsUtc(set.CountedThroughUtc.Value);
+                    var cutoff = through - ClockSkewMargin;
+                    var times = EffectiveCaptureTimes(entry);
+                    var keep = times.Where(t => t > cutoff).ToList();
+                    int covered = times.Count - keep.Count;
+                    if (covered > 0)
+                        global::NINA.Core.Utility.Logger.Info(
+                            $"AstroPM | Capture ledger: {entry.Key} — desktop counted through {through:yyyy-MM-dd HH:mm:ss}Z, dropping {covered} of {times.Count} local adds (cloud acquired {set.AcquiredCount})");
+                    entry.CaptureTimesUtc = keep;
+                    entry.LocalAdds = keep.Count;
+                    entry.BaselineAcquired = set.AcquiredCount;
+                    if (keep.Count == 0) { dropped++; continue; }
+                    kept.Add(entry);
+                    carried++;
+                    continue;
+                }
                 if (entry.BaselineAcquired < 0)
                 {
                     entry.BaselineAcquired = set.AcquiredCount;   // first sighting since the adds began
@@ -246,6 +275,30 @@ namespace AstroPM.NINA.Plugin.Services
             if (dropped > 0 || carried > 0)
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Capture ledger after fetch: {carried} set(s) carried forward, {dropped} reconciled with the cloud");
             return kept;
+        }
+
+        /// <summary>Allowance for clock difference between the desktop PC and the NINA PC (and for
+        /// a frame still being written when the sync listed the folder). An add captured within
+        /// this window before the stamp is kept — at worst one sub stays double-counted until
+        /// the next sync, never a silently lost one.</summary>
+        private static readonly TimeSpan ClockSkewMargin = TimeSpan.FromMinutes(2);
+
+        private static DateTime AsUtc(DateTime t) =>
+            t.Kind == DateTimeKind.Utc ? t
+            : t.Kind == DateTimeKind.Local ? t.ToUniversalTime()
+            : DateTime.SpecifyKind(t, DateTimeKind.Utc);
+
+        /// <summary>One UTC time per add, oldest first. Adds without a recorded time (entries from
+        /// before per-capture times existed) are placed at LastCaptureUtc — the latest they could
+        /// be, so a stamp only drops them once it is past every capture.</summary>
+        private static List<DateTime> EffectiveCaptureTimes(LedgerEntry entry)
+        {
+            var times = (entry.CaptureTimesUtc ?? new List<DateTime>()).Select(AsUtc).ToList();
+            if (times.Count > entry.LocalAdds) times = times.Skip(times.Count - entry.LocalAdds).ToList();
+            var last = AsUtc(entry.LastCaptureUtc);
+            while (times.Count < entry.LocalAdds) times.Add(last);
+            times.Sort();
+            return times;
         }
 
         private static void Apply(List<ProjectTarget> targets, List<LedgerEntry> ledger)
@@ -337,6 +390,10 @@ namespace AstroPM.NINA.Plugin.Services
             public int BaselineAcquired { get; set; } = -1;
             public int LocalAdds { get; set; }
             public DateTime LastCaptureUtc { get; set; }
+            /// <summary>UTC time of each add, oldest first, so a desktop "counted through" stamp
+            /// can drop exactly the adds it covers. Entries written before 1.7.5 have none —
+            /// their untimed adds are treated as captured at <see cref="LastCaptureUtc"/>.</summary>
+            public List<DateTime> CaptureTimesUtc { get; set; }
         }
     }
 }

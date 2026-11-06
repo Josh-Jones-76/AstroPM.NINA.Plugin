@@ -174,6 +174,12 @@ namespace AstroPM.NINA.Plugin.Models {
         [JsonProperty("accepted_count")]
         public int AcceptedCount { get; set; }
 
+        /// <summary>UTC moment through which the desktop's counts are complete (every frame
+        /// saved before it was synced and scanned). Null from desktops older than 1.7.5 or
+        /// before the first sync/scan. Drives the capture ledger's per-capture reconcile.</summary>
+        [JsonProperty("counted_through_utc")]
+        public DateTime? CountedThroughUtc { get; set; }
+
         [JsonProperty("gain")]
         public int Gain { get; set; }
 
