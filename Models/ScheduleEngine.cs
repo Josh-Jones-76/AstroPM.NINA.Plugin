@@ -2866,11 +2866,18 @@ namespace AstroPM.NINA.Plugin.Models {
                         filterSwitchTolerance: filterSwitchTolerance,
                         targetRemainingSec: targetRemainingSec);
 
+                    // A per-panel mosaic profile ("Orion P2") may only reuse the last exposure when it was shot on a panel
+                    // this profile is allowed to image. lastEs/lastPanelLabel survive the slew from the previous profile, so
+                    // without this a P1 filter (and its "P1" label) leaked into the P2 visit and the next pick logged a
+                    // phantom "Orion P2 → P2" panel slew - NINA filed those subs under "Orion P2 P2" (11/11/26 ticket).
+                    bool lastPanelAllowed = allowedPanels == null || allowedPanels.Contains(lastPanelIdx);
+
                     // Tail hold: a switch to a DIFFERENT filter that cannot fit the filter-switch tolerance before this
                     // block (or the night) ends is not worth the filter change - stay on the filter we are on for the
                     // last frame(s) instead (a Bonus frame if that filter already finished its plan).
                     if (!EngineExperiments.LegacyTailHold && pick.Es != null && lastEs != null && !ReferenceEquals(pick.Es, lastEs)
                         && target.Panels.Any(pn => pn.ExposureSets.Contains(lastEs))   // lastEs must belong to THIS target (it survives a slew)
+                        && lastPanelAllowed
                         && FsFor(prof) && filterSwitchCount > 0
                         && (state.RemainingForEs(targetIdx, lastPanelIdx, lastEsIdx, lastEs) > 0 || bonusEnabled)) {
                         int minSubsTail = Math.Max(1, (int)Math.Ceiling(filterSwitchCount * filterSwitchTolerance));
@@ -2899,7 +2906,7 @@ namespace AstroPM.NINA.Plugin.Models {
                             FsFor(prof), filterSwitchCount, allowedPanels, includeCompleted: true,
                             filterSwitchTolerance: filterSwitchTolerance,
                             targetRemainingSec: targetRemainingSec);
-                        if (pick.Es == null && lastEs != null)
+                        if (pick.Es == null && lastEs != null && lastPanelAllowed)
                         {
                             // Last resort (e.g. panel restriction excluded every set):
                             // repeat the previous exposure if it's still moon-safe here.

@@ -2830,7 +2830,11 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         }
                     }
 
-                    var displayName = isPanelSlew ? $"{slewTarget} {panelLabel}" : slewTarget;
+                    // A per-panel profile's name already carries its panel ("Orion P2"); never
+                    // stack a second suffix on it ("Orion P2 P2" became a NINA folder, 11/11/26).
+                    var displayName = isPanelSlew
+                        && !slewTarget.EndsWith(" " + panelLabel, StringComparison.OrdinalIgnoreCase)
+                        ? $"{slewTarget} {panelLabel}" : slewTarget;
 
                     current = new TargetBlock {
                         TargetName = displayName,
