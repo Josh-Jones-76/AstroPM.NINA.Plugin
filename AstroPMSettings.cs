@@ -19,6 +19,7 @@ namespace AstroPM.NINA.Plugin
         private string _simTelescopeFilter = string.Empty;
         private bool _ditherEnabled = true;
         private int _ditherEvery = 3;
+        private bool _ditherPerFilter;
         private bool _filterSwitchEnabled = true;
         private int _filterSwitchCount = 20;
         private bool _bonusEnabled = true;
@@ -119,6 +120,14 @@ namespace AstroPM.NINA.Plugin
         {
             get => _ditherEvery;
             set { if (_ditherEvery != value) { _ditherEvery = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>"Individual filters override": a filter line's own dither cadence
+        /// (ExposureSet.DitherEvery, set in the desktop app) wins over the global setting.</summary>
+        public bool DitherPerFilter
+        {
+            get => _ditherPerFilter;
+            set { if (_ditherPerFilter != value) { _ditherPerFilter = value; OnPropertyChanged(); } }
         }
 
         public bool FilterSwitchEnabled

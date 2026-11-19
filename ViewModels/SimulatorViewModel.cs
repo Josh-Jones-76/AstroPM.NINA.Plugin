@@ -50,6 +50,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private double _longitude;
         private bool _ditherEnabled;
         private int _ditherEvery;
+        private bool _ditherPerFilter;
         private bool _filterSwitchEnabled;
         private int _filterSwitchCount;
         private bool _bonusImagesEnabled;
@@ -161,6 +162,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             var settings = AstroPMSettings.Load();
             _ditherEnabled = settings.DitherEnabled;
             _ditherEvery = settings.DitherEvery;
+            _ditherPerFilter = settings.DitherPerFilter;
             _filterSwitchEnabled = settings.FilterSwitchEnabled;
             _filterSwitchCount = settings.FilterSwitchCount;
             _filterSwitchTolerance = settings.FilterSwitchTolerance;
@@ -430,6 +432,13 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         public int DitherEvery {
             get => _ditherEvery;
             set { _ditherEvery = value; OnPropertyChanged(); SaveSimSettings(); }
+        }
+
+        /// <summary>"Individual filters override": each filter line's own dither cadence
+        /// (set per filter in the desktop app) wins over the global setting.</summary>
+        public bool DitherPerFilter {
+            get => _ditherPerFilter;
+            set { _ditherPerFilter = value; OnPropertyChanged(); SaveSimSettings(); }
         }
 
         public bool FilterSwitchEnabled {
@@ -918,7 +927,8 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _log = ScheduleEngine.WalkToLog(matrix, state, tz,
                 _ditherEnabled, _ditherEvery, _filterSwitchEnabled, _filterSwitchCount, _sortChain,
                 bonusEnabled: _bonusImagesEnabled,
-                filterSwitchTolerance: _filterSwitchTolerance);
+                filterSwitchTolerance: _filterSwitchTolerance,
+                ditherPerFilter: _ditherPerFilter);
         }
 
         private List<ProjectTarget> FilterTargets() {
@@ -1053,6 +1063,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             var settings = AstroPMSettings.Load();
             _ditherEnabled = settings.DitherEnabled; OnPropertyChanged(nameof(DitherEnabled));
             _ditherEvery = settings.DitherEvery; OnPropertyChanged(nameof(DitherEvery));
+            _ditherPerFilter = settings.DitherPerFilter; OnPropertyChanged(nameof(DitherPerFilter));
             _filterSwitchEnabled = settings.FilterSwitchEnabled; OnPropertyChanged(nameof(FilterSwitchEnabled));
             _filterSwitchCount = settings.FilterSwitchCount; OnPropertyChanged(nameof(FilterSwitchCount));
             _filterSwitchTolerance = settings.FilterSwitchTolerance; OnPropertyChanged(nameof(FilterSwitchTolerance));
@@ -1083,6 +1094,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             var settings = AstroPMSettings.Load();
             settings.DitherEnabled = _ditherEnabled;
             settings.DitherEvery = _ditherEvery;
+            settings.DitherPerFilter = _ditherPerFilter;
             settings.FilterSwitchEnabled = _filterSwitchEnabled;
             settings.FilterSwitchCount = _filterSwitchCount;
             settings.FilterSwitchTolerance = _filterSwitchTolerance;

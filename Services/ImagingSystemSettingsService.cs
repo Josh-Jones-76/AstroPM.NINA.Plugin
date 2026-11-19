@@ -61,6 +61,7 @@ namespace AstroPM.NINA.Plugin.Services
                     settings.MosaicPanelPreference = s.MosaicPanelPreference;
                     settings.DitherEnabled = s.DitherEnabled;
                     settings.DitherEvery = s.DitherEvery;
+                    settings.DitherPerFilter = s.DitherPerFilter;
                     settings.FilterSwitchEnabled = s.FilterSwitchEnabled;
                     settings.FilterSwitchCount = s.FilterSwitchCount;
                     settings.FilterSwitchTolerance = s.FilterSwitchTolerance;

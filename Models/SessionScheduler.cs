@@ -450,7 +450,8 @@ namespace AstroPM.NINA.Plugin.Models {
             ImagingStrategy strategy = ImagingStrategy.SharedTime,
             double filterSwitchTolerance = 0.5,
             List<int> priorityOrder = null,
-            double minTimeTolerance = 0.5) {
+            double minTimeTolerance = 0.5,
+            bool ditherPerFilter = false) {
 
             foreach (var p in profiles) p.AllocatedSec = 0;
 
@@ -475,7 +476,8 @@ namespace AstroPM.NINA.Plugin.Models {
             return ScheduleEngine.WalkToLog(matrix, state, tz,
                 ditherEnabled, ditherEvery, filterSwitchEnabled, filterSwitchCount,
                 bonusEnabled: bonusEnabled,
-                filterSwitchTolerance: filterSwitchTolerance);
+                filterSwitchTolerance: filterSwitchTolerance,
+                ditherPerFilter: ditherPerFilter);
         }
 
         public static (ExposureSetData Es, string PanelLabel, int PanelIdx, int EsIdx) PickExposureSet(

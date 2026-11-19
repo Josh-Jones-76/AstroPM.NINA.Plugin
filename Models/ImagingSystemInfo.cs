@@ -47,6 +47,9 @@ namespace AstroPM.NINA.Plugin.Models
         [JsonProperty("MosaicPanelPreference")] public bool MosaicPanelPreference { get; set; } = true;
         [JsonProperty("DitherEnabled")] public bool DitherEnabled { get; set; } = true;
         [JsonProperty("DitherEvery")] public int DitherEvery { get; set; } = 3;
+        // "Individual filters override": each filter line's own dither cadence wins over the
+        // global one. Older desktops don't send it → off.
+        [JsonProperty("DitherPerFilter")] public bool DitherPerFilter { get; set; } = false;
         [JsonProperty("FilterSwitchEnabled")] public bool FilterSwitchEnabled { get; set; } = true;
         [JsonProperty("FilterSwitchCount")] public int FilterSwitchCount { get; set; } = 20;
         [JsonProperty("FilterSwitchTolerance")] public double FilterSwitchTolerance { get; set; } = 0.5;

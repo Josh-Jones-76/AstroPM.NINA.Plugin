@@ -195,6 +195,12 @@ namespace AstroPM.NINA.Plugin.Models {
         [JsonProperty("readout_mode")]
         public string ReadoutMode { get; set; } = "";
 
+        /// <summary>Per-filter dither cadence from the desktop: 0 = default (global Dither setting),
+        /// -1 = off, N = dither every N subs. Only honored when the rig's DitherPerFilter
+        /// ("Individual filters override") setting is on. Older desktops don't send it → 0.</summary>
+        [JsonProperty("dither_every")]
+        public int DitherEvery { get; set; }
+
         [JsonProperty("avoid_lunar")]
         public bool AvoidLunar { get; set; }
 

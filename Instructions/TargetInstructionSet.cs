@@ -1140,7 +1140,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             foreach (var t in targets)
                 global::NINA.Core.Utility.Logger.Info($"AstroPM | Target: {t.TargetName} loc={t.LocationName} scope={t.TelescopeName} panels={t.Panels?.Count ?? 0} remaining={t.Panels?.Sum(p => p.ExposureSets?.Sum(es => es.Remaining) ?? 0) ?? 0}");
-            global::NINA.Core.Utility.Logger.Info($"AstroPM | Settings: Strategy={settings.Strategy} SortChain={settings.SortChain} MosaicPanelPref={settings.MosaicPanelPreference} Bonus={settings.BonusEnabled} Dither={settings.DitherEnabled}/{settings.DitherEvery} FilterSwitch={settings.FilterSwitchEnabled}/{settings.FilterSwitchCount} Tolerance={settings.FilterSwitchTolerance:P0}");
+            global::NINA.Core.Utility.Logger.Info($"AstroPM | Settings: Strategy={settings.Strategy} SortChain={settings.SortChain} MosaicPanelPref={settings.MosaicPanelPreference} Bonus={settings.BonusEnabled} Dither={settings.DitherEnabled}/{settings.DitherEvery} DitherPerFilter={settings.DitherPerFilter} FilterSwitch={settings.FilterSwitchEnabled}/{settings.FilterSwitchCount} Tolerance={settings.FilterSwitchTolerance:P0}");
 
             progress?.Report(new ApplicationStatus { Status = $"Astro PM: Calculating schedule for {targets.Count} targets..." });
 
@@ -1223,7 +1223,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
             var log = ScheduleEngine.WalkToLog(matrix, state, tz,
                 settings.DitherEnabled, settings.DitherEvery, settings.FilterSwitchEnabled, settings.FilterSwitchCount, sortChain,
                 bonusEnabled: settings.BonusEnabled,
-                filterSwitchTolerance: settings.FilterSwitchTolerance);
+                filterSwitchTolerance: settings.FilterSwitchTolerance,
+                ditherPerFilter: settings.DitherPerFilter);
 
             _lastLog = log;
             _lastSlots = slots;

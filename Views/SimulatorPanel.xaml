@@ -124,6 +124,11 @@
                     </ComboBox>
                     <TextBlock Text="subs" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="4,0,0,0"/>
+                    <CheckBox IsChecked="{Binding DitherPerFilter, Mode=TwoWay}"
+                              VerticalAlignment="Center" Margin="12,0,0,0"
+                              ToolTip="Use each filter's own Dither setting (set per filter in the Astro PM desktop app). A filter left on Default keeps using the global setting."/>
+                    <TextBlock Text="Individual filters override" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="6,0,0,0"/>
 
                     <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
 

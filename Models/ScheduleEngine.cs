@@ -2518,7 +2518,8 @@ namespace AstroPM.NINA.Plugin.Models {
             bool filterSwitchEnabled, int filterSwitchCount,
             List<SortCriteria> sortChain = null,
             bool bonusEnabled = true,
-            double filterSwitchTolerance = 0.5) {
+            double filterSwitchTolerance = 0.5,
+            bool ditherPerFilter = false) {
 
             var log = new List<SimLogEntry>();
 
@@ -3067,7 +3068,15 @@ namespace AstroPM.NINA.Plugin.Models {
 
                     // Exoplanet transit runs never dither: a dither punches a gap in the
                     // photometric time series and moves the star off its pixels.
-                    if (ditherEnabled && subsSinceDither >= ditherEvery
+                    // "Individual filters override": a filter line's own cadence (or Off) wins
+                    // over the global setting; 0 = Default keeps the global one.
+                    bool esDitherOn = ditherEnabled;
+                    int esDitherEvery = Math.Max(1, ditherEvery);
+                    if (ditherPerFilter && es.DitherEvery != 0) {
+                        esDitherOn = es.DitherEvery > 0;
+                        if (esDitherOn) esDitherEvery = es.DitherEvery;
+                    }
+                    if (esDitherOn && subsSinceDither >= esDitherEvery
                         && !prof.FixedWindowStartUtc.HasValue) {
                         var dSlot = SessionScheduler.GetSlotIndex(currentUtc, matrix.Slots);
                         log.Add(new SimLogEntry {
