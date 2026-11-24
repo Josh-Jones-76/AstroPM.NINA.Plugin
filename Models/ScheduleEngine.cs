@@ -3070,6 +3070,7 @@ namespace AstroPM.NINA.Plugin.Models {
                         state.PanelTimeOnTarget[ptKey] =
                             (state.PanelTimeOnTarget.ContainsKey(ptKey) ? state.PanelTimeOnTarget[ptKey] : 0)
                             + es.ExposureLengthSec;
+                        state.PanelLastShotSeq[ptKey] = state.ShotCounter;
                     }
 
                     subsSinceDither++;

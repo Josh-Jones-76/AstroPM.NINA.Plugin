@@ -94,6 +94,9 @@ namespace AstroPM.NINA.Plugin.Models {
         /// <summary>When each filter of each target was last shot (walk order) - the rotation resumes with the one that has waited longest.</summary>
         public Dictionary<(TargetProfile, string), long> LastShotSeq = new Dictionary<(TargetProfile, string), long>();
         public long ShotCounter;
+        // Mosaic: shot sequence of the last sub on each (target, panel) tonight — panel
+        // rotation goes to the panel that has waited longest. Mirrors desktop.
+        public Dictionary<(TargetProfile, string), long> PanelLastShotSeq = new Dictionary<(TargetProfile, string), long>();
         public Dictionary<TargetProfile, int> SubCounter = new Dictionary<TargetProfile, int>();
         public Dictionary<(TargetProfile, string), double> PanelTimeOnTarget
             = new Dictionary<(TargetProfile, string), double>();
@@ -600,6 +603,19 @@ namespace AstroPM.NINA.Plugin.Models {
                     && TierClassifier.IsNoMoonProfile(c.Es.MoonAvoidanceProfile)).ToList();
                 if (noMoonOnly.Count > 0)
                     panelCandidates = noMoonOnly;
+            }
+
+            // Mosaic rotation target: when leaving the current panel, go to the panel that
+            // has waited longest tonight (never-visited first; ties keep panel order). Without
+            // this a 3-panel mosaic alternated P1/P2 and never reached P3. Mirrors desktop.
+            if (isMultiPanel && activePanel != null && (forceOffCurrentPanel || shouldRotatePanel)) {
+                var otherLabels = panelCandidates.Where(c => c.PanelLabel != activePanel)
+                    .Select(c => c.PanelLabel).Distinct().ToList();
+                if (otherLabels.Count > 1 && panelCandidates.All(c => c.PanelLabel != activePanel)) {
+                    long PanelWaited(string pl) => state.PanelLastShotSeq.TryGetValue((target, pl), out var q) ? q : -1;
+                    string lruPanel = otherLabels.OrderBy(PanelWaited).First();
+                    panelCandidates = panelCandidates.Where(c => c.PanelLabel == lruPanel).ToList();
+                }
             }
 
             // Urgency sort: filters with the least remaining safe time run first.
