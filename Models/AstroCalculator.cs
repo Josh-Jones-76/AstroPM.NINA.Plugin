@@ -5,6 +5,9 @@ namespace AstroPM.NINA.Plugin.Models {
     public class ObservingConstraints {
         public double SunAltitudeThreshold { get; set; } = -18.0;
         public double MinTargetAltitude { get; set; } = 30.0;
+        /// <summary>Max target altitude (pier/zenith safety limit). 90 = off.</summary>
+        public double MaxTargetAltitude { get; set; } = 90.0;
+        public bool HasMaxAltitude => MaxTargetAltitude < 90.0 - 1e-9;
         public bool MoonAvoidanceEnabled { get; set; }
         public double MaxMoonIlluminationPct { get; set; } = 40.0;
         public double MinMoonSeparationDeg { get; set; } = 60.0;

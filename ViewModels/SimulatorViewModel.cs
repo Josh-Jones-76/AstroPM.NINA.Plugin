@@ -1490,6 +1490,17 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 DetailColor = DimBrush,
             });
 
+            // Max altitude (pier/zenith safety limit) — only shown when a limit is set.
+            if (c.HasMaxAltitude) {
+                bool maxPass = alt <= c.MaxTargetAltitude;
+                checks.Add(new ConstraintCheckModel {
+                    Icon = maxPass ? "✓" : "✗", IconColor = maxPass ? PassBrush : FailBrush,
+                    Label = "Max Altitude",
+                    Detail = $"{alt:F0}° {(maxPass ? "≤" : ">")} {c.MaxTargetAltitude:F0}° max",
+                    DetailColor = DimBrush,
+                });
+            }
+
             // Custom horizon (.hrz from the NINA profile) — at this slot's azimuth.
             // Same obstruction math the engine uses for SlotUsable.
             if (_customHorizon != null) {

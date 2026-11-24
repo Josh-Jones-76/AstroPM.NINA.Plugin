@@ -2563,6 +2563,10 @@ namespace AstroPM.NINA.Plugin.Models {
 
             DateTime currentUtc = nightStart;
             TargetProfile currentTarget = null;
+            // Max-altitude split window: after an idle gap (target above its max altitude) the
+            // same target is re-slewed so ParseBlocks opens a fresh block (it ends a block at a
+            // Wait) and the runtime re-acquires it with tracking back on. Mirrors desktop.
+            bool forceReslew = false;
             string currentFilter = null;
             string currentPanel = null;
             int subsSinceDither = 0;
@@ -2608,6 +2612,9 @@ namespace AstroPM.NINA.Plugin.Models {
                             SlotIndex = s,
                             UtcTime = waitStart,
                         });
+                        if (currentTarget != null && currentTarget == matrix.Rows[rowIdx].Profile
+                            && currentTarget.Constraints != null && currentTarget.Constraints.HasMaxAltitude)
+                            forceReslew = true;
                     }
                 }
                 lastAssignedRow = rowIdx;
@@ -2785,7 +2792,8 @@ namespace AstroPM.NINA.Plugin.Models {
                     if (EngineExperiments.LegacyFilterCycleReset) state.FilterCycle.Remove(prof);
                 }
 
-                if (currentTarget != prof) {
+                if (currentTarget != prof || forceReslew) {
+                    forceReslew = false;
                     EmitDarkness(log, matrix, tz, s, ref emittedDarkStart, ref emittedDarkEnd);
 
                     var slewPnl = prof.PanelIndex.HasValue

@@ -127,6 +127,9 @@ namespace AstroPM.NINA.Plugin.Models {
                 _ => -18.0,
             };
             c.MinTargetAltitude = Constraints.MinTargetAltitude;
+            // Missing key (older desktop / cloud row) deserializes to the 90 default = off.
+            double mx = Constraints.MaxTargetAltitude;
+            c.MaxTargetAltitude = !double.IsNaN(mx) && mx > 0 && mx < 90 ? mx : 90.0;
             c.MinTimeOnTargetHrs = Constraints.MinTimeOnTargetHrs;
             c.MoonAvoidanceEnabled = Constraints.MoonAvoidanceEnabled;
             c.MinMoonSeparationDeg = Constraints.MoonSeparationDeg;
@@ -259,6 +262,10 @@ namespace AstroPM.NINA.Plugin.Models {
 
         [JsonProperty("min_target_altitude")]
         public double MinTargetAltitude { get; set; } = 30.0;
+
+        /// <summary>Pier/zenith safety limit; 90 (the default when the key is missing) = off.</summary>
+        [JsonProperty("max_target_altitude")]
+        public double MaxTargetAltitude { get; set; } = 90.0;
 
         [JsonProperty("min_time_on_target_hrs")]
         public double MinTimeOnTargetHrs { get; set; } = 1.0;

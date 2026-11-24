@@ -148,6 +148,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
         private readonly IProfileService _profileService;
         private readonly ITelescopeMediator _telescopeMediator;
+        // Max-altitude safety guard: the block whose target the mount is pointed at, and whether
+        // the guard turned tracking off (re-enabled before the next slew).
+        private TargetBlock _mountTargetBlock;
+        private bool _trackingStoppedForMaxAlt;
         private readonly IFilterWheelMediator _filterWheelMediator;
         private readonly IImagingMediator _imagingMediator;
         private readonly ICameraMediator _cameraMediator;
@@ -1343,6 +1347,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         Status = $"Astro PM: Waiting {waitSec / 60.0:F0} min for {block.TargetName}..."
                     });
                     UpdateLiveStatus("Wait", block);
+                    GuardIdleMountMaxAltitude(latDeg, lonDeg);
                     await Task.Delay(TimeSpan.FromSeconds(Math.Min(waitSec, 10)), token);
                 }
 
@@ -1370,8 +1375,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         $"AstroPM | {block.TargetName} fails constraints ({gateDetail}) and won't clear before block end {block.UtcEnd:HH:mm} UTC — not waiting");
                 } else {
                     CheckViabilityAt(block, DateTime.UtcNow, latDeg, lonDeg, customHorizon, out bool altOk, out bool darkOk, out _);
-                    string waitingFor = !altOk && !darkOk ? $"{block.TargetName} to rise above min alt and the sun to set"
-                                      : !altOk ? $"{block.TargetName} to rise above min alt"
+                    bool aboveMax = ExceedsMaxAltitude(block, DateTime.UtcNow, 0, latDeg, lonDeg, out _, out _);
+                    string altWait = aboveMax ? "descend below max alt" : "rise above min alt";
+                    string waitingFor = !altOk && !darkOk ? $"{block.TargetName} to {altWait} and the sun to set"
+                                      : !altOk ? $"{block.TargetName} to {altWait}"
                                       : "the sun to set below the darkness threshold";
                     global::NINA.Core.Utility.Logger.Info(
                         $"AstroPM | Waiting for {waitingFor} ({gateDetail}) — projected clear at {clearAt:HH:mm} UTC, block ends {block.UtcEnd:HH:mm} UTC; re-checking every 30s");
@@ -1389,6 +1396,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                                 : $"Astro PM: Waiting for {waitingFor}..."
                         });
                         UpdateLiveStatus("Wait", block);
+                        GuardIdleMountMaxAltitude(latDeg, lonDeg);
                         // Poll in short slices so Skip Block / Skip Wait respond promptly; the
                         // constraint itself is re-evaluated every ~30 s.
                         for (int i = 0; i < 6 && !_skipWait && !_skipBlock; i++)
@@ -1455,6 +1463,8 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
             for (int attempt = 1; attempt <= maxSlewRetries; attempt++) {
                 try {
+                    EnsureTrackingForSlew();
+                    _mountTargetBlock = block;
                     var slewItem = new AstroPMSlewCenterItem(block,
                         _profileService, _telescopeMediator, _imagingMediator, _rotatorMediator,
                         _filterWheelMediator, _guiderMediator, _domeMediator, _domeFollower,
@@ -1634,6 +1644,14 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 var entry = actionEntries[targetIndex];
                 var (filterName, exposureSec, gain, offset, binX, binY, readoutMode) = ParseExposureEntry(entry);
 
+                // Max-altitude safety guard (pier/zenith collision): never start a sub that would
+                // carry the target above the project's max altitude. Not bypassed by Skip Wait —
+                // it's a hardware limit, not a planning preference. +60 s covers download/settle.
+                if (ExceedsMaxAltitude(block, DateTime.UtcNow, exposureSec + 60, latDeg, lonDeg, out double mxPeak, out double mxLimit)) {
+                    StopTrackingForMaxAltitude(block, mxPeak, mxLimit, "before next sub");
+                    break;
+                }
+
                 if (!filterImageCount.ContainsKey(filterName))
                     filterImageCount[filterName] = 0;
                 int filterSub = filterImageCount[filterName] + 1;
@@ -1708,6 +1726,10 @@ namespace AstroPM.NINA.Plugin.Instructions {
 
                 // Triggers (autofocus, flip, recenter) can take minutes — re-check before exposing.
                 if (!StillViable("after pre-triggers")) break;
+                if (ExceedsMaxAltitude(block, DateTime.UtcNow, exposureSec + 60, latDeg, lonDeg, out double mxPeak2, out double mxLimit2)) {
+                    StopTrackingForMaxAltitude(block, mxPeak2, mxLimit2, "after pre-triggers");
+                    break;
+                }
 
                 // Take the exposure
                 await exposureItem.Execute(progress, token);
@@ -1910,8 +1932,71 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 altitudeOk = altitude >= hrzAlt;
                 horizonNote = $", horizon {hrzAlt:F1}° @ az {az:F0}°";
             }
-            detail = $"alt={altitude:F1}° (min {c.MinTargetAltitude}°{horizonNote}), sun={sunAlt:F1}° (max {c.SunAltitudeThreshold}°)";
+            // Max altitude (pier/zenith safety limit): above it is as unusable as below min.
+            string maxNote = "";
+            if (c.HasMaxAltitude) {
+                if (altitude > c.MaxTargetAltitude) altitudeOk = false;
+                maxNote = $", max {c.MaxTargetAltitude}°";
+            }
+            detail = $"alt={altitude:F1}° (min {c.MinTargetAltitude}°{maxNote}{horizonNote}), sun={sunAlt:F1}° (max {c.SunAltitudeThreshold}°)";
             return altitudeOk && darkOk;
+        }
+
+        /// <summary>
+        /// Max-altitude (pier/zenith collision) safety test: true when the block's target is, or
+        /// will be at any point in the next <paramref name="lookaheadSec"/> seconds, above its
+        /// project's max altitude. Sampled every 30 s so a short exposure straddling transit is
+        /// caught too. Always false when the project has no limit (90° = off).
+        /// </summary>
+        internal static bool ExceedsMaxAltitude(TargetBlock block, DateTime utc, double lookaheadSec,
+                double latDeg, double lonDeg, out double peakAlt, out double maxAlt) {
+            peakAlt = 0; maxAlt = 90;
+            var c = block?.Profile?.Constraints;
+            if (c == null || !c.HasMaxAltitude) return false;
+            maxAlt = c.MaxTargetAltitude;
+            double span = Math.Max(0, lookaheadSec);
+            for (double t = 0; ; t += 30) {
+                double tt = Math.Min(t, span);
+                double alt = AstroCalculator.TargetAltitudeAtTime(utc.AddSeconds(tt), block.RaHours, block.DecDegrees, latDeg, lonDeg);
+                if (alt > peakAlt) peakAlt = alt;
+                if (tt >= span) break;
+            }
+            return peakAlt > maxAlt;
+        }
+
+        /// <summary>Stop mount tracking so a target above its max altitude isn't followed into the
+        /// pier. Tracking is turned back on before the next slew (see EnsureTrackingForSlew).</summary>
+        private void StopTrackingForMaxAltitude(TargetBlock block, double peakAlt, double maxAlt, string when) {
+            global::NINA.Core.Utility.Logger.Warning(
+                $"AstroPM | MAX ALTITUDE: {block.TargetName} reaches {peakAlt:F1}° (limit {maxAlt:F0}°) {when} — ending block and stopping tracking");
+            if (_trackingStoppedForMaxAlt) return;
+            try {
+                _telescopeMediator?.SetTrackingEnabled(false);
+                _trackingStoppedForMaxAlt = true;
+                Notification.ShowWarning($"Astro PM: {block.TargetName} reached its max altitude ({maxAlt:F0}°) — tracking stopped");
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Error($"AstroPM | MAX ALTITUDE: could not stop tracking: {ex.Message}");
+            }
+        }
+
+        /// <summary>Re-enable tracking before a slew if the max-altitude guard turned it off.</summary>
+        private void EnsureTrackingForSlew() {
+            if (!_trackingStoppedForMaxAlt) return;
+            try {
+                _telescopeMediator?.SetTrackingEnabled(true);
+                global::NINA.Core.Utility.Logger.Info("AstroPM | Tracking re-enabled for the next slew (was stopped by the max-altitude guard)");
+            } catch (Exception ex) {
+                global::NINA.Core.Utility.Logger.Warning($"AstroPM | Could not re-enable tracking before slew: {ex.Message}");
+            }
+            _trackingStoppedForMaxAlt = false;
+        }
+
+        /// <summary>Between blocks the mount keeps tracking the last block's target. If that target
+        /// has a max altitude and is about to exceed it while we wait, stop tracking.</summary>
+        private void GuardIdleMountMaxAltitude(double latDeg, double lonDeg) {
+            if (_mountTargetBlock == null || _trackingStoppedForMaxAlt) return;
+            if (ExceedsMaxAltitude(_mountTargetBlock, DateTime.UtcNow, 60, latDeg, lonDeg, out double peak, out double max))
+                StopTrackingForMaxAltitude(_mountTargetBlock, peak, max, "while waiting for the next block");
         }
 
         private static readonly TimeSpan MinRiseWaitRemaining = TimeSpan.FromMinutes(2);

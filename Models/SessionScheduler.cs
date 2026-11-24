@@ -265,7 +265,16 @@ namespace AstroPM.NINA.Plugin.Models {
                             slot.UtcStart, target.RaHours, target.DecDegrees, latDeg, lonDeg);
                         aboveMinAlt = altitudes[i] >= customHorizon.AltitudeAt(az);
                     }
-                    usable[i] = isDark && aboveMinAlt;
+                    // Max altitude (pier/zenith safety): blocked when above the limit at the
+                    // slot's start OR end — mirrors desktop SimulatorPanel.AboveMaxAltitude. A
+                    // limit below the peak splits the window in two around transit.
+                    bool belowMaxAlt = true;
+                    if (constraints.HasMaxAltitude) {
+                        belowMaxAlt = altitudes[i] <= constraints.MaxTargetAltitude
+                            && AstroCalculator.TargetAltitudeAtTime(slot.UtcStart.AddMinutes(5),
+                                   target.RaHours, target.DecDegrees, latDeg, lonDeg) <= constraints.MaxTargetAltitude;
+                    }
+                    usable[i] = isDark && aboveMinAlt && belowMaxAlt;
 
                     if (usable[i]) {
                         if (windowStart < 0) windowStart = i;
