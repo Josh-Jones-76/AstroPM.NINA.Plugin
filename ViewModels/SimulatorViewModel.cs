@@ -1486,7 +1486,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             checks.Add(new ConstraintCheckModel {
                 Icon = altPass ? "✓" : "✗", IconColor = altPass ? PassBrush : FailBrush,
                 Label = "Altitude",
-                Detail = $"Peak {alt:F0}° {(altPass ? "≥" : "<")} {c.MinTargetAltitude:F0}° min",
+                Detail = $"{alt:F0}° {(altPass ? "≥" : "<")} {c.MinTargetAltitude:F0}° min",
                 DetailColor = DimBrush,
             });
 
@@ -1552,18 +1552,24 @@ namespace AstroPM.NINA.Plugin.ViewModels {
                 DetailColor = DimBrush,
             });
 
-            bool hasLunar = prof.Target.Panels.SelectMany(p => p.ExposureSets).Any(es => es.HasMoonAvoidance && es.Remaining > 0);
+            // Per-filter, same test the filter pills use (and the desktop's card): how
+            // many lunar-avoid filters pass their own moon profile at this slot?
+            var lunarEs = prof.Target.Panels.SelectMany(p => p.ExposureSets)
+                .Where(es => es.HasMoonAvoidance && es.Remaining > 0).ToList();
             bool moonDown = slot.MoonAltDeg <= 0;
             bool moonPass;
             string moonDetail;
-            if (!hasLunar) {
+            if (lunarEs.Count == 0) {
                 moonPass = true;
                 moonDetail = "No lunar-avoid filters";
             } else {
-                moonPass = moonDown || prof.SlotMoonOk[slotIdx];
-                moonDetail = moonPass
+                int safeCount = lunarEs.Count(es => SessionScheduler.IsExposureSetMoonSafe(es, slot, moonSep, c));
+                moonPass = safeCount > 0;
+                moonDetail = safeCount == lunarEs.Count
                     ? $"{(moonDown ? "Moon down" : "Safe")}, sep {moonSep:F0}°"
-                    : $"Moon up, sep {moonSep:F0}°";
+                    : safeCount > 0
+                        ? $"{safeCount}/{lunarEs.Count} filters safe, sep {moonSep:F0}°"
+                        : $"Unsafe for all filters, sep {moonSep:F0}°";
             }
             checks.Add(new ConstraintCheckModel {
                 Icon = moonPass ? "✓" : "✗", IconColor = moonPass ? PassBrush : FailBrush,
