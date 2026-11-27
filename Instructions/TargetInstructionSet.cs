@@ -1577,6 +1577,18 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 return false;
             }
 
+            // Exoplanet transit runs never autofocus mid-run: a focus run punches a multi-minute
+            // gap in the photometric time series and changes the star's PSF (same reasoning as
+            // no dither / no filter switch). The "After Slew/Center On Target" instructions
+            // above have already fired, so an autofocus dropped there still runs once up front.
+            // Switchable: "No autofocus during exoplanet transits" (simulator panel / desktop).
+            bool exoTransitBlock = block.Profile?.FixedWindowStartUtc.HasValue == true
+                && AstroPMSettings.Load().ExoSkipAutofocus;
+            if (exoTransitBlock) {
+                global::NINA.Core.Utility.Logger.Info(
+                    $"AstroPM | Block {block.TargetName}: exoplanet transit — autofocus triggers suppressed for this block");
+            }
+
             while (DateTime.UtcNow < block.UtcEnd && !_skipBlock) {
                 token.ThrowIfCancellationRequested();
                 if (!StillViable("before next sub")) break;
@@ -1716,7 +1728,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                         global::NINA.Core.Utility.Logger.Info(
                             $"AstroPM | Running pre-triggers: {block.TargetName} {filterName} #{targetIndex + 1}");
                         for (var c = parentContainer; c != null; c = c.Parent as SequenceContainer) {
-                            await c.RunTriggers(previousExposure ?? this, exposureItem, progress, token);
+                            await RunContainerTriggers(c, false, exoTransitBlock, previousExposure ?? this, exposureItem, progress, token);
                         }
                     } catch (Exception ex) {
                         global::NINA.Core.Utility.Logger.Warning(
@@ -1738,7 +1750,7 @@ namespace AstroPM.NINA.Plugin.Instructions {
                 if (parentContainer != null) {
                     try {
                         for (var c = parentContainer; c != null; c = c.Parent as SequenceContainer) {
-                            await c.RunTriggersAfter(exposureItem, this, progress, token);
+                            await RunContainerTriggers(c, true, exoTransitBlock, exposureItem, this, progress, token);
                         }
                     } catch (Exception ex) {
                         global::NINA.Core.Utility.Logger.Warning(
@@ -1772,6 +1784,61 @@ namespace AstroPM.NINA.Plugin.Instructions {
             }
 
             _currentBlockIndex++;
+        }
+
+        /// <summary>True for NINA's autofocus triggers (After Exposures / Filter Change / HFR
+        /// Increase / Temperature Change / Time) and any plugin trigger named like one.</summary>
+        private static bool IsAutofocusTrigger(global::NINA.Sequencer.Trigger.ISequenceTrigger trigger) {
+            var type = trigger.GetType();
+            return type.Namespace == "NINA.Sequencer.Trigger.Autofocus"
+                || type.Name.IndexOf("Autofocus", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>Runs one container's triggers around an exposure. Normal blocks go straight
+        /// to NINA's own RunTriggers / RunTriggersAfter. Exoplanet transit blocks walk the
+        /// triggers the same way NINA does but leave the autofocus ones out — they are not even
+        /// evaluated, so their counters and baselines carry on untouched for the next target.</summary>
+        private async Task RunContainerTriggers(SequenceContainer container, bool after, bool skipAutofocus,
+            ISequenceItem previousItem, ISequenceItem nextItem, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            if (!skipAutofocus) {
+                if (after) await container.RunTriggersAfter(previousItem, nextItem, progress, token);
+                else await container.RunTriggers(previousItem, nextItem, progress, token);
+                return;
+            }
+
+            foreach (var trigger in container.GetTriggersSnapshot()) {
+                if (trigger.Status == global::NINA.Core.Enum.SequenceEntityStatus.DISABLED) continue;
+                if (IsAutofocusTrigger(trigger)) continue;
+                try {
+                    bool fire = after
+                        ? trigger.ShouldTriggerAfter(previousItem, nextItem)
+                        : trigger.ShouldTrigger(previousItem, nextItem);
+                    if (fire) {
+                        var context = nextItem?.Parent ?? previousItem?.Parent ?? container;
+
+                        // NINA's meridian flip reads the profile's "Autofocus after flip" when it
+                        // builds its steps. Turn it off only while a flip trigger is actually
+                        // running, then put the user's setting straight back.
+                        var flipSettings = _profileService?.ActiveProfile?.MeridianFlipSettings;
+                        bool restoreFlipAf = flipSettings != null && flipSettings.AutoFocusAfterFlip
+                            && trigger.GetType().Name.IndexOf("MeridianFlip", StringComparison.OrdinalIgnoreCase) >= 0;
+                        if (restoreFlipAf) {
+                            flipSettings.AutoFocusAfterFlip = false;
+                            global::NINA.Core.Utility.Logger.Info(
+                                "AstroPM | Exoplanet transit — autofocus after meridian flip suppressed for this flip");
+                        }
+                        try {
+                            await trigger.Run(context, progress, token);
+                        } finally {
+                            if (restoreFlipAf) flipSettings.AutoFocusAfterFlip = true;
+                        }
+                    }
+                } catch (OperationCanceledException) {
+                    throw;
+                } catch (Exception ex) {
+                    global::NINA.Core.Utility.Logger.Error(ex);
+                }
+            }
         }
 
         private void FinishBlock(TargetBlock block, bool skipped) {

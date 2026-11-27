@@ -464,6 +464,7 @@ namespace AstroPM.NINA.Plugin.ViewModels
                 _settings.FilterSwitchEnabled = s.FilterSwitchEnabled;
                 _settings.FilterSwitchCount = s.FilterSwitchCount;
                 _settings.FilterSwitchTolerance = s.FilterSwitchTolerance;
+                _settings.ExoSkipAutofocus = s.ExoSkipAutofocus;
                 _settings.Save();
             }
 

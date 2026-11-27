@@ -21,6 +21,7 @@ namespace AstroPM.NINA.Plugin
         private int _ditherEvery = 3;
         private bool _ditherPerFilter;
         private bool _filterSwitchEnabled = true;
+        private bool _exoSkipAutofocus = true;
         private int _filterSwitchCount = 20;
         private bool _bonusEnabled = true;
         private int _overshootPercent = 0;
@@ -134,6 +135,15 @@ namespace AstroPM.NINA.Plugin
         {
             get => _filterSwitchEnabled;
             set { if (_filterSwitchEnabled != value) { _filterSwitchEnabled = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Exoplanet transit blocks skip every autofocus trigger (and autofocus after a
+        /// meridian flip) so the photometric time series has no focus gaps. The "After
+        /// Slew/Center On Target" instructions still run, so an autofocus there fires once.</summary>
+        public bool ExoSkipAutofocus
+        {
+            get => _exoSkipAutofocus;
+            set { if (_exoSkipAutofocus != value) { _exoSkipAutofocus = value; OnPropertyChanged(); } }
         }
 
         public int FilterSwitchCount

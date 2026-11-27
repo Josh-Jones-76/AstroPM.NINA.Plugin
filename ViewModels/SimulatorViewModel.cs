@@ -52,6 +52,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         private int _ditherEvery;
         private bool _ditherPerFilter;
         private bool _filterSwitchEnabled;
+        private bool _exoSkipAutofocus = true;
         private int _filterSwitchCount;
         private bool _bonusImagesEnabled;
         private bool _mosaicPanelPreference;
@@ -164,6 +165,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _ditherEvery = settings.DitherEvery;
             _ditherPerFilter = settings.DitherPerFilter;
             _filterSwitchEnabled = settings.FilterSwitchEnabled;
+            _exoSkipAutofocus = settings.ExoSkipAutofocus;
             _filterSwitchCount = settings.FilterSwitchCount;
             _filterSwitchTolerance = settings.FilterSwitchTolerance;
             _overshootPercent = settings.OvershootPercent;
@@ -439,6 +441,13 @@ namespace AstroPM.NINA.Plugin.ViewModels {
         public bool DitherPerFilter {
             get => _ditherPerFilter;
             set { _ditherPerFilter = value; OnPropertyChanged(); SaveSimSettings(); }
+        }
+
+        /// <summary>Exoplanet transit runs skip autofocus triggers (execution-only; the
+        /// simulation is unchanged).</summary>
+        public bool ExoSkipAutofocus {
+            get => _exoSkipAutofocus;
+            set { _exoSkipAutofocus = value; OnPropertyChanged(); SaveSimSettings(); }
         }
 
         public bool FilterSwitchEnabled {
@@ -1065,6 +1074,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             _ditherEvery = settings.DitherEvery; OnPropertyChanged(nameof(DitherEvery));
             _ditherPerFilter = settings.DitherPerFilter; OnPropertyChanged(nameof(DitherPerFilter));
             _filterSwitchEnabled = settings.FilterSwitchEnabled; OnPropertyChanged(nameof(FilterSwitchEnabled));
+            _exoSkipAutofocus = settings.ExoSkipAutofocus; OnPropertyChanged(nameof(ExoSkipAutofocus));
             _filterSwitchCount = settings.FilterSwitchCount; OnPropertyChanged(nameof(FilterSwitchCount));
             _filterSwitchTolerance = settings.FilterSwitchTolerance; OnPropertyChanged(nameof(FilterSwitchTolerance));
             _overshootPercent = settings.OvershootPercent; OnPropertyChanged(nameof(OvershootPercent));
@@ -1096,6 +1106,7 @@ namespace AstroPM.NINA.Plugin.ViewModels {
             settings.DitherEvery = _ditherEvery;
             settings.DitherPerFilter = _ditherPerFilter;
             settings.FilterSwitchEnabled = _filterSwitchEnabled;
+            settings.ExoSkipAutofocus = _exoSkipAutofocus;
             settings.FilterSwitchCount = _filterSwitchCount;
             settings.FilterSwitchTolerance = _filterSwitchTolerance;
             settings.FlatsEnabled = _flatsEnabled;

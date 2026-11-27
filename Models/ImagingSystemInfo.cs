@@ -53,6 +53,8 @@ namespace AstroPM.NINA.Plugin.Models
         [JsonProperty("FilterSwitchEnabled")] public bool FilterSwitchEnabled { get; set; } = true;
         [JsonProperty("FilterSwitchCount")] public int FilterSwitchCount { get; set; } = 20;
         [JsonProperty("FilterSwitchTolerance")] public double FilterSwitchTolerance { get; set; } = 0.5;
+        // Exoplanet transit runs skip autofocus triggers. Older desktops don't send it → on.
+        [JsonProperty("ExoSkipAutofocus")] public bool ExoSkipAutofocus { get; set; } = true;
         [JsonProperty("FlatsEnabled")] public bool FlatsEnabled { get; set; } = false;
         [JsonProperty("FlatsFullSet")] public bool FlatsFullSet { get; set; } = false;
         // Copy a shared flat capture into every other target's folder. Older desktops don't

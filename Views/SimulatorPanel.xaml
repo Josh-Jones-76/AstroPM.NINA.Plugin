@@ -155,6 +155,15 @@
 
                     <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
 
+                    <!-- Exoplanet transits: no autofocus mid-run (execution-only) -->
+                    <CheckBox IsChecked="{Binding ExoSkipAutofocus, Mode=TwoWay}"
+                              VerticalAlignment="Center"
+                              ToolTip="During an exoplanet transit run, skip every autofocus trigger (after exposures, filter change, HFR, temperature, time) and autofocus after a meridian flip, so the light curve has no focus gaps. An autofocus placed in After Slew/Center On Target Instructions still runs once before the run starts."/>
+                    <TextBlock Text="No autofocus during exoplanet transits" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
+                               VerticalAlignment="Center" Margin="6,0,0,0"/>
+
+                    <Border Width="1" Background="{DynamicResource BorderBrush}" Margin="16,2,16,2" VerticalAlignment="Stretch"/>
+
                     <!-- Flats sequence (execution-only pass-through) -->
                     <TextBlock Text="Enable Flats Sequence" FontSize="11" Foreground="{DynamicResource PrimaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -528,6 +537,13 @@
                                                        Foreground="#E53935" Margin="12,0,4,0"/>
                                             <TextBlock Text="Filter switching off" FontSize="10"
                                                        Foreground="White"/>
+                                            <StackPanel Orientation="Horizontal"
+                                                        Visibility="{Binding DataContext.ExoSkipAutofocus, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock Text="✕" FontSize="10" FontWeight="Bold"
+                                                           Foreground="#E53935" Margin="12,0,4,0"/>
+                                                <TextBlock Text="Autofocus off" FontSize="10"
+                                                           Foreground="White"/>
+                                            </StackPanel>
                                         </StackPanel>
                                         <TextBlock Text="Scientific / exoplanet projects have highest priority — the transit window is reserved ahead of regular active projects."
                                                    FontSize="9" FontStyle="Italic" Foreground="White"
